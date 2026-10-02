@@ -43,6 +43,8 @@ func main() {
 		err = runUsers(os.Args[2:])
 	} else if len(os.Args) > 1 && os.Args[1] == "intel" {
 		err = runIntel(os.Args[2:])
+	} else if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		err = runHealthcheck(os.Args[2:])
 	} else {
 		err = run()
 	}
@@ -69,6 +71,9 @@ func run() error {
 	syslogTCP := flag.String("syslog-tcp", "", "syslog TCP listen address, e.g. :514 (off when empty)")
 	syslogTLS := flag.String("syslog-tls", "", "syslog over TLS listen address, e.g. :6514 (off when empty)")
 	syslogAllow := flag.String("syslog-allow", "", "comma-separated networks allowed to send syslog (default: loopback and private ranges)")
+	if err := flagsFromEnv(flag.CommandLine); err != nil {
+		return err
+	}
 	flag.Parse()
 
 	allow, err := parsePrefixes(*syslogAllow)
@@ -441,6 +446,56 @@ func runUsers(args []string) error {
 		}
 	default:
 		return fmt.Errorf("unknown users command %q (want create, list, passwd or delete)", cmd)
+	}
+	return nil
+}
+
+// flagsFromEnv sets each flag from SIEMLITE_<NAME> (e.g. -geoip-city from
+// SIEMLITE_GEOIP_CITY) when that variable is non-empty, so containers can be
+// configured with an env file. Flags on the command line still win.
+// -intel-feed takes several feeds separated by spaces or newlines.
+func flagsFromEnv(fs *flag.FlagSet) error {
+	var err error
+	fs.VisitAll(func(f *flag.Flag) {
+		env := "SIEMLITE_" + strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
+		v := strings.TrimSpace(os.Getenv(env))
+		if v == "" || err != nil {
+			return
+		}
+		values := []string{v}
+		if _, repeatable := f.Value.(*feedFlag); repeatable {
+			values = strings.Fields(v)
+		}
+		for _, one := range values {
+			if e := f.Value.Set(one); e != nil {
+				err = fmt.Errorf("%s: %w", env, e)
+				return
+			}
+		}
+	})
+	return err
+}
+
+// runHealthcheck implements `siemlite healthcheck`, for container health
+// checks where no curl is available. It exits non-zero unless /health
+// answers 200. The certificate is not verified: this only checks liveness.
+func runHealthcheck(args []string) error {
+	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	url := fs.String("url", "https://127.0.0.1:8443/health", "health endpoint")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	client := &http.Client{
+		Timeout:   3 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
+	resp, err := client.Get(*url)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health: %s", resp.Status)
 	}
 	return nil
 }
