@@ -55,6 +55,15 @@
   #login h2 { margin-top: 0; }
   #login input { width: 100%; }
   .empty { color: var(--muted); text-align: center; padding: 30px; }
+  tr.threat td:first-child { box-shadow: inset 3px 0 0 var(--sev5); }
+  .intel { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700;
+           background: var(--sev5); color: #0b0f14; }
+  .cc { color: var(--muted); margin-left: 6px; font-size: 11px; }
+  .check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 8px; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin-bottom: 10px; font-size: 12px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-family: ui-monospace, Menlo, monospace; }
+  .kv dd.hit { color: #f09095; }
 </style>
 </head>
 <body>
@@ -122,6 +131,9 @@
         <label>Source IP <input id="src_ip" size="14"></label>
         <label>Dest IP <input id="dst_ip" size="14"></label>
         <label>User <input id="user" size="14"></label>
+        <label>Source <input id="source_f" size="10" placeholder="e.g. sshd"></label>
+        <label>Country <input id="country" size="4" maxlength="2" placeholder="CN"></label>
+        <label class="check"><input type="checkbox" id="threat"> Threat intel matches only</label>
         <label>Page size
           <select id="limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
         </label>
@@ -254,6 +266,8 @@ async function refreshHealth() {
       el("span", {}, "queue ", el("b", {}, `${h.ingest.queue_depth}/${h.ingest.queue_capacity}`)),
       el("span", {}, "dropped ", el("b", {}, String(h.ingest.dropped))),
     );
+    if (h.intel) box.append(el("span", {}, "indicators ", el("b", {}, String(h.intel.indicators))));
+    if (h.syslog) box.append(el("span", {}, "syslog ", el("b", {}, String(h.syslog.received))));
   } catch {
     box.replaceChildren(el("span", {}, el("i", { className: "dot" }), "backend unreachable"));
   }
@@ -265,10 +279,12 @@ function params() {
   const range = Number($("range").value);
   if (range > 0) p.set("start", String(Date.now() - range));
   for (const [id, key] of [["q", "q"], ["severity", "severity"], ["category", "category"],
-                           ["src_ip", "src_ip"], ["dst_ip", "dst_ip"], ["user", "user"], ["limit", "limit"]]) {
+                           ["src_ip", "src_ip"], ["dst_ip", "dst_ip"], ["user", "user"], ["source_f", "source"],
+                           ["country", "country"], ["limit", "limit"]]) {
     const v = $(id).value.trim();
     if (v !== "") p.set(key, v);
   }
+  if ($("threat").checked) p.set("threat", "true");
   p.set("offset", String(offset));
   return p;
 }
@@ -304,19 +320,49 @@ function renderRow(ev) {
   badge.style.background = `var(${color})`;
 
   const text = eventText(ev);
-  const row = el("tr", { className: "ev" },
+  const msg = el("td", { className: "msg", title: text });
+  if (ev.threat) msg.append(el("span", { className: "intel", textContent: "INTEL" }));
+  msg.append(text);
+  const row = el("tr", { className: "ev" + (ev.threat ? " threat" : "") },
     el("td", { className: "time", textContent: new Date(ev.timestamp).toLocaleString() }),
     el("td", {}, badge),
     el("td", { textContent: CAT[ev.category_uid] || ev.category_uid }),
-    el("td", { className: "ip", textContent: ev.src_ip || "" }),
-    el("td", { className: "ip", textContent: ev.dst_ip || "" }),
+    ipCell(ev.src_ip, ev.src_country),
+    ipCell(ev.dst_ip, ev.dst_country),
     el("td", { textContent: ev.user_name || "" }),
-    el("td", { className: "msg", textContent: text, title: text }),
+    msg,
   );
   const detail = el("tr", { className: "detail hidden" },
-    el("td", { colSpan: 7 }, el("pre", { textContent: prettyRaw(ev.raw_data) })));
+    el("td", { colSpan: 7 }, details(ev), el("pre", { textContent: prettyRaw(ev.raw_data) })));
   row.onclick = () => detail.classList.toggle("hidden");
   return [row, detail];
+}
+
+function ipCell(ip, cc) {
+  const td = el("td", { className: "ip", textContent: ip || "" });
+  if (cc) td.append(el("span", { className: "cc", textContent: cc }));
+  return td;
+}
+
+// details lists the source, host, GeoIP/ASN and threat intel context.
+function details(ev) {
+  const dl = el("dl", { className: "kv" });
+  const add = (k, v, cls) => { if (v) dl.append(el("dt", { textContent: k }), el("dd", { textContent: v, className: cls || "" })); };
+  add("Source", ev.source);
+  add("Host", ev.host);
+  const enr = ev.enrichment || {};
+  for (const [side, ip] of [["src_endpoint", ev.src_ip], ["dst_endpoint", ev.dst_ip]]) {
+    const e = enr[side];
+    if (!e) continue;
+    const loc = e.location ? [e.location.city, e.location.country].filter(Boolean).join(", ") : "";
+    const as = e.autonomous_system ? `AS${e.autonomous_system.number} ${e.autonomous_system.name || ""}`.trim() : "";
+    add(side === "src_endpoint" ? "Source IP" : "Dest IP", [ip, loc, as].filter(Boolean).join("  ·  "));
+  }
+  for (const m of enr.threat_intel || []) {
+    const what = m.matched ? `${m.matched} (in ${m.value})` : m.value;
+    add("Threat intel", `${what} in ${m.field} · ${m.source}${m.description ? " · " + m.description : ""}`, "hit");
+  }
+  return dl.childElementCount ? dl : "";
 }
 
 // Prefer the OCSF "message" when raw_data is an OCSF JSON document.

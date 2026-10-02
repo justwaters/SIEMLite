@@ -32,6 +32,11 @@ type Query struct {
 	SrcIP       string
 	DstIP       string
 	UserName    string
+	Source      string
+	Host        string
+	Country     string // ISO country code of either endpoint
+	ASN         int    // autonomous system number of either endpoint
+	ThreatOnly  bool   // only events that matched threat intel
 
 	// Text is a raw FTS5 expression, e.g. `failed AND "invalid user"`.
 	Text string
@@ -78,6 +83,11 @@ func (e *Engine) Search(ctx context.Context, q Query) (*Result, error) {
 		SrcIP:       q.SrcIP,
 		DstIP:       q.DstIP,
 		UserName:    q.UserName,
+		Source:      q.Source,
+		Host:        q.Host,
+		Country:     strings.ToUpper(strings.TrimSpace(q.Country)),
+		ASN:         q.ASN,
+		ThreatOnly:  q.ThreatOnly,
 		Match:       strings.TrimSpace(q.Text),
 		Limit:       q.Limit,
 		Offset:      q.Offset,

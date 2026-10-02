@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -69,6 +69,39 @@ var schemaStatements = []string{
 		expires_at INTEGER NOT NULL
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+	// Threat intel indicators. version in intel_state is bumped on every
+	// change so a running server notices imports made by the CLI.
+	`CREATE TABLE IF NOT EXISTS indicators (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		type        TEXT NOT NULL CHECK (type IN ('ip', 'cidr', 'domain', 'hash')),
+		value       TEXT NOT NULL,
+		source      TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		added_at    INTEGER NOT NULL,
+		UNIQUE (source, type, value)
+	)`,
+	`CREATE TABLE IF NOT EXISTS intel_state (
+		id      INTEGER PRIMARY KEY CHECK (id = 1),
+		version INTEGER NOT NULL
+	)`,
+	`INSERT OR IGNORE INTO intel_state (id, version) VALUES (1, 0)`,
+}
+
+// upgrades[v] moves a database from user_version v to v+1. ALTER TABLE is
+// not idempotent, so these run once, keyed off PRAGMA user_version.
+var upgrades = map[int][]string{
+	// v4: reporting source/host, GeoIP/ASN and threat intel enrichment.
+	3: {
+		`ALTER TABLE events ADD COLUMN source TEXT`,
+		`ALTER TABLE events ADD COLUMN host TEXT`,
+		`ALTER TABLE events ADD COLUMN src_country TEXT`,
+		`ALTER TABLE events ADD COLUMN dst_country TEXT`,
+		`ALTER TABLE events ADD COLUMN src_asn INTEGER`,
+		`ALTER TABLE events ADD COLUMN dst_asn INTEGER`,
+		`ALTER TABLE events ADD COLUMN threat INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE events ADD COLUMN enrichment TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_events_threat ON events(timestamp DESC) WHERE threat = 1`,
+	},
 }
 
 // migrate applies the schema inside one transaction.
@@ -79,9 +112,22 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
+	var version int
+	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return fmt.Errorf("read user_version: %w", err)
+	}
 	for _, stmt := range schemaStatements {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("apply schema: %w", err)
+		}
+	}
+	// A new database starts at 0 and gets the base tables above, which match
+	// version 3, then every upgrade.
+	for v := max(version, 3); v < schemaVersion; v++ {
+		for _, stmt := range upgrades[v] {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("upgrade schema to v%d: %w", v+1, err)
+			}
 		}
 	}
 	// PRAGMA does not accept bound parameters.

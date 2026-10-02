@@ -16,6 +16,7 @@ import (
 	"siemlite/api"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
+	"siemlite/pkg/intel"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
@@ -217,4 +218,62 @@ func TestPasswordPolicy(t *testing.T) {
 	if _, err := auth.CreateUser(context.Background(), e.repo, "bob", password, "superuser"); err == nil {
 		t.Error("unknown role accepted")
 	}
+}
+
+func TestEnrichmentFilters(t *testing.T) {
+	auth.HashCost = bcrypt.MinCost
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	repo := storage.NewRepository(db)
+	if _, err := repo.AddIndicators(ctx, []storage.Indicator{{Type: "ip", Value: "203.0.113.7", Source: "feodo", Description: "C2"}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	svc := intel.NewService(repo, intel.Config{})
+	if err := svc.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	worker := ingest.New(repo, ingest.Config{FlushInterval: 20 * time.Millisecond, Enricher: svc.Matcher})
+	t.Cleanup(worker.Close)
+	srv := httptest.NewTLSServer(api.NewServer("", api.Deps{
+		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Intel: svc,
+	}).Handler())
+	t.Cleanup(srv.Close)
+	e := &env{t: t, srv: srv, repo: repo}
+	e.user("root", auth.RoleAdmin)
+	c := e.client()
+	e.login(c, "root", password)
+
+	logs := "Oct  2 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2\n" +
+		"Oct  2 11:58:02 web1 sshd[311]: Accepted publickey for deploy from 10.0.0.9 port 22 ssh2\n"
+	expect(t, "add logs", e.do(c, "POST", "/api/v1/logs", logs, nil), 202)
+	if err := worker.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	get := func(q string) search.Result {
+		t.Helper()
+		resp, err := c.Get(srv.URL + "/api/v1/search?" + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var res search.Result
+		json.NewDecoder(resp.Body).Decode(&res)
+		return res
+	}
+	res := get("threat=true")
+	if res.Count != 1 || !res.Events[0].Threat || res.Events[0].Source != "sshd" || res.Events[0].Host != "web1" ||
+		!strings.Contains(string(res.Events[0].Enrichment), `"source":"feodo"`) {
+		t.Errorf("threat search = %+v", res.Events)
+	}
+	if res := get("source=sshd&host=web1"); res.Count != 2 {
+		t.Errorf("source/host search count = %d", res.Count)
+	}
+	expect(t, "bad threat param", e.do(c, "GET", "/api/v1/search?threat=maybe", "", nil), 400)
+	expect(t, "bad asn param", e.do(c, "GET", "/api/v1/search?asn=google", "", nil), 400)
+	expect(t, "asn param", e.do(c, "GET", "/api/v1/search?asn=AS15169", "", nil), 200)
 }

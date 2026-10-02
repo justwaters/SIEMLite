@@ -25,6 +25,7 @@ var (
 	syslogPRI  = regexp.MustCompile(`^<(\d{1,3})>`)
 	syslog5424 = regexp.MustCompile(`^(\d)?\s*(\d{4}-\d{2}-\d{2}T[^\s]+)\s+(\S+)`)
 	syslog3164 = regexp.MustCompile(`^([A-Z][a-z]{2}\s+\d{1,2}\s\d{2}:\d{2}:\d{2})\s+(\S+)`)
+	syslogTag  = regexp.MustCompile(`^([A-Za-z0-9_./-]{1,48})(?:\[\d+\])?:\s`)
 	isoPrefix  = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)`)
 	ipv4       = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	userField  = regexp.MustCompile(`(?i)\b(?:user(?:name)?[=:]\s*|for (?:invalid user )?|user )([A-Za-z0-9_.\-]+)`)
@@ -70,10 +71,13 @@ func ParseLine(line string, d Defaults) *ocsf.Event {
 		sevFromPRI = prioritySeverity(pri % 8)
 		body = body[len(m[0]):]
 	}
-	if t, host, rest, ok := syslogHeader(body, d.Now); ok {
+	if t, host, app, rest, ok := syslogHeader(body, d.Now); ok {
 		ev.Time = t.UnixMilli()
 		if host != "" {
-			ev.SrcEndpoint = &ocsf.Endpoint{Hostname: host}
+			ev.Device = &ocsf.Endpoint{Hostname: host}
+		}
+		if app != "" && ev.Metadata.Product == nil {
+			ev.Metadata.Product = &ocsf.Product{Name: app}
 		}
 		body = rest
 	} else if m := isoPrefix.FindString(body); m != "" {
@@ -90,10 +94,7 @@ func ParseLine(line string, d Defaults) *ocsf.Event {
 		}
 	}
 	if len(valid) > 0 {
-		if ev.SrcEndpoint == nil {
-			ev.SrcEndpoint = &ocsf.Endpoint{}
-		}
-		ev.SrcEndpoint.IP = valid[0]
+		ev.SrcEndpoint = &ocsf.Endpoint{IP: valid[0]}
 	}
 	if len(valid) > 1 {
 		ev.DstEndpoint = &ocsf.Endpoint{IP: valid[1]}
@@ -220,16 +221,24 @@ func keywordSeverity(s string) int {
 	}
 }
 
-// syslogHeader strips an RFC5424 or RFC3164 header, returning the time, host
-// and remaining message.
-func syslogHeader(s string, now time.Time) (t time.Time, host, rest string, ok bool) {
+// syslogHeader strips an RFC5424 or RFC3164 header, returning the time, host,
+// application name (APP-NAME or TAG, when present) and remaining message.
+func syslogHeader(s string, now time.Time) (t time.Time, host, app, rest string, ok bool) {
 	if m := syslog5424.FindStringSubmatch(s); m != nil {
 		if ts, err := time.Parse(time.RFC3339Nano, m[2]); err == nil {
 			host = m[3]
 			if host == "-" {
 				host = ""
 			}
-			return ts, host, strings.TrimSpace(s[len(m[0]):]), true
+			rest = strings.TrimSpace(s[len(m[0]):])
+			// RFC5424: APP-NAME PROCID MSGID ... ("-" when absent). Only
+			// trust it when the version digit says this really is 5424.
+			if m[1] != "" {
+				if first, _, _ := strings.Cut(rest, " "); first != "-" && len(first) <= 48 {
+					app = first
+				}
+			}
+			return ts, host, app, rest, true
 		}
 	}
 	if m := syslog3164.FindStringSubmatch(s); m != nil {
@@ -241,10 +250,14 @@ func syslogHeader(s string, now time.Time) (t time.Time, host, rest string, ok b
 			if ts.After(now.Add(24 * time.Hour)) {
 				ts = ts.AddDate(-1, 0, 0)
 			}
-			return ts, m[2], strings.TrimSpace(s[len(m[0]):]), true
+			rest = strings.TrimSpace(s[len(m[0]):])
+			if tag := syslogTag.FindStringSubmatch(rest); tag != nil {
+				app = tag[1]
+			}
+			return ts, m[2], app, rest, true
 		}
 	}
-	return time.Time{}, "", s, false
+	return time.Time{}, "", "", s, false
 }
 
 func parseISO(s string) (time.Time, bool) {

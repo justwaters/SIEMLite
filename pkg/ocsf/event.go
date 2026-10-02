@@ -38,19 +38,22 @@ const (
 
 // Event is a normalized OCSF event. Time is epoch milliseconds.
 type Event struct {
-	Time        int64          `json:"time"`
-	CategoryUID int            `json:"category_uid"`
-	ClassUID    int            `json:"class_uid"`
-	ActivityID  int            `json:"activity_id"`
-	TypeUID     int            `json:"type_uid,omitempty"`
-	SeverityID  int            `json:"severity_id"`
-	StatusID    int            `json:"status_id,omitempty"`
-	Message     string         `json:"message,omitempty"`
-	Metadata    Metadata       `json:"metadata"`
-	SrcEndpoint *Endpoint      `json:"src_endpoint,omitempty"`
-	DstEndpoint *Endpoint      `json:"dst_endpoint,omitempty"`
-	Actor       *Actor         `json:"actor,omitempty"`
-	Unmapped    map[string]any `json:"unmapped,omitempty"`
+	Time        int64     `json:"time"`
+	CategoryUID int       `json:"category_uid"`
+	ClassUID    int       `json:"class_uid"`
+	ActivityID  int       `json:"activity_id"`
+	TypeUID     int       `json:"type_uid,omitempty"`
+	SeverityID  int       `json:"severity_id"`
+	StatusID    int       `json:"status_id,omitempty"`
+	Message     string    `json:"message,omitempty"`
+	Metadata    Metadata  `json:"metadata"`
+	SrcEndpoint *Endpoint `json:"src_endpoint,omitempty"`
+	DstEndpoint *Endpoint `json:"dst_endpoint,omitempty"`
+	// Device is the host that reported the event (e.g. the syslog sender),
+	// as opposed to the endpoints the event is about.
+	Device   *Endpoint      `json:"device,omitempty"`
+	Actor    *Actor         `json:"actor,omitempty"`
+	Unmapped map[string]any `json:"unmapped,omitempty"`
 	// RawData is the original log line. When empty, Prepare fills it with the
 	// JSON encoding of the event so full-text search still has content.
 	RawData string `json:"raw_data,omitempty"`
@@ -112,6 +115,25 @@ func (e *Event) DstIP() string {
 	return e.DstEndpoint.IP
 }
 
+// ProductName returns the producing product's name or "".
+func (e *Event) ProductName() string {
+	if e.Metadata.Product == nil {
+		return ""
+	}
+	return e.Metadata.Product.Name
+}
+
+// DeviceName returns the reporting device's hostname, else its IP, or "".
+func (e *Event) DeviceName() string {
+	if e.Device == nil {
+		return ""
+	}
+	if e.Device.Hostname != "" {
+		return e.Device.Hostname
+	}
+	return e.Device.IP
+}
+
 // UserName returns the acting user's name or "".
 func (e *Event) UserName() string {
 	if e.Actor == nil || e.Actor.User == nil {
@@ -140,7 +162,13 @@ func (e *Event) Validate() error {
 	if err := validateIP("src_endpoint.ip", e.SrcIP()); err != nil {
 		return err
 	}
-	return validateIP("dst_endpoint.ip", e.DstIP())
+	if err := validateIP("dst_endpoint.ip", e.DstIP()); err != nil {
+		return err
+	}
+	if e.Device != nil {
+		return validateIP("device.ip", e.Device.IP)
+	}
+	return nil
 }
 
 // Prepare normalizes the event (defaults for time, version, type_uid, raw
