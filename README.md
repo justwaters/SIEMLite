@@ -1,6 +1,6 @@
 # SIEMLite
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Open Source](https://img.shields.io/badge/open%20source-OSI%20approved-brightgreen.svg)](https://opensource.org/license/mit)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE) [![Open Source](https://img.shields.io/badge/open%20source-OSI%20approved-brightgreen.svg)](https://opensource.org/license/agpl-v3)
 
 A lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS, normalizes them to the
 [OCSF](https://schema.ocsf.io/) event model, stores them in one SQLite file, and gives you full-text search through
@@ -142,6 +142,11 @@ go test -race ./...
 
 ## License
 
-SIEMLite is free and open-source software, released under the [MIT License](LICENSE), which is approved by the
-[Open Source Initiative](https://opensource.org/license/mit). You may use, modify and redistribute it, including
-commercially, as long as the copyright and license notice are kept.
+SIEMLite is free and open-source software, released under the
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), which is approved by the
+[Open Source Initiative](https://opensource.org/license/agpl-v3).
+
+You may use, modify and redistribute it, including commercially. If you modify SIEMLite and let others interact with
+it over a network (for example, by running it as a service), you must offer those users the complete source code of
+your modified version under the same license. The web UI links to this repository to make that easy; if you fork it,
+point that link (the footer in `web/static/index.html`) at your own source.

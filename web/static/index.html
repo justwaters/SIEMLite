@@ -48,6 +48,8 @@
   .msgbox.err { background: #371a1c; color: #f09095; }
   textarea { width: 100%; min-height: 240px; font: 12px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
   .hidden { display: none; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 8px 0 24px; }
+  footer a { color: var(--muted); }
   #login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 10; }
   #login form { width: 420px; }
   #login h2 { margin-top: 0; }
@@ -161,6 +163,11 @@
     </div>
   </section>
 </main>
+
+<footer>
+  SIEMLite is open source under the AGPL-3.0 &middot;
+  <a href="https://github.com/justwaters/SIEMLite" target="_blank" rel="noopener">Source code</a>
+</footer>
 
 <script>
 const $ = (id) => document.getElementById(id);
