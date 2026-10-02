@@ -21,6 +21,7 @@ import (
 	"siemlite/pkg/intel"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
+	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 	"siemlite/pkg/syslogd"
@@ -43,6 +44,7 @@ type Deps struct {
 	Auth   *auth.Authenticator
 	Intel  *intel.Service  // optional
 	Syslog *syslogd.Server // optional
+	Sample *sample.Manager // optional
 	Logger *slog.Logger
 }
 
@@ -78,6 +80,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/events", a.Require(auth.PermIngest, http.HandlerFunc(s.handleIngest)))
 	mux.Handle("POST /api/v1/logs", a.Require(auth.PermIngest, http.HandlerFunc(s.handleLogs)))
 	mux.Handle("GET /api/v1/search", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSearch)))
+	mux.Handle("GET /api/v1/sample", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSampleStatus)))
+	mux.Handle("POST /api/v1/sample", a.Require(auth.PermIngest, http.HandlerFunc(s.handleSampleSet)))
 	mux.HandleFunc("POST /api/v1/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
@@ -330,6 +334,57 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleSampleStatus(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Sample == nil {
+		writeError(w, http.StatusNotFound, "sample data is not available")
+		return
+	}
+	st, err := s.deps.Sample.Status(r.Context())
+	if err != nil {
+		s.deps.Logger.Error("sample status failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "sample status unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+// handleSampleSet turns sample data on or off. Admin users only: API keys
+// can send logs but not change what is stored.
+func (s *Server) handleSampleSet(w http.ResponseWriter, r *http.Request) {
+	if p := auth.FromContext(r.Context()); p == nil || p.Kind != auth.KindUser {
+		writeError(w, http.StatusForbidden, "only a signed-in admin can change sample data")
+		return
+	}
+	if s.deps.Sample == nil {
+		writeError(w, http.StatusNotFound, "sample data is not available")
+		return
+	}
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || req.Enabled == nil {
+		writeError(w, http.StatusBadRequest, `body must be {"enabled": true} or {"enabled": false}`)
+		return
+	}
+	var (
+		st  sample.Status
+		err error
+	)
+	if *req.Enabled {
+		st, err = s.deps.Sample.Enable(r.Context())
+	} else {
+		st, err = s.deps.Sample.Disable(r.Context())
+	}
+	if err != nil {
+		s.deps.Logger.Error("sample toggle failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not change sample data")
+		return
+	}
+	s.deps.Logger.Info("sample data changed", "enabled", st.Enabled, "events", st.Events,
+		"by", auth.FromContext(r.Context()).Name)
+	writeJSON(w, http.StatusOK, st)
 }
 
 type loginRequest struct {

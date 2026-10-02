@@ -27,6 +27,7 @@ type Record struct {
 	SrcASN     int    `json:"src_asn,omitempty"`
 	DstASN     int    `json:"dst_asn,omitempty"`
 	Threat     bool   `json:"threat,omitempty"` // matched a threat intel indicator
+	Sample     bool   `json:"sample,omitempty"` // demo data from the Sample data switch
 	// Enrichment is the JSON document of GeoIP/ASN and threat intel context.
 	Enrichment json.RawMessage `json:"enrichment,omitempty"`
 }
@@ -62,8 +63,8 @@ func NewRepository(db *DB) *Repository { return &Repository{db: db} }
 
 const insertSQL = `INSERT INTO events
 	(timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, raw_data,
-	 source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	 source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, sample)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertBatch writes all records in a single explicit transaction. The FTS
 // index is maintained by the AFTER INSERT trigger.
@@ -89,7 +90,7 @@ func (r *Repository) InsertBatch(ctx context.Context, recs []Record) error {
 			rec.Timestamp, rec.CategoryUID, rec.ClassUID, rec.SeverityID,
 			nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
 			nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
-			nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)),
+			nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)), rec.Sample,
 		); err != nil {
 			return fmt.Errorf("insert record %d: %w", i, err)
 		}
@@ -117,7 +118,7 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
 		var srcASN, dstASN sql.NullInt64
 		if err := rows.Scan(&rec.ID, &rec.Timestamp, &rec.CategoryUID, &rec.ClassUID,
 			&rec.SeverityID, &src, &dst, &user, &rec.RawData,
-			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment); err != nil {
+			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment, &rec.Sample); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		rec.SrcIP, rec.DstIP, rec.UserName = src.String, dst.String, user.String
@@ -142,7 +143,7 @@ func buildSearch(f Filter) (string, []any) {
 	)
 	sb.WriteString(`SELECT e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
 		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
-		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment FROM `)
+		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment, e.sample FROM `)
 
 	if f.Match != "" {
 		sb.WriteString("events_fts JOIN events e ON e.id = events_fts.rowid")
@@ -211,6 +212,24 @@ func buildSearch(f Filter) (string, []any) {
 	sb.WriteString(" ORDER BY e.timestamp DESC, e.id DESC LIMIT ? OFFSET ?")
 	args = append(args, f.Limit, f.Offset)
 	return sb.String(), args
+}
+
+// DeleteSample removes every sample event and returns how many there were.
+func (r *Repository) DeleteSample(ctx context.Context) (int64, error) {
+	res, err := r.db.Write.ExecContext(ctx, `DELETE FROM events WHERE sample = 1`)
+	if err != nil {
+		return 0, fmt.Errorf("delete sample events: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// CountSample returns the number of sample events.
+func (r *Repository) CountSample(ctx context.Context) (int64, error) {
+	var n int64
+	if err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE sample = 1`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count sample events: %w", err)
+	}
+	return n, nil
 }
 
 // DeleteOlderThan deletes up to limit events with timestamp < cutoffMs and

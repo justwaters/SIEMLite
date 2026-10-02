@@ -90,9 +90,20 @@ func New(sink Sink, cfg Config) *Worker {
 	return w
 }
 
+// SubmitOptions adjust how one event is stored.
+type SubmitOptions struct {
+	Sample   bool            // mark as sample data (never settable through the API)
+	Enricher enrich.Enricher // runs after the configured enricher
+}
+
 // Submit validates ev and queues it, blocking while the queue is full until
 // ctx is done. A *ocsf.ValidationError means the event was rejected.
 func (w *Worker) Submit(ctx context.Context, ev *ocsf.Event) error {
+	return w.SubmitWith(ctx, ev, SubmitOptions{})
+}
+
+// SubmitWith is Submit with options.
+func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOptions) error {
 	if err := ev.Prepare(); err != nil {
 		return err
 	}
@@ -107,10 +118,16 @@ func (w *Worker) Submit(ctx context.Context, ev *ocsf.Event) error {
 		RawData:     ev.RawData,
 		Source:      ev.ProductName(),
 		Host:        ev.DeviceName(),
+		Sample:      opts.Sample,
 	}
-	if w.cfg.Enricher != nil {
+	if w.cfg.Enricher != nil || opts.Enricher != nil {
 		var d enrich.Data
-		w.cfg.Enricher.Enrich(ev, &d)
+		if w.cfg.Enricher != nil {
+			w.cfg.Enricher.Enrich(ev, &d)
+		}
+		if opts.Enricher != nil {
+			opts.Enricher.Enrich(ev, &d)
+		}
 		if !d.Empty() {
 			rec.SrcCountry, rec.DstCountry = d.Src.Country(), d.Dst.Country()
 			rec.SrcASN, rec.DstASN = d.Src.ASN(), d.Dst.ASN()

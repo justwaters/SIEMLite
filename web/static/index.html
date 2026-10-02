@@ -64,6 +64,18 @@
   .kv dt { color: var(--muted); }
   .kv dd { margin: 0; font-family: ui-monospace, Menlo, monospace; }
   .kv dd.hit { color: #f09095; }
+  .sampletag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 700;
+               letter-spacing: .4px; border: 1px solid var(--muted); color: var(--muted); }
+  .switch { white-space: nowrap; display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; cursor: pointer; user-select: none; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch .track { width: 34px; height: 20px; border-radius: 10px; background: var(--line); position: relative; transition: background .15s; }
+  .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
+                          background: var(--text); transition: transform .15s; }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track::after { transform: translateX(14px); background: #06121f; }
+  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .switch.busy { opacity: .5; pointer-events: none; }
+  #sample-pill { color: var(--muted); font-size: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; }
 </style>
 </head>
 <body>
@@ -87,6 +99,10 @@
     <button id="tab-ingest">Add logs</button>
   </nav>
   <div id="stats"></div>
+  <label class="switch hidden" id="sample-switch" title="Load a day of demo events (marked SAMPLE); turning it off deletes only those">
+    <input type="checkbox" id="sample-toggle" role="switch"><span class="track"></span> Sample data
+  </label>
+  <span id="sample-pill" class="hidden" title="An admin has loaded demo events, marked SAMPLE">Sample data on</span>
   <span id="who" style="color:var(--muted);font-size:13px"></span>
   <button class="ghost" id="logout">Sign out</button>
 </header>
@@ -205,8 +221,10 @@ async function api(path, opts = {}) {
   if (res.status === 401) showLogin("Your session has ended. Please sign in again.");
   return res;
 }
+let isAdmin = false;
 function applySession(me) {
   $("who").textContent = `${me.username} (${me.role})`;
+  isAdmin = me.role === "admin";
   // Only admins may add logs from the UI; hide the tab for analysts.
   $("tab-ingest").classList.toggle("hidden", me.role !== "admin");
 }
@@ -308,7 +326,10 @@ async function runSearch() {
 
   const body = $("results");
   if (!data.events.length) {
-    body.replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "empty" }, "No matching events")));
+    const hint = isAdmin && !sampleOn && offset === 0
+      ? "No matching events. To explore SIEMLite before real logs arrive, turn on Sample data at the top right."
+      : "No matching events";
+    body.replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "empty" }, hint)));
     return;
   }
   body.replaceChildren(...data.events.flatMap(renderRow));
@@ -321,6 +342,7 @@ function renderRow(ev) {
 
   const text = eventText(ev);
   const msg = el("td", { className: "msg", title: text });
+  if (ev.sample) msg.append(el("span", { className: "sampletag", textContent: "SAMPLE", title: "Demo event from Sample data" }));
   if (ev.threat) msg.append(el("span", { className: "intel", textContent: "INTEL" }));
   msg.append(text);
   const row = el("tr", { className: "ev" + (ev.threat ? " threat" : "") },
@@ -365,10 +387,13 @@ function details(ev) {
   return dl.childElementCount ? dl : "";
 }
 
-// Prefer the OCSF "message" when raw_data is an OCSF JSON document.
+// Prefer the OCSF "message" when raw_data is an OCSF JSON document. For
+// syslog, drop the header (priority, time, host, app, ids): the host and
+// source have their own fields, and the detail view keeps the raw line.
+const SYSLOG_HEADER = /^<\d{1,3}>(?:\d \S+ \S+ \S+ \S+ \S+ (?:-|\[.*?\])\s?|[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ [^\s:]+: ?)/;
 function eventText(ev) {
   try { const o = JSON.parse(ev.raw_data); if (o && o.message) return o.message; } catch {}
-  return ev.raw_data;
+  return ev.raw_data.replace(SYSLOG_HEADER, "");
 }
 function prettyRaw(raw) {
   try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
@@ -415,8 +440,46 @@ $("send").onclick = async () => {
   }
 };
 
+// Sample data: admins get a switch, everyone else sees whether it is on.
+let sampleOn = false;
+function showSample(st) {
+  sampleOn = !!st.enabled;
+  $("sample-toggle").checked = sampleOn;
+  $("sample-switch").classList.toggle("hidden", !isAdmin);
+  $("sample-pill").classList.toggle("hidden", isAdmin || !sampleOn);
+}
+async function refreshSample() {
+  const res = await api("/api/v1/sample");
+  if (res.ok) showSample(await res.json());
+}
+$("sample-toggle").onchange = async (e) => {
+  const want = e.target.checked;
+  const sw = $("sample-switch");
+  sw.classList.add("busy");
+  try {
+    const res = await api("/api/v1/sample", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: want }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "request failed");
+    showSample(data);
+    // The sample covers the last day; widen a short time range so it shows.
+    if (want && Number($("range").value) > 0 && Number($("range").value) < 86400000) $("range").value = "86400000";
+    offset = 0;
+    runSearch();
+    refreshHealth();
+  } catch (err) {
+    e.target.checked = !want;
+    $("error").textContent = "Could not change sample data: " + err.message;
+    $("error").classList.remove("hidden");
+  } finally {
+    sw.classList.remove("busy");
+  }
+};
+
 let healthTimer;
 function start() {
+  refreshSample();
   refreshHealth();
   clearInterval(healthTimer);
   healthTimer = setInterval(refreshHealth, 5000);
