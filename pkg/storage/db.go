@@ -70,6 +70,7 @@ func dsn(path string, readOnly bool) string {
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", "foreign_keys(1)")
 	if readOnly {
 		q.Add("_pragma", "query_only(1)")
 	}

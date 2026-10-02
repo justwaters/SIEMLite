@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -49,6 +49,26 @@ var schemaStatements = []string{
 		created_at INTEGER NOT NULL,
 		revoked_at INTEGER
 	)`,
+	// API keys are only for applications that send logs. Retire read/admin keys
+	// issued by earlier versions; people sign in with a username and password.
+	`UPDATE api_keys SET revoked_at = CAST(strftime('%s','now') AS INTEGER) * 1000
+		WHERE role <> 'write' AND revoked_at IS NULL`,
+	// Users sign in to the web UI. Only a bcrypt hash of the password is stored.
+	`CREATE TABLE IF NOT EXISTS users (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL CHECK (role IN ('admin', 'analyst')),
+		created_at    INTEGER NOT NULL
+	)`,
+	// Browser sessions; the cookie holds a random token, only its hash is stored.
+	`CREATE TABLE IF NOT EXISTS sessions (
+		token_hash TEXT PRIMARY KEY,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 }
 
 // migrate applies the schema inside one transaction.

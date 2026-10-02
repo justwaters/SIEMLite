@@ -2,8 +2,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -14,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"siemlite/api"
 	"siemlite/pkg/auth"
@@ -28,6 +32,8 @@ func main() {
 	var err error
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		err = runKeys(os.Args[2:])
+	} else if len(os.Args) > 1 && os.Args[1] == "users" {
+		err = runUsers(os.Args[2:])
 	} else {
 		err = run()
 	}
@@ -84,7 +90,7 @@ func run() error {
 		}
 	}
 
-	if err := bootstrapAdminKey(ctx, repo); err != nil {
+	if err := bootstrapAdminUser(ctx, repo); err != nil {
 		return err
 	}
 
@@ -200,26 +206,42 @@ func loadSampleAndSearch(ctx context.Context, worker *ingest.Worker, engine *sea
 	return nil
 }
 
-// bootstrapAdminKey creates a first admin key when none exist, so a fresh
-// install is never open and never locked out. The key is printed once.
-func bootstrapAdminKey(ctx context.Context, repo *storage.Repository) error {
-	n, err := repo.CountActiveKeys(ctx)
+// bootstrapAdminUser creates a first admin account when no users exist, so a
+// fresh install is never open and never locked out. The password is generated
+// and printed once.
+func bootstrapAdminUser(ctx context.Context, repo *storage.Repository) error {
+	n, err := repo.CountUsers(ctx)
 	if err != nil {
 		return err
 	}
 	if n > 0 {
 		return nil
 	}
-	_, key, err := auth.CreateKey(ctx, repo, "bootstrap-admin", auth.RoleAdmin)
+	password, err := auth.GeneratePassword()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nNo API keys exist. Created an admin key (shown once, store it safely):\n\n  %s\n\n"+
-		"Create scoped keys with: siemlite keys create -name myapp -role write\n\n", key)
+	if _, err := auth.CreateUser(ctx, repo, "admin", password, auth.RoleAdmin); err != nil {
+		return err
+	}
+	fmt.Printf("\nNo users exist. Created an admin account (password shown once, store it safely):\n\n"+
+		"  username: admin\n  password: %s\n\n"+
+		"Add people with: siemlite users create -username alice -role analyst\n"+
+		"Create an API key for an app that sends logs with: siemlite keys create -name myapp\n\n", password)
 	return nil
 }
 
-// runKeys implements `siemlite keys create|list|revoke`.
+// openForCLI opens the database for a management subcommand.
+func openForCLI(dbPath string) (*storage.DB, *storage.Repository, error) {
+	db, err := storage.Open(context.Background(), storage.Options{Path: dbPath, ReadConns: 2})
+	if err != nil {
+		return nil, nil, err
+	}
+	return db, storage.NewRepository(db), nil
+}
+
+// runKeys implements `siemlite keys create|list|revoke`. API keys are for
+// applications that send logs; they cannot search or sign in.
 func runKeys(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: siemlite keys <create|list|revoke> [flags]")
@@ -229,43 +251,36 @@ func runKeys(args []string) error {
 	fs := flag.NewFlagSet("keys "+cmd, flag.ContinueOnError)
 	dbPath := fs.String("db", "siemlite.db", "SQLite database path")
 	name := fs.String("name", "", "key name, e.g. the app it belongs to (create)")
-	role := fs.String("role", "write", "read, write or admin (create)")
 	id := fs.Int64("id", 0, "key id (revoke)")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-
-	ctx := context.Background()
-	db, err := storage.Open(ctx, storage.Options{Path: *dbPath, ReadConns: 2})
+	db, repo, err := openForCLI(*dbPath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	repo := storage.NewRepository(db)
+	ctx := context.Background()
 
 	switch cmd {
 	case "create":
-		r, err := auth.ParseRole(*role)
+		kid, key, err := auth.CreateKey(ctx, repo, *name)
 		if err != nil {
 			return err
 		}
-		kid, key, err := auth.CreateKey(ctx, repo, *name, r)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Created key %d (%s, role %s). Shown once, store it safely:\n\n  %s\n", kid, *name, r, key)
+		fmt.Printf("Created API key %d (%s). It can only send logs. Shown once, store it safely:\n\n  %s\n", kid, *name, key)
 	case "list":
 		keys, err := repo.ListKeys(ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%-4s %-24s %-6s %-20s %s\n", "ID", "NAME", "ROLE", "CREATED", "STATUS")
+		fmt.Printf("%-4s %-24s %-20s %s\n", "ID", "NAME", "CREATED", "STATUS")
 		for _, k := range keys {
 			status := "active"
 			if k.RevokedAt != nil {
 				status = "revoked"
 			}
-			fmt.Printf("%-4d %-24s %-6s %-20s %s\n", k.ID, k.Name, k.Role,
+			fmt.Printf("%-4d %-24s %-20s %s\n", k.ID, k.Name,
 				time.UnixMilli(k.CreatedAt).Format("2006-01-02 15:04:05"), status)
 		}
 	case "revoke":
@@ -281,4 +296,104 @@ func runKeys(args []string) error {
 		return fmt.Errorf("unknown keys command %q (want create, list or revoke)", cmd)
 	}
 	return nil
+}
+
+// runUsers implements `siemlite users create|list|passwd|delete`.
+func runUsers(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: siemlite users <create|list|passwd|delete> [flags]")
+	}
+	cmd, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("users "+cmd, flag.ContinueOnError)
+	dbPath := fs.String("db", "siemlite.db", "SQLite database path")
+	username := fs.String("username", "", "username")
+	role := fs.String("role", auth.RoleAnalyst, "admin (search + add logs) or analyst (search only) (create)")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	db, repo, err := openForCLI(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	switch cmd {
+	case "create":
+		pw, err := readNewPassword()
+		if err != nil {
+			return err
+		}
+		if _, err := auth.CreateUser(ctx, repo, *username, pw, *role); err != nil {
+			if errors.Is(err, storage.ErrUserExists) {
+				return fmt.Errorf("user %q already exists", *username)
+			}
+			return err
+		}
+		fmt.Printf("Created %s %q\n", *role, *username)
+	case "passwd":
+		pw, err := readNewPassword()
+		if err != nil {
+			return err
+		}
+		if err := auth.SetPassword(ctx, repo, *username, pw); err != nil {
+			if errors.Is(err, storage.ErrUserNotFound) {
+				return fmt.Errorf("no user %q", *username)
+			}
+			return err
+		}
+		fmt.Printf("Password updated for %q; their sessions were ended\n", *username)
+	case "delete":
+		ok, err := repo.DeleteUser(ctx, *username)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("no user %q", *username)
+		}
+		fmt.Printf("Deleted user %q\n", *username)
+	case "list":
+		users, err := repo.ListUsers(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-4s %-24s %-8s %s\n", "ID", "USERNAME", "ROLE", "CREATED")
+		for _, u := range users {
+			fmt.Printf("%-4d %-24s %-8s %s\n", u.ID, u.Username, u.Role,
+				time.UnixMilli(u.CreatedAt).Format("2006-01-02 15:04:05"))
+		}
+	default:
+		return fmt.Errorf("unknown users command %q (want create, list, passwd or delete)", cmd)
+	}
+	return nil
+}
+
+// readNewPassword prompts twice without echo on a terminal, or reads one line
+// from stdin when piped (for scripts), so passwords never appear in argv.
+func readNewPassword() (string, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && line == "" {
+			return "", fmt.Errorf("read password from stdin: %w", err)
+		}
+		return strings.TrimRight(line, "\r\n"), nil
+	}
+	fmt.Fprintf(os.Stderr, "Password (min %d characters): ", auth.MinPasswordLen)
+	first, err := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprint(os.Stderr, "Repeat password: ")
+	second, err := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", err
+	}
+	if string(first) != string(second) {
+		return "", errors.New("passwords do not match")
+	}
+	return string(first), nil
 }

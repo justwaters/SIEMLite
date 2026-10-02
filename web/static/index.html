@@ -47,13 +47,13 @@
   .msgbox.ok { background: #14301f; color: #7fd8a2; }
   .msgbox.err { background: #371a1c; color: #f09095; }
   textarea { width: 100%; min-height: 240px; font: 12px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 8px 0 24px; }
   footer a { color: var(--muted); }
   #login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 10; }
   #login form { width: 420px; }
   #login h2 { margin-top: 0; }
-  #login input { width: 100%; margin: 6px 0 12px; font-family: ui-monospace, Menlo, monospace; }
+  #login input { width: 100%; }
   .empty { color: var(--muted); text-align: center; padding: 30px; }
 </style>
 </head>
@@ -61,10 +61,13 @@
 <div id="login" class="hidden">
   <form class="panel" id="login-form">
     <h2>SIEM<span style="color:var(--accent)">Lite</span> sign in</h2>
-    <label>API key (needs the read or admin role)
-      <input id="apikey" type="password" placeholder="slk_..." autocomplete="off" required>
+    <label>Username
+      <input id="username" autocomplete="username" required>
     </label>
-    <button class="primary" type="submit">Sign in</button>
+    <label style="margin-top:10px">Password
+      <input id="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="primary" type="submit" id="login-btn" style="margin-top:14px">Sign in</button>
     <div id="login-err" class="msgbox err hidden"></div>
   </form>
 </div>
@@ -75,6 +78,7 @@
     <button id="tab-ingest">Add logs</button>
   </nav>
   <div id="stats"></div>
+  <span id="who" style="color:var(--muted);font-size:13px"></span>
   <button class="ghost" id="logout">Sign out</button>
 </header>
 
@@ -176,34 +180,49 @@ const SEV = {0: ["Unknown", "--sev0"], 1: ["Info", "--sev1"], 2: ["Low", "--sev2
 const CAT = {1: "System", 2: "Findings", 3: "IAM", 4: "Network", 5: "Discovery", 6: "Application", 7: "Remediation", 8: "Unmanaged"};
 let offset = 0;
 
-// The API key lives in sessionStorage only: it is cleared when the tab closes.
-const getKey = () => sessionStorage.getItem("siemlite_key") || "";
+// Sign-in is a browser session: the server sets an HttpOnly cookie, which
+// script cannot read, so there is nothing to store here.
 function showLogin(msg) {
   $("login").classList.remove("hidden");
   $("login-err").classList.toggle("hidden", !msg);
   $("login-err").textContent = msg || "";
-  $("apikey").focus();
+  $("username").focus();
 }
 async function api(path, opts = {}) {
-  opts.headers = { ...(opts.headers || {}), Authorization: "Bearer " + getKey() };
-  const res = await fetch(path, opts);
-  if (res.status === 401) { sessionStorage.removeItem("siemlite_key"); showLogin("Session expired or key revoked."); }
+  const res = await fetch(path, { credentials: "same-origin", ...opts });
+  if (res.status === 401) showLogin("Your session has ended. Please sign in again.");
   return res;
+}
+function applySession(me) {
+  $("who").textContent = `${me.username} (${me.role})`;
+  // Only admins may add logs from the UI; hide the tab for analysts.
+  $("tab-ingest").classList.toggle("hidden", me.role !== "admin");
 }
 $("login-form").onsubmit = async (e) => {
   e.preventDefault();
-  sessionStorage.setItem("siemlite_key", $("apikey").value.trim());
-  const res = await fetch("/api/v1/search?limit=1", { headers: { Authorization: "Bearer " + getKey() } });
-  if (res.ok) {
-    $("apikey").value = "";
+  $("login-btn").disabled = true;
+  try {
+    const res = await fetch("/api/v1/login", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("username").value.trim(), password: $("password").value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showLogin(data.error || "Sign-in failed."); return; }
+    $("password").value = "";
     $("login").classList.add("hidden");
+    applySession(data);
     start();
-    return;
+  } catch (err) {
+    showLogin("Could not reach the server: " + err.message);
+  } finally {
+    $("login-btn").disabled = false;
   }
-  sessionStorage.removeItem("siemlite_key");
-  showLogin(res.status === 403 ? "This key cannot read logs (write-only). Use a read or admin key." : "Invalid or revoked key.");
 };
-$("logout").onclick = () => { sessionStorage.removeItem("siemlite_key"); location.reload(); };
+$("logout").onclick = async () => {
+  await fetch("/api/v1/logout", { method: "POST", credentials: "same-origin" });
+  location.reload();
+};
 
 function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
@@ -357,7 +376,10 @@ function start() {
   healthTimer = setInterval(refreshHealth, 5000);
   runSearch();
 }
-if (getKey()) start(); else showLogin();
+(async () => {
+  const res = await fetch("/api/v1/me", { credentials: "same-origin" });
+  if (res.ok) { applySession(await res.json()); start(); } else showLogin();
+})();
 </script>
 </body>
 </html>

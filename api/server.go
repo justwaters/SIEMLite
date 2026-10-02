@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -67,10 +68,15 @@ func NewServer(addr string, deps Deps) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	a := s.deps.Auth
-	mux.Handle("POST /api/v1/events", a.Require(auth.RoleWrite, http.HandlerFunc(s.handleIngest)))
-	mux.Handle("POST /api/v1/logs", a.Require(auth.RoleWrite, http.HandlerFunc(s.handleLogs)))
-	mux.Handle("GET /api/v1/search", a.Require(auth.RoleRead, http.HandlerFunc(s.handleSearch)))
-	// /health is public but only reveals up/down; detail needs a read key.
+	// Applications authenticate with an API key (send-only); people with a
+	// user session. See pkg/auth for the permission model.
+	mux.Handle("POST /api/v1/events", a.Require(auth.PermIngest, http.HandlerFunc(s.handleIngest)))
+	mux.Handle("POST /api/v1/logs", a.Require(auth.PermIngest, http.HandlerFunc(s.handleLogs)))
+	mux.Handle("GET /api/v1/search", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSearch)))
+	mux.HandleFunc("POST /api/v1/login", s.handleLogin)
+	mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/v1/me", s.handleMe)
+	// /health is public but only reveals up/down; detail needs a signed-in user.
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.Handle("GET /", web.Handler())
 	return s.recoverer(mux)
@@ -304,6 +310,71 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+type loginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type sessionInfo struct {
+	Username string `json:"username"`
+	Role     string `json:"role"`
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Same-site check: a login CSRF would sign the victim in as the attacker.
+	if o := r.Header.Get("Origin"); o != "" && o != "https://"+r.Host {
+		writeError(w, http.StatusForbidden, "cross-origin request refused")
+		return
+	}
+	var req loginRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON with username and password")
+		return
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	token, user, err := s.deps.Auth.Login(r.Context(), host, req.Username, req.Password)
+	switch {
+	case errors.Is(err, auth.ErrBadCredentials):
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	case errors.Is(err, auth.ErrTooManyAttempts):
+		w.Header().Set("Retry-After", "900")
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	case err != nil:
+		s.deps.Logger.Error("login failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "sign-in unavailable")
+		return
+	}
+	auth.SetSessionCookie(w, token)
+	writeJSON(w, http.StatusOK, sessionInfo{Username: user.Username, Role: user.Role})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if o := r.Header.Get("Origin"); o != "" && o != "https://"+r.Host {
+		writeError(w, http.StatusForbidden, "cross-origin request refused")
+		return
+	}
+	if err := s.deps.Auth.Logout(r); err != nil {
+		s.deps.Logger.Error("logout failed", "err", err)
+	}
+	auth.ClearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
+}
+
+// handleMe tells the UI whether the browser has a valid session.
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	p, err := s.deps.Auth.Authenticate(r)
+	if err != nil || p.Kind != auth.KindUser {
+		writeError(w, http.StatusUnauthorized, "not signed in")
+		return
+	}
+	writeJSON(w, http.StatusOK, sessionInfo{Username: p.Name, Role: p.Role})
+}
+
 type healthResponse struct {
 	Status   string         `json:"status"`
 	Time     time.Time      `json:"time"`
@@ -315,9 +386,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	// Details (counts, sizes, queue state) are only for read-capable keys.
-	key, _ := s.deps.Auth.Authenticate(r)
-	detailed := key != nil && auth.Role(key.Role).Allows(auth.RoleRead)
+	// Details (counts, sizes, queue state) are only for signed-in users.
+	p, _ := s.deps.Auth.Authenticate(r)
+	detailed := p != nil && p.Can(auth.PermSearch)
 
 	resp := healthResponse{Status: "ok", Time: time.Now().UTC()}
 	if detailed {

@@ -10,7 +10,7 @@ a built-in web UI and a small JSON API.
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
 - **Full-text search**: SQLite FTS5 combined with time, severity, category, IP and user filters.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
-- **Scoped API keys**: write-only keys for apps, read keys for analysts, admin keys for you.
+- **Two kinds of access**: API keys let applications send logs (and nothing else); people sign in to the UI with a username and password.
 - **Automatic retention**: old events are deleted in batches and disk space is reclaimed.
 - **Pure Go, no CGO**: uses [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite).
 
@@ -27,18 +27,18 @@ go build -o siemlite .
 ./siemlite -sample=false
 ```
 
-On first start SIEMLite creates `siemlite.db`, generates `siemlite.crt` / `siemlite.key`, and prints an admin API key
-**once**. Copy it. The UI is at <https://localhost:8443>; your browser will warn about the self-signed certificate
-unless you trust `siemlite.crt` or supply your own with `-tls-cert` / `-tls-key`.
+On first start SIEMLite creates `siemlite.db`, generates `siemlite.crt` / `siemlite.key`, and creates an `admin` user
+with a random password that is printed **once**. Copy it. Open <https://localhost:8443> and sign in; your browser will
+warn about the self-signed certificate unless you trust `siemlite.crt` or supply your own with `-tls-cert` / `-tls-key`.
 
 By default the server inserts a few demo events and runs a sample search at startup. Use `-sample=false` for real use.
 
 ### Send logs from an app
 
-Create a write-only key for the app:
+Create an API key for the app. Keys can only send logs; they cannot search or sign in.
 
 ```sh
-./siemlite keys create -name myapp -role write
+./siemlite keys create -name myapp
 ```
 
 Then post logs, one per line:
@@ -63,27 +63,24 @@ certificate is first generated, so the certificate matches.
 
 ### Search
 
-Sign in to the UI with a read or admin key, or use the API:
-
-```sh
-curl --cacert siemlite.crt -H "Authorization: Bearer $SIEMLITE_READ_KEY" \
-  'https://localhost:8443/api/v1/search?q=failed+AND+ssh&severity=3&limit=20'
-```
+Sign in to the UI with your username and password. Searching is for signed-in users only; API keys are refused.
+The search API uses the same browser session (an `HttpOnly` cookie), so it is meant for the UI rather than scripts.
 
 `q` uses [FTS5 query syntax](https://www.sqlite.org/fts5.html#full_text_query_syntax): `failed AND ssh`,
 `"invalid user"`, `admin*`.
 
 ## API
 
-| Endpoint | Role | Purpose |
+| Endpoint | Who | Purpose |
 |---|---|---|
-| `POST /api/v1/logs` | write | Raw log text, one entry per line. Optional `source` and `severity` query params. |
-| `POST /api/v1/events` | write | JSON array of OCSF events (up to 10,000 per request). |
-| `GET /api/v1/search` | read | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `limit` (max 1000), `offset`. Newest first. |
-| `GET /health` | public | Up/down only. With a read key it also returns event count, database size and ingest queue state. |
+| `POST /api/v1/logs` | API key, or admin user | Raw log text, one entry per line. Optional `source` and `severity` query params. |
+| `POST /api/v1/events` | API key, or admin user | JSON array of OCSF events (up to 10,000 per request). |
+| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `limit` (max 1000), `offset`. Newest first. |
+| `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session. |
+| `GET /health` | public | Up/down only. When signed in it also returns event count, database size and ingest queue state. |
 
-Authenticate with `Authorization: Bearer <key>`. A missing or revoked key returns `401`; a key without the needed role
-returns `403`. An `admin` key can do everything.
+Applications authenticate with `Authorization: Bearer <key>`. A missing or revoked key returns `401`; an API key used on
+a search returns `403`.
 
 ### Log parsing
 
@@ -93,16 +90,38 @@ and severity comes from the syslog priority or keywords (`error`, `failed`, `war
 contain `category_uid` are stored as OCSF; other JSON uses its `message`, `level` and timestamp fields. The detection
 is heuristic; use `?severity=` to override it.
 
-## API keys
+## Users
+
+People sign in with a username and password. There are two roles:
+
+- **admin**: search, and add logs from the UI.
+- **analyst**: search only.
 
 ```sh
-./siemlite keys create -name <name> -role read|write|admin
+./siemlite users create -username alice -role analyst   # prompts for a password (min 12 characters)
+./siemlite users list
+./siemlite users passwd -username alice                 # also signs alice out everywhere
+./siemlite users delete -username alice
+```
+
+Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an `HttpOnly`, `Secure`, `SameSite=Strict` cookie,
+and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window.
+
+## API keys
+
+For applications that send logs. A key can only post to `/api/v1/logs` and `/api/v1/events`.
+
+```sh
+./siemlite keys create -name <name>
 ./siemlite keys list
 ./siemlite keys revoke -id <id>
 ```
 
-Keys look like `slk_...`. Only a SHA-256 hash is stored, so the secret is shown once at creation. The key commands work
-while the server is running. Pass `-db` if your database is not `./siemlite.db`.
+Keys look like `slk_...`. Only a SHA-256 hash is stored, so the secret is shown once at creation. The `keys` and `users`
+commands work while the server is running. Pass `-db` if your database is not `./siemlite.db`.
+
+**Upgrading from v0.1:** read and admin API keys no longer exist and are revoked on first start. Sign in with the
+`admin` account created for you (or create users with `siemlite users create`). Write keys keep working.
 
 ## Options
 
@@ -131,7 +150,7 @@ clients ──HTTPS + API key──▶ api ──▶ ingest worker pool ──�
 - **`pkg/ingest`**: buffered channel and worker pool that flushes in batches.
 - **`pkg/search`**: combines time window, OCSF filters and FTS5.
 - **`pkg/retention`**: deletes expired events in batches, then runs `PRAGMA incremental_vacuum`.
-- **`pkg/auth`**: API keys and role enforcement.
+- **`pkg/auth`**: API keys, users, sessions and permission checks.
 - **`api`**: HTTPS server and endpoints. **`web`**: the embedded UI.
 
 ## Development
