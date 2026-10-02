@@ -3,12 +3,14 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"siemlite/pkg/enrich"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/storage"
 )
@@ -23,11 +25,12 @@ type Sink interface {
 
 // Config tunes the pipeline. Zero values select defaults.
 type Config struct {
-	QueueSize     int           // channel buffer (default 10000)
-	BatchSize     int           // flush at this many records (default 500)
-	FlushInterval time.Duration // flush partial batches this often (default 500ms)
-	FlushTimeout  time.Duration // per-flush deadline (default 30s)
-	Workers       int           // consumer goroutines (default 2)
+	QueueSize     int             // channel buffer (default 10000)
+	BatchSize     int             // flush at this many records (default 500)
+	FlushInterval time.Duration   // flush partial batches this often (default 500ms)
+	FlushTimeout  time.Duration   // per-flush deadline (default 30s)
+	Workers       int             // consumer goroutines (default 2)
+	Enricher      enrich.Enricher // optional GeoIP/ASN/threat intel enrichment
 	Logger        *slog.Logger
 }
 
@@ -102,6 +105,20 @@ func (w *Worker) Submit(ctx context.Context, ev *ocsf.Event) error {
 		DstIP:       ev.DstIP(),
 		UserName:    ev.UserName(),
 		RawData:     ev.RawData,
+		Source:      ev.ProductName(),
+		Host:        ev.DeviceName(),
+	}
+	if w.cfg.Enricher != nil {
+		var d enrich.Data
+		w.cfg.Enricher.Enrich(ev, &d)
+		if !d.Empty() {
+			rec.SrcCountry, rec.DstCountry = d.Src.Country(), d.Dst.Country()
+			rec.SrcASN, rec.DstASN = d.Src.ASN(), d.Dst.ASN()
+			rec.Threat = len(d.ThreatIntel) > 0
+			if b, err := json.Marshal(&d); err == nil {
+				rec.Enrichment = b
+			}
+		}
 	}
 
 	// Holding the read lock across the send keeps Close from closing the

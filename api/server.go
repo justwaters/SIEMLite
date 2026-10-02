@@ -13,14 +13,17 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
+	"siemlite/pkg/intel"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
+	"siemlite/pkg/syslogd"
 	"siemlite/web"
 )
 
@@ -38,6 +41,8 @@ type Deps struct {
 	Ingest *ingest.Worker
 	Search *search.Engine
 	Auth   *auth.Authenticator
+	Intel  *intel.Service  // optional
+	Syslog *syslogd.Server // optional
 	Logger *slog.Logger
 }
 
@@ -263,6 +268,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		SrcIP:    p.Get("src_ip"),
 		DstIP:    p.Get("dst_ip"),
 		UserName: p.Get("user"),
+		Source:   p.Get("source"),
+		Host:     p.Get("host"),
+		Country:  p.Get("country"),
+	}
+	switch p.Get("threat") {
+	case "", "0", "false":
+	case "1", "true":
+		q.ThreatOnly = true
+	default:
+		writeError(w, http.StatusBadRequest, "threat: must be true or false")
+		return
 	}
 
 	var err error
@@ -280,6 +296,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}{{"severity", &q.SeverityID}, {"category", &q.CategoryUID}, {"class", &q.ClassUID}} {
 		if *f.dst, err = parseOptInt(p.Get(f.name)); err != nil {
 			writeError(w, http.StatusBadRequest, f.name+": "+err.Error())
+			return
+		}
+	}
+	if v := p.Get("asn"); v != "" {
+		if q.ASN, err = strconv.Atoi(strings.TrimPrefix(strings.ToUpper(v), "AS")); err != nil {
+			writeError(w, http.StatusBadRequest, "asn: must be a number like 15169 or AS15169")
 			return
 		}
 	}
@@ -380,6 +402,8 @@ type healthResponse struct {
 	Time     time.Time      `json:"time"`
 	Database map[string]any `json:"database,omitempty"`
 	Ingest   *ingest.Stats  `json:"ingest,omitempty"`
+	Intel    *intel.Stats   `json:"intel,omitempty"`
+	Syslog   *syslogd.Stats `json:"syslog,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -395,6 +419,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		stats := s.deps.Ingest.Stats()
 		resp.Ingest = &stats
 		resp.Database = map[string]any{"status": "ok"}
+		if s.deps.Intel != nil {
+			st := s.deps.Intel.Stats()
+			resp.Intel = &st
+		}
+		if s.deps.Syslog != nil {
+			st := s.deps.Syslog.Stats()
+			resp.Syslog = &st
+		}
 	}
 	code := http.StatusOK
 

@@ -6,9 +6,10 @@ A lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS,
 [OCSF](https://schema.ocsf.io/) event model, stores them in one SQLite file, and gives you full-text search through
 a built-in web UI and a small JSON API.
 
-- **Send any log**: syslog, JSON lines or plain text. The original line is kept verbatim.
+- **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the original line is kept verbatim.
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
-- **Full-text search**: SQLite FTS5 combined with time, severity, category, IP and user filters.
+- **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
+- **Full-text search**: SQLite FTS5 combined with time, severity, category, IP, user, source, country, ASN and threat filters.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
 - **Two kinds of access**: API keys let applications send logs (and nothing else); people sign in to the UI with a username and password.
 - **Automatic retention**: old events are deleted in batches and disk space is reclaimed.
@@ -61,6 +62,26 @@ curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
 If the app connects with a hostname or IP other than `localhost`, start SIEMLite with `-tls-hosts` listing it before the
 certificate is first generated, so the certificate matches.
 
+### Send syslog
+
+Point rsyslog, syslog-ng, firewalls, switches or anything else that speaks syslog at SIEMLite:
+
+```sh
+./siemlite -syslog-udp :514 -syslog-tcp :514 -syslog-tls :6514
+```
+
+- **UDP** (RFC 5426), **TCP** (RFC 6587; octet-counted or newline-delimited frames) and **TLS** (RFC 5425, using the same
+  certificate as the web UI). Each listener is off unless its flag is set.
+- Syslog has no authentication, so only senders on loopback and private networks (10/8, 172.16/12, 192.168/16,
+  100.64/10, fc00::/7, link-local) are accepted by default. Set `-syslog-allow 192.0.2.0/24,198.51.100.4` to choose
+  exactly who may send; refused senders are counted and logged once a minute.
+- The syslog hostname becomes the event's **host** and the app name or tag (`sshd[311]:`) its **source**. The
+  sender's address is kept as `device.ip`.
+- Messages over 64 KiB are dropped. With UDP, messages are dropped when the ingest queue is full; TCP waits briefly.
+- Ports below 1024 need root or `sudo setcap cap_net_bind_service=+ep ./siemlite`.
+
+rsyslog example (`/etc/rsyslog.d/siemlite.conf`): `*.* @@siemlite.internal:514` (TCP; one `@` for UDP).
+
 ### Search
 
 Sign in to the UI with your username and password. Searching is for signed-in users only; API keys are refused.
@@ -75,9 +96,9 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 |---|---|---|
 | `POST /api/v1/logs` | API key, or admin user | Raw log text, one entry per line. Optional `source` and `severity` query params. |
 | `POST /api/v1/events` | API key, or admin user | JSON array of OCSF events (up to 10,000 per request). |
-| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `limit` (max 1000), `offset`. Newest first. |
+| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its `enrichment` (location, autonomous system, threat intel matches). |
 | `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session. |
-| `GET /health` | public | Up/down only. When signed in it also returns event count, database size and ingest queue state. |
+| `GET /health` | public | Up/down only. When signed in it also returns event count, database size, ingest queue state, indicator count and syslog counters. |
 
 Applications authenticate with `Authorization: Bearer <key>`. A missing or revoked key returns `401`; an API key used on
 a search returns `403`.
@@ -89,6 +110,59 @@ the first two IPv4 addresses become source and destination, a user is picked up 
 and severity comes from the syslog priority or keywords (`error`, `failed`, `warning`, ...). JSON objects that already
 contain `category_uid` are stored as OCSF; other JSON uses its `message`, `level` and timestamp fields. The detection
 is heuristic; use `?severity=` to override it.
+
+## GeoIP and ASN
+
+Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,
+coordinates and autonomous system as it is stored:
+
+```sh
+./siemlite -geoip-city GeoLite2-City.mmdb -geoip-asn GeoLite2-ASN.mmdb
+```
+
+- Works with MaxMind [GeoLite2](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) (free with an account;
+  keep it fresh with `geoipupdate`) or GeoIP2, and the [DB-IP lite](https://db-ip.com/db/lite.php) databases (free, no
+  account, CC BY 4.0). A Country database works in place of City. Either flag can be used alone.
+- Files are checked hourly and reloaded when they change, so `geoipupdate` needs no restart.
+- Private, loopback and other non-public addresses are skipped.
+- Search with `country=CN` or `asn=AS4134` (either endpoint). The country code shows next to each IP in the UI; the
+  full location and AS name are in the event detail.
+
+Only events stored after GeoIP is enabled are enriched.
+
+## Threat intel
+
+SIEMLite checks every event against a list of indicators: IP addresses, CIDR ranges, domains (which also match
+subdomains) and MD5/SHA-1/SHA-256 hashes. It looks at the source and destination IPs and at IPv4 addresses, domain
+names and hashes anywhere in the raw log. A hit marks the event as a threat (red bar and **INTEL** badge in the UI,
+`threat=true` in search) and records which indicator, source and field matched.
+
+Download feeds automatically (refreshed every `-intel-refresh`, default 6h):
+
+```sh
+./siemlite \
+  -intel-feed feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt \
+  -intel-feed drop=https://www.spamhaus.org/drop/drop.txt \
+  -intel-feed urlhaus=https://urlhaus.abuse.ch/downloads/hostfile/
+```
+
+Or manage indicators from the command line (works while the server is running; changes are picked up within 30s):
+
+```sh
+./siemlite intel import -source mylist -file iocs.txt     # replaces everything in "mylist"; -file - reads stdin
+./siemlite intel import -source feodo -url https://feodotracker.abuse.ch/downloads/ipblocklist.txt
+./siemlite intel add -source manual -value 203.0.113.7 -description "seen in phishing"
+./siemlite intel list
+./siemlite intel delete -source mylist
+```
+
+Feed files have one indicator per line. Plain lists, CSV (first column), Spamhaus DROP (`1.2.3.0/24 ; SBL123`), hosts
+files (`0.0.0.0 evil.example`) and URL lists (the host is used) are understood; comments and invalid lines are
+skipped. The type is detected, or forced with `-type ip|cidr|domain|hash`. Importing or refreshing a source replaces
+all of its indicators, so entries removed from a feed stop matching. A download that fails or comes back empty keeps
+the previous indicators.
+
+Matching happens when an event is stored; adding an indicator does not flag older events (search for it instead).
 
 ## Users
 
@@ -120,6 +194,9 @@ For applications that send logs. A key can only post to `/api/v1/logs` and `/api
 Keys look like `slk_...`. Only a SHA-256 hash is stored, so the secret is shown once at creation. The `keys` and `users`
 commands work while the server is running. Pass `-db` if your database is not `./siemlite.db`.
 
+**Upgrading from v0.2:** the database is upgraded automatically on first start and keeps every event. Events stored
+before the upgrade have no source, host or enrichment.
+
 **Upgrading from v0.1:** read and admin API keys no longer exist and are revoked on first start. Sign in with the
 `admin` account created for you (or create users with `siemlite users create`). Write keys keep working.
 
@@ -133,21 +210,32 @@ commands work while the server is running. Pass `-db` if your database is not `.
 | `-tls-cert`, `-tls-key` | `<db dir>/siemlite.crt`, `.key` | Certificate and key; a self-signed pair is generated if both are missing |
 | `-tls-hosts` | | Extra DNS names or IPs for a generated certificate |
 | `-sample` | `true` | Insert demo events and run a sample search at startup |
+| `-syslog-udp`, `-syslog-tcp`, `-syslog-tls` | | Syslog listen addresses, e.g. `:514`, `:514`, `:6514` (each off when empty) |
+| `-syslog-allow` | loopback and private networks | Comma-separated IPs/CIDRs allowed to send syslog |
+| `-geoip-city` | | MaxMind or DB-IP City/Country `.mmdb` |
+| `-geoip-asn` | | MaxMind or DB-IP ASN `.mmdb` |
+| `-intel-feed` | | Threat intel feed as `name=https://url`; repeat for several |
+| `-intel-refresh` | `6h` | How often to re-download feeds |
 
 ## How it works
 
 ```
-clients ──HTTPS + API key──▶ api ──▶ ingest worker pool ──▶ batched SQLite transactions
-                              │            (500 events or 500 ms)            │
-                              └──▶ search engine ──▶ events ⋈ events_fts ◀───┘
-                                                     retention worker (daily delete + incremental vacuum)
+clients ──HTTPS + API key──▶ api ─────┐
+devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threat intel) ─▶ ingest worker pool ─▶ batched SQLite transactions
+                                                                          (500 events or 500 ms)            │
+                               api ──▶ search engine ──▶ events ⋈ events_fts ◀──────────────────────────────┘
+                                       retention worker (daily delete + incremental vacuum)
+                                       intel service (feed refresh, reload on change)
 ```
 
 - **`pkg/ocsf`**: event model and validation.
 - **`pkg/parser`**: raw log lines to OCSF events.
 - **`pkg/storage`**: SQLite setup (WAL, `synchronous=NORMAL`, `busy_timeout=5000`), schema, queries. `events_fts` is an
   external-content FTS5 table kept in sync by triggers, so log text is not stored twice.
-- **`pkg/ingest`**: buffered channel and worker pool that flushes in batches.
+- **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.
+- **`pkg/syslogd`**: UDP, TCP and TLS syslog listeners with a sender allowlist.
+- **`pkg/enrich`**: enrichment document and GeoIP/ASN lookups (`.mmdb`, reloaded on change).
+- **`pkg/intel`**: feed parsing, the in-memory indicator matcher and feed refresh.
 - **`pkg/search`**: combines time window, OCSF filters and FTS5.
 - **`pkg/retention`**: deletes expired events in batches, then runs `PRAGMA incremental_vacuum`.
 - **`pkg/auth`**: API keys, users, sessions and permission checks.

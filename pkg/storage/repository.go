@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -18,6 +19,16 @@ type Record struct {
 	DstIP       string `json:"dst_ip,omitempty"`
 	UserName    string `json:"user_name,omitempty"`
 	RawData     string `json:"raw_data"`
+
+	Source     string `json:"source,omitempty"` // producing product, e.g. "sshd"
+	Host       string `json:"host,omitempty"`   // reporting device
+	SrcCountry string `json:"src_country,omitempty"`
+	DstCountry string `json:"dst_country,omitempty"`
+	SrcASN     int    `json:"src_asn,omitempty"`
+	DstASN     int    `json:"dst_asn,omitempty"`
+	Threat     bool   `json:"threat,omitempty"` // matched a threat intel indicator
+	// Enrichment is the JSON document of GeoIP/ASN and threat intel context.
+	Enrichment json.RawMessage `json:"enrichment,omitempty"`
 }
 
 // Filter describes a search. Zero values mean "no constraint" except where
@@ -31,6 +42,11 @@ type Filter struct {
 	SrcIP       string
 	DstIP       string
 	UserName    string
+	Source      string
+	Host        string
+	Country     string // either endpoint's ISO country code
+	ASN         int    // either endpoint's autonomous system number
+	ThreatOnly  bool
 	Match       string // raw FTS5 MATCH expression
 	Limit       int
 	Offset      int
@@ -45,8 +61,9 @@ type Repository struct {
 func NewRepository(db *DB) *Repository { return &Repository{db: db} }
 
 const insertSQL = `INSERT INTO events
-	(timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, raw_data)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	(timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, raw_data,
+	 source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertBatch writes all records in a single explicit transaction. The FTS
 // index is maintained by the AFTER INSERT trigger.
@@ -71,6 +88,8 @@ func (r *Repository) InsertBatch(ctx context.Context, recs []Record) error {
 		if _, err := stmt.ExecContext(ctx,
 			rec.Timestamp, rec.CategoryUID, rec.ClassUID, rec.SeverityID,
 			nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
+			nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
+			nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)),
 		); err != nil {
 			return fmt.Errorf("insert record %d: %w", i, err)
 		}
@@ -94,12 +113,19 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
 	out := make([]Record, 0, min(max(f.Limit, 0), 1000))
 	for rows.Next() {
 		var rec Record
-		var src, dst, user sql.NullString
+		var src, dst, user, source, host, srcCC, dstCC, enrichment sql.NullString
+		var srcASN, dstASN sql.NullInt64
 		if err := rows.Scan(&rec.ID, &rec.Timestamp, &rec.CategoryUID, &rec.ClassUID,
-			&rec.SeverityID, &src, &dst, &user, &rec.RawData); err != nil {
+			&rec.SeverityID, &src, &dst, &user, &rec.RawData,
+			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		rec.SrcIP, rec.DstIP, rec.UserName = src.String, dst.String, user.String
+		rec.Source, rec.Host, rec.SrcCountry, rec.DstCountry = source.String, host.String, srcCC.String, dstCC.String
+		rec.SrcASN, rec.DstASN = int(srcASN.Int64), int(dstASN.Int64)
+		if enrichment.Valid {
+			rec.Enrichment = json.RawMessage(enrichment.String)
+		}
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -115,7 +141,8 @@ func buildSearch(f Filter) (string, []any) {
 		args  []any
 	)
 	sb.WriteString(`SELECT e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
-		e.src_ip, e.dst_ip, e.user_name, e.raw_data FROM `)
+		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
+		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment FROM `)
 
 	if f.Match != "" {
 		sb.WriteString("events_fts JOIN events e ON e.id = events_fts.rowid")
@@ -156,6 +183,25 @@ func buildSearch(f Filter) (string, []any) {
 	if f.UserName != "" {
 		where = append(where, "e.user_name = ?")
 		args = append(args, f.UserName)
+	}
+	if f.Source != "" {
+		where = append(where, "e.source = ?")
+		args = append(args, f.Source)
+	}
+	if f.Host != "" {
+		where = append(where, "e.host = ?")
+		args = append(args, f.Host)
+	}
+	if f.Country != "" {
+		where = append(where, "(e.src_country = ? OR e.dst_country = ?)")
+		args = append(args, f.Country, f.Country)
+	}
+	if f.ASN != 0 {
+		where = append(where, "(e.src_asn = ? OR e.dst_asn = ?)")
+		args = append(args, f.ASN, f.ASN)
+	}
+	if f.ThreatOnly {
+		where = append(where, "e.threat = 1")
 	}
 
 	if len(where) > 0 {
@@ -252,4 +298,11 @@ func nullable(s string) any {
 		return nil
 	}
 	return s
+}
+
+func nullableInt(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
 }
