@@ -1,5 +1,7 @@
 # SIEMLite
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Open Source](https://img.shields.io/badge/open%20source-OSI%20approved-brightgreen.svg)](https://opensource.org/license/mit)
+
 A lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS, normalizes them to the
 [OCSF](https://schema.ocsf.io/) event model, stores them in one SQLite file, and gives you full-text search through
 a built-in web UI and a small JSON API.
@@ -140,4 +142,6 @@ go test -race ./...
 
 ## License
 
-[MIT](LICENSE)
+SIEMLite is free and open-source software, released under the [MIT License](LICENSE), which is approved by the
+[Open Source Initiative](https://opensource.org/license/mit). You may use, modify and redistribute it, including
+commercially, as long as the copyright and license notice are kept.
