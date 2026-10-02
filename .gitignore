@@ -5,3 +5,5 @@
 siemlite.crt
 siemlite.key
 *.key
+.env
+/geoip/

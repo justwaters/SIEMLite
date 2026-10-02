@@ -1,0 +1,30 @@
+# Deploy or upgrade with: git pull && docker compose up -d --build
+# Settings go in .env (copy .env.example). Data lives in the siemlite-data volume.
+services:
+  siemlite:
+    build: .
+    image: siemlite:local
+    restart: unless-stopped
+    command:
+      - -addr=0.0.0.0:8443
+      - -sample=false
+      - -syslog-udp=:5514
+      - -syslog-tcp=:5514
+      - -syslog-tls=:6514
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "${SIEMLITE_HTTPS_PORT:-8443}:8443"
+      - "${SIEMLITE_SYSLOG_PORT:-514}:5514/udp"
+      - "${SIEMLITE_SYSLOG_PORT:-514}:5514/tcp"
+      - "${SIEMLITE_SYSLOG_TLS_PORT:-6514}:6514"
+    volumes:
+      - siemlite-data:/data
+      # Optional GeoIP databases; set SIEMLITE_GEOIP_CITY=/geoip/<file>.mmdb in .env.
+      - ./geoip:/geoip:ro
+    # SIEMLite flushes queued events on shutdown; allow time for that.
+    stop_grace_period: 20s
+
+volumes:
+  siemlite-data:

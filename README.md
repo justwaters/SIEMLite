@@ -34,6 +34,36 @@ warn about the self-signed certificate unless you trust `siemlite.crt` or supply
 
 By default the server inserts a few demo events and runs a sample search at startup. Use `-sample=false` for real use.
 
+### Run with Docker
+
+The web UI is built into the binary, so this is a single container. Deploy and upgrade with one command:
+
+```sh
+git clone https://github.com/justwaters/SIEMLite.git && cd SIEMLite
+cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
+git pull && docker compose up -d --build
+docker compose logs siemlite | grep -A1 'username: admin'   # first start only: the admin password
+```
+
+- The database and certificate live in the `siemlite-data` volume, so rebuilds and upgrades keep every event,
+  account and key. `docker compose down` keeps the volume; `docker compose down -v` deletes it.
+- Ports: HTTPS on 8443, syslog on 514 (UDP and TCP) and syslog over TLS on 6514. Change the host ports in `.env`.
+- Settings: every server flag can be set in `.env` as `SIEMLITE_<FLAG>`, e.g. `SIEMLITE_RETENTION_DAYS=90`
+  for `-retention-days`. `.env.example` lists the useful ones.
+- Set `SIEMLITE_TLS_HOSTS` to the names or IPs people use to reach the server **before the first start**: the
+  certificate is generated once. To regenerate it later, delete it from the volume and restart (the image has no
+  shell, so use a throwaway container; the volume is named after the checkout folder):
+  `docker run --rm -v siemlite_siemlite-data:/data alpine rm /data/siemlite.crt /data/siemlite.key && docker compose restart`.
+  To trust the certificate on a client, copy it out with `docker compose cp siemlite:/data/siemlite.crt .`.
+- GeoIP: put the `.mmdb` files in `./geoip/` and set `SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb` (and `_ASN`).
+- Management commands run inside the container:
+  `docker compose exec siemlite siemlite users create -username alice -role analyst`, and the same for `keys`
+  and `intel`. To import a feed file, pipe it in: `docker compose exec -T siemlite siemlite intel import -source x -file - < iocs.txt`.
+- Syslog senders keep their real IP through Docker's port mapping, so `-syslog-allow` works. The exception is a
+  sender on the Docker host itself, which appears as the Docker network's gateway address.
+- The image is about 25 MB, has no shell, and runs as an unprivileged user. Docker restarts it if `/health` stops
+  answering.
+
 ### Send logs from an app
 
 Create an API key for the app. Keys can only send logs; they cannot search or sign in.
@@ -201,6 +231,10 @@ before the upgrade have no source, host or enrichment.
 `admin` account created for you (or create users with `siemlite users create`). Write keys keep working.
 
 ## Options
+
+Each flag can also be set with an environment variable named `SIEMLITE_` plus the flag name in capitals with `_` for
+`-` (e.g. `SIEMLITE_GEOIP_CITY`). A flag on the command line wins. `SIEMLITE_INTEL_FEED` takes several feeds separated
+by spaces.
 
 | Flag | Default | Meaning |
 |---|---|---|
