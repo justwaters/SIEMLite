@@ -4,6 +4,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
@@ -34,6 +36,7 @@ type Deps struct {
 	Repo   *storage.Repository
 	Ingest *ingest.Worker
 	Search *search.Engine
+	Auth   *auth.Authenticator
 	Logger *slog.Logger
 }
 
@@ -63,17 +66,21 @@ func NewServer(addr string, deps Deps) *Server {
 // Handler returns the routed handler (useful for tests).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/events", s.handleIngest)
-	mux.HandleFunc("GET /api/v1/search", s.handleSearch)
-	mux.HandleFunc("POST /api/v1/logs", s.handleLogs)
+	a := s.deps.Auth
+	mux.Handle("POST /api/v1/events", a.Require(auth.RoleWrite, http.HandlerFunc(s.handleIngest)))
+	mux.Handle("POST /api/v1/logs", a.Require(auth.RoleWrite, http.HandlerFunc(s.handleLogs)))
+	mux.Handle("GET /api/v1/search", a.Require(auth.RoleRead, http.HandlerFunc(s.handleSearch)))
+	// /health is public but only reveals up/down; detail needs a read key.
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.Handle("GET /", web.Handler())
 	return s.recoverer(mux)
 }
 
-// Start serves until Shutdown; it returns nil on a clean shutdown.
-func (s *Server) Start() error {
-	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+// Start serves HTTPS (there is no plaintext listener) until Shutdown; it
+// returns nil on a clean shutdown.
+func (s *Server) Start(certFile, keyFile string) error {
+	s.http.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	if err := s.http.ListenAndServeTLS(certFile, keyFile); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
@@ -300,32 +307,41 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 type healthResponse struct {
 	Status   string         `json:"status"`
 	Time     time.Time      `json:"time"`
-	Database map[string]any `json:"database"`
-	Ingest   ingest.Stats   `json:"ingest"`
+	Database map[string]any `json:"database,omitempty"`
+	Ingest   *ingest.Stats  `json:"ingest,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	resp := healthResponse{
-		Status:   "ok",
-		Time:     time.Now().UTC(),
-		Database: map[string]any{"status": "ok"},
-		Ingest:   s.deps.Ingest.Stats(),
+	// Details (counts, sizes, queue state) are only for read-capable keys.
+	key, _ := s.deps.Auth.Authenticate(r)
+	detailed := key != nil && auth.Role(key.Role).Allows(auth.RoleRead)
+
+	resp := healthResponse{Status: "ok", Time: time.Now().UTC()}
+	if detailed {
+		stats := s.deps.Ingest.Stats()
+		resp.Ingest = &stats
+		resp.Database = map[string]any{"status": "ok"}
 	}
 	code := http.StatusOK
 
+	degrade := func(status, msg string) {
+		resp.Status, code = "degraded", http.StatusServiceUnavailable
+		if detailed {
+			resp.Database["status"] = status
+			resp.Database["error"] = msg
+		}
+	}
 	if err := s.deps.DB.Ping(ctx); err != nil {
-		resp.Status, code = "degraded", http.StatusServiceUnavailable
-		resp.Database["status"] = "down"
-		resp.Database["error"] = err.Error()
-	} else if st, err := s.deps.Repo.Stats(ctx); err != nil {
-		resp.Status, code = "degraded", http.StatusServiceUnavailable
-		resp.Database["status"] = "error"
-		resp.Database["error"] = err.Error()
-	} else {
-		resp.Database["stats"] = st
+		degrade("down", err.Error())
+	} else if detailed {
+		if st, err := s.deps.Repo.Stats(ctx); err != nil {
+			degrade("error", err.Error())
+		} else {
+			resp.Database["stats"] = st
+		}
 	}
 	writeJSON(w, code, resp)
 }

@@ -2,3 +2,6 @@
 *.db-wal
 *.db-shm
 /siemlite
+siemlite.crt
+siemlite.key
+*.key

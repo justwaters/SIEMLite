@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 1
+const schemaVersion = 2
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -40,6 +40,15 @@ var schemaStatements = []string{
 	`CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
 		INSERT INTO events_fts(events_fts, rowid, raw_data) VALUES ('delete', old.id, old.raw_data);
 	END`,
+	// Only a SHA-256 of each key is stored; the plaintext is shown once at creation.
+	`CREATE TABLE IF NOT EXISTS api_keys (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT NOT NULL,
+		role       TEXT NOT NULL CHECK (role IN ('read', 'write', 'admin')),
+		key_hash   TEXT NOT NULL UNIQUE,
+		created_at INTEGER NOT NULL,
+		revoked_at INTEGER
+	)`,
 }
 
 // migrate applies the schema inside one transaction.

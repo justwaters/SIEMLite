@@ -48,10 +48,24 @@
   .msgbox.err { background: #371a1c; color: #f09095; }
   textarea { width: 100%; min-height: 240px; font: 12px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
   .hidden { display: none; }
+  #login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #login form { width: 420px; }
+  #login h2 { margin-top: 0; }
+  #login input { width: 100%; margin: 6px 0 12px; font-family: ui-monospace, Menlo, monospace; }
   .empty { color: var(--muted); text-align: center; padding: 30px; }
 </style>
 </head>
 <body>
+<div id="login" class="hidden">
+  <form class="panel" id="login-form">
+    <h2>SIEM<span style="color:var(--accent)">Lite</span> sign in</h2>
+    <label>API key (needs the read or admin role)
+      <input id="apikey" type="password" placeholder="slk_..." autocomplete="off" required>
+    </label>
+    <button class="primary" type="submit">Sign in</button>
+    <div id="login-err" class="msgbox err hidden"></div>
+  </form>
+</div>
 <header>
   <h1>SIEM<span>Lite</span></h1>
   <nav>
@@ -59,6 +73,7 @@
     <button id="tab-ingest">Add logs</button>
   </nav>
   <div id="stats"></div>
+  <button class="ghost" id="logout">Sign out</button>
 </header>
 
 <main>
@@ -154,6 +169,35 @@ const SEV = {0: ["Unknown", "--sev0"], 1: ["Info", "--sev1"], 2: ["Low", "--sev2
 const CAT = {1: "System", 2: "Findings", 3: "IAM", 4: "Network", 5: "Discovery", 6: "Application", 7: "Remediation", 8: "Unmanaged"};
 let offset = 0;
 
+// The API key lives in sessionStorage only: it is cleared when the tab closes.
+const getKey = () => sessionStorage.getItem("siemlite_key") || "";
+function showLogin(msg) {
+  $("login").classList.remove("hidden");
+  $("login-err").classList.toggle("hidden", !msg);
+  $("login-err").textContent = msg || "";
+  $("apikey").focus();
+}
+async function api(path, opts = {}) {
+  opts.headers = { ...(opts.headers || {}), Authorization: "Bearer " + getKey() };
+  const res = await fetch(path, opts);
+  if (res.status === 401) { sessionStorage.removeItem("siemlite_key"); showLogin("Session expired or key revoked."); }
+  return res;
+}
+$("login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  sessionStorage.setItem("siemlite_key", $("apikey").value.trim());
+  const res = await fetch("/api/v1/search?limit=1", { headers: { Authorization: "Bearer " + getKey() } });
+  if (res.ok) {
+    $("apikey").value = "";
+    $("login").classList.add("hidden");
+    start();
+    return;
+  }
+  sessionStorage.removeItem("siemlite_key");
+  showLogin(res.status === 403 ? "This key cannot read logs (write-only). Use a read or admin key." : "Invalid or revoked key.");
+};
+$("logout").onclick = () => { sessionStorage.removeItem("siemlite_key"); location.reload(); };
+
 function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
   Object.assign(e, props);
@@ -175,7 +219,7 @@ for (const name of ["search", "ingest"]) {
 async function refreshHealth() {
   const box = $("stats");
   try {
-    const h = await (await fetch("/health")).json();
+    const h = await (await api("/health")).json();
     const db = (h.database && h.database.stats) || {};
     box.replaceChildren(
       el("span", {}, el("i", { className: "dot" + (h.status === "ok" ? " ok" : "") }), h.status),
@@ -188,8 +232,6 @@ async function refreshHealth() {
     box.replaceChildren(el("span", {}, el("i", { className: "dot" }), "backend unreachable"));
   }
 }
-refreshHealth();
-setInterval(refreshHealth, 5000);
 
 // Search
 function params() {
@@ -208,7 +250,7 @@ function params() {
 async function runSearch() {
   const err = $("error");
   err.classList.add("hidden");
-  const res = await fetch("/api/v1/search?" + params());
+  const res = await api("/api/v1/search?" + params());
   const data = await res.json();
   if (!res.ok) {
     err.textContent = data.error || "search failed";
@@ -279,7 +321,7 @@ $("send").onclick = async () => {
 
   $("send").disabled = true;
   try {
-    const res = await fetch("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: text });
+    const res = await api("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: text });
     const data = await res.json();
     msg.classList.remove("hidden", "ok", "err");
     if (res.ok) {
@@ -301,7 +343,14 @@ $("send").onclick = async () => {
   }
 };
 
-runSearch();
+let healthTimer;
+function start() {
+  refreshHealth();
+  clearInterval(healthTimer);
+  healthTimer = setInterval(refreshHealth, 5000);
+  runSearch();
+}
+if (getKey()) start(); else showLogin();
 </script>
 </body>
 </html>

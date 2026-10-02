@@ -9,11 +9,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"siemlite/api"
+	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/retention"
@@ -22,7 +25,13 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "keys" {
+		err = runKeys(os.Args[2:])
+	} else {
+		err = run()
+	}
+	if err != nil {
 		slog.Error("siemlite failed", "err", err)
 		os.Exit(1)
 	}
@@ -30,10 +39,20 @@ func main() {
 
 func run() error {
 	dbPath := flag.String("db", "siemlite.db", "SQLite database path")
-	addr := flag.String("addr", "localhost:8080", "HTTP listen address")
+	addr := flag.String("addr", "localhost:8443", "HTTPS listen address (there is no plain-HTTP listener)")
+	certFile := flag.String("tls-cert", "", "TLS certificate PEM (default: <db dir>/siemlite.crt, self-signed if missing)")
+	keyFile := flag.String("tls-key", "", "TLS private key PEM (default: <db dir>/siemlite.key)")
+	tlsHosts := flag.String("tls-hosts", "", "extra comma-separated DNS names/IPs for a generated certificate")
 	retentionDays := flag.Int("retention-days", 30, "delete events older than this many days")
 	sample := flag.Bool("sample", true, "insert sample telemetry and run a demo search at startup")
 	flag.Parse()
+
+	if *certFile == "" {
+		*certFile = filepath.Join(filepath.Dir(*dbPath), "siemlite.crt")
+	}
+	if *keyFile == "" {
+		*keyFile = filepath.Join(filepath.Dir(*dbPath), "siemlite.key")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -51,6 +70,8 @@ func run() error {
 	cleaner := retention.New(repo, retention.Config{RetentionDays: *retentionDays, Interval: 24 * time.Hour})
 	var wg sync.WaitGroup
 	cleanerCtx, cancelCleaner := context.WithCancel(ctx)
+	defer cancelCleaner() // early-return paths; the normal path cancels explicitly below
+	defer worker.Close()  // idempotent
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -63,10 +84,38 @@ func run() error {
 		}
 	}
 
-	srv := api.NewServer(*addr, api.Deps{DB: db, Repo: repo, Ingest: worker, Search: engine})
+	if err := bootstrapAdminKey(ctx, repo); err != nil {
+		return err
+	}
+
+	hosts := []string{"localhost", "127.0.0.1", "::1"}
+	if h, err := os.Hostname(); err == nil {
+		hosts = append(hosts, h)
+	}
+	if host, _, ok := strings.Cut(*addr, ":"); ok && host != "" {
+		hosts = append(hosts, host)
+	}
+	for _, h := range strings.Split(*tlsHosts, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	fingerprint, generated, err := api.EnsureCertificate(*certFile, *keyFile, hosts)
+	if err != nil {
+		return err
+	}
+	if generated {
+		slog.Info("generated self-signed TLS certificate", "cert", *certFile, "key", *keyFile)
+	}
+
+	srv := api.NewServer(*addr, api.Deps{
+		DB: db, Repo: repo, Ingest: worker, Search: engine,
+		Auth: auth.New(repo, nil),
+	})
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- srv.Start() }()
-	slog.Info("SIEMLite listening", "addr", *addr, "db", *dbPath, "retention_days", *retentionDays)
+	go func() { serveErr <- srv.Start(*certFile, *keyFile) }()
+	slog.Info("SIEMLite listening (HTTPS only)", "url", "https://"+*addr, "db", *dbPath,
+		"retention_days", *retentionDays, "cert_sha256", fingerprint)
 
 	var runErr error
 	select {
@@ -147,6 +196,89 @@ func loadSampleAndSearch(ctx context.Context, worker *ingest.Worker, engine *sea
 			"severity": r.SeverityID, "src_ip": r.SrcIP, "user": r.UserName,
 		})
 		fmt.Println(" ", string(out))
+	}
+	return nil
+}
+
+// bootstrapAdminKey creates a first admin key when none exist, so a fresh
+// install is never open and never locked out. The key is printed once.
+func bootstrapAdminKey(ctx context.Context, repo *storage.Repository) error {
+	n, err := repo.CountActiveKeys(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, key, err := auth.CreateKey(ctx, repo, "bootstrap-admin", auth.RoleAdmin)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nNo API keys exist. Created an admin key (shown once, store it safely):\n\n  %s\n\n"+
+		"Create scoped keys with: siemlite keys create -name myapp -role write\n\n", key)
+	return nil
+}
+
+// runKeys implements `siemlite keys create|list|revoke`.
+func runKeys(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: siemlite keys <create|list|revoke> [flags]")
+	}
+	cmd, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("keys "+cmd, flag.ContinueOnError)
+	dbPath := fs.String("db", "siemlite.db", "SQLite database path")
+	name := fs.String("name", "", "key name, e.g. the app it belongs to (create)")
+	role := fs.String("role", "write", "read, write or admin (create)")
+	id := fs.Int64("id", 0, "key id (revoke)")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: *dbPath, ReadConns: 2})
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	repo := storage.NewRepository(db)
+
+	switch cmd {
+	case "create":
+		r, err := auth.ParseRole(*role)
+		if err != nil {
+			return err
+		}
+		kid, key, err := auth.CreateKey(ctx, repo, *name, r)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created key %d (%s, role %s). Shown once, store it safely:\n\n  %s\n", kid, *name, r, key)
+	case "list":
+		keys, err := repo.ListKeys(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-4s %-24s %-6s %-20s %s\n", "ID", "NAME", "ROLE", "CREATED", "STATUS")
+		for _, k := range keys {
+			status := "active"
+			if k.RevokedAt != nil {
+				status = "revoked"
+			}
+			fmt.Printf("%-4d %-24s %-6s %-20s %s\n", k.ID, k.Name, k.Role,
+				time.UnixMilli(k.CreatedAt).Format("2006-01-02 15:04:05"), status)
+		}
+	case "revoke":
+		ok, err := repo.RevokeKey(ctx, *id, time.Now().UnixMilli())
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("no active key with id %d", *id)
+		}
+		fmt.Printf("Revoked key %d\n", *id)
+	default:
+		return fmt.Errorf("unknown keys command %q (want create, list or revoke)", cmd)
 	}
 	return nil
 }
