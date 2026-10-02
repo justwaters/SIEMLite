@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIEMLite</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d25; --line: #263040; --text: #d8dee9; --muted: #8392a5;
+    --accent: #4fa3f7; --sev0: #5b6b7d; --sev1: #4a90d9; --sev2: #3fb68b; --sev3: #e0b341;
+    --sev4: #e8833a; --sev5: #e5484d; --sev6: #b02a8f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 24px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--accent); }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; border: 0; color: var(--muted); padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+  nav button.active { background: var(--bg); color: var(--text); }
+  #stats { margin-left: auto; display: flex; gap: 16px; color: var(--muted); font-size: 12px; }
+  #stats b { color: var(--text); font-weight: 600; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--sev5); margin-right: 6px; }
+  .dot.ok { background: var(--sev2); }
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; }
+  input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
+  #q { min-width: 320px; flex: 1; }
+  button.primary { background: var(--accent); color: #06121f; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
+  button.ghost { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tr.ev { cursor: pointer; }
+  tr.ev:hover { background: #1c2430; }
+  td.msg { max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.time, td.ip { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: #0b0f14; }
+  tr.detail td { background: #12171e; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  .meta { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; margin: 4px 0 10px; }
+  .msgbox { margin-top: 10px; padding: 8px 12px; border-radius: 6px; }
+  .msgbox.ok { background: #14301f; color: #7fd8a2; }
+  .msgbox.err { background: #371a1c; color: #f09095; }
+  textarea { width: 100%; min-height: 240px; font: 12px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
+  .hidden { display: none; }
+  .empty { color: var(--muted); text-align: center; padding: 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SIEM<span>Lite</span></h1>
+  <nav>
+    <button id="tab-search" class="active">Search</button>
+    <button id="tab-ingest">Add logs</button>
+  </nav>
+  <div id="stats"></div>
+</header>
+
+<main>
+  <section id="view-search">
+    <form id="search-form" class="panel">
+      <div class="row">
+        <label style="flex:1">Full-text query (FTS5)
+          <input id="q" placeholder='failed AND ssh   |   "invalid user"   |   admin*' autofocus>
+        </label>
+        <label>Time range
+          <select id="range">
+            <option value="900000">Last 15 min</option>
+            <option value="3600000" selected>Last hour</option>
+            <option value="86400000">Last 24 hours</option>
+            <option value="604800000">Last 7 days</option>
+            <option value="2592000000">Last 30 days</option>
+            <option value="0">All time</option>
+          </select>
+        </label>
+        <label>Severity
+          <select id="severity">
+            <option value="">Any</option>
+            <option value="1">1 Informational</option><option value="2">2 Low</option>
+            <option value="3">3 Medium</option><option value="4">4 High</option>
+            <option value="5">5 Critical</option><option value="6">6 Fatal</option>
+            <option value="0">0 Unknown</option>
+          </select>
+        </label>
+        <label>Category
+          <select id="category">
+            <option value="">Any</option>
+            <option value="1">System Activity</option><option value="2">Findings</option>
+            <option value="3">Identity &amp; Access</option><option value="4">Network Activity</option>
+            <option value="5">Discovery</option><option value="6">Application Activity</option>
+            <option value="7">Remediation</option><option value="8">Unmanaged Devices</option>
+          </select>
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label>Source IP <input id="src_ip" size="14"></label>
+        <label>Dest IP <input id="dst_ip" size="14"></label>
+        <label>User <input id="user" size="14"></label>
+        <label>Page size
+          <select id="limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
+        </label>
+        <button class="primary" type="submit">Search</button>
+      </div>
+    </form>
+    <div id="error" class="msgbox err hidden"></div>
+    <div class="meta">
+      <span id="summary"></span>
+      <span>
+        <button class="ghost" id="prev">&larr; Newer</button>
+        <button class="ghost" id="next">Older &rarr;</button>
+      </span>
+    </div>
+    <div class="panel" style="padding:0">
+      <table>
+        <thead><tr><th>Time</th><th>Severity</th><th>Category</th><th>Source</th><th>Dest</th><th>User</th><th>Event</th></tr></thead>
+        <tbody id="results"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="view-ingest" class="hidden">
+    <div class="panel">
+      <p style="margin-top:0;color:var(--muted)">
+        Paste logs (one per line) or load a file. Syslog, JSON lines and plain text are supported; each line is
+        stored exactly as received and parsed into an OCSF event (time, IPs, user and severity are detected where possible).
+      </p>
+      <textarea id="logs" placeholder="Oct  2 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2"></textarea>
+      <div class="row" style="margin-top:10px">
+        <label>Source name <input id="source" placeholder="e.g. sshd, nginx"></label>
+        <label>Severity override
+          <select id="sev-override">
+            <option value="">Auto-detect</option>
+            <option value="1">Informational</option><option value="2">Low</option><option value="3">Medium</option>
+            <option value="4">High</option><option value="5">Critical</option>
+          </select>
+        </label>
+        <label>Or load a file <input type="file" id="file"></label>
+        <button class="primary" id="send">Store logs</button>
+      </div>
+      <div id="ingest-msg" class="msgbox hidden"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SEV = {0: ["Unknown", "--sev0"], 1: ["Info", "--sev1"], 2: ["Low", "--sev2"], 3: ["Medium", "--sev3"],
+             4: ["High", "--sev4"], 5: ["Critical", "--sev5"], 6: ["Fatal", "--sev6"], 99: ["Other", "--sev0"]};
+const CAT = {1: "System", 2: "Findings", 3: "IAM", 4: "Network", 5: "Discovery", 6: "Application", 7: "Remediation", 8: "Unmanaged"};
+let offset = 0;
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  for (const k of kids) e.append(k);
+  return e;
+}
+
+// Tabs
+for (const name of ["search", "ingest"]) {
+  $("tab-" + name).onclick = () => {
+    for (const n of ["search", "ingest"]) {
+      $("tab-" + n).classList.toggle("active", n === name);
+      $("view-" + n).classList.toggle("hidden", n !== name);
+    }
+  };
+}
+
+// Health
+async function refreshHealth() {
+  const box = $("stats");
+  try {
+    const h = await (await fetch("/health")).json();
+    const db = (h.database && h.database.stats) || {};
+    box.replaceChildren(
+      el("span", {}, el("i", { className: "dot" + (h.status === "ok" ? " ok" : "") }), h.status),
+      el("span", {}, "events ", el("b", {}, String(db.events ?? "–"))),
+      el("span", {}, "db ", el("b", {}, db.size_bytes != null ? (db.size_bytes / 1048576).toFixed(2) + " MB" : "–")),
+      el("span", {}, "queue ", el("b", {}, `${h.ingest.queue_depth}/${h.ingest.queue_capacity}`)),
+      el("span", {}, "dropped ", el("b", {}, String(h.ingest.dropped))),
+    );
+  } catch {
+    box.replaceChildren(el("span", {}, el("i", { className: "dot" }), "backend unreachable"));
+  }
+}
+refreshHealth();
+setInterval(refreshHealth, 5000);
+
+// Search
+function params() {
+  const p = new URLSearchParams();
+  const range = Number($("range").value);
+  if (range > 0) p.set("start", String(Date.now() - range));
+  for (const [id, key] of [["q", "q"], ["severity", "severity"], ["category", "category"],
+                           ["src_ip", "src_ip"], ["dst_ip", "dst_ip"], ["user", "user"], ["limit", "limit"]]) {
+    const v = $(id).value.trim();
+    if (v !== "") p.set(key, v);
+  }
+  p.set("offset", String(offset));
+  return p;
+}
+
+async function runSearch() {
+  const err = $("error");
+  err.classList.add("hidden");
+  const res = await fetch("/api/v1/search?" + params());
+  const data = await res.json();
+  if (!res.ok) {
+    err.textContent = data.error || "search failed";
+    err.classList.remove("hidden");
+    return;
+  }
+  const limit = data.limit;
+  $("summary").textContent = data.count
+    ? `Showing ${data.offset + 1}–${data.offset + data.count} (${data.took_ms.toFixed(1)} ms)`
+    : `No results (${data.took_ms.toFixed(1)} ms)`;
+  $("prev").disabled = offset === 0;
+  $("next").disabled = data.count < limit;
+
+  const body = $("results");
+  if (!data.events.length) {
+    body.replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "empty" }, "No matching events")));
+    return;
+  }
+  body.replaceChildren(...data.events.flatMap(renderRow));
+}
+
+function renderRow(ev) {
+  const [label, color] = SEV[ev.severity_id] || ["?", "--sev0"];
+  const badge = el("span", { className: "badge", textContent: label });
+  badge.style.background = `var(${color})`;
+
+  const text = eventText(ev);
+  const row = el("tr", { className: "ev" },
+    el("td", { className: "time", textContent: new Date(ev.timestamp).toLocaleString() }),
+    el("td", {}, badge),
+    el("td", { textContent: CAT[ev.category_uid] || ev.category_uid }),
+    el("td", { className: "ip", textContent: ev.src_ip || "" }),
+    el("td", { className: "ip", textContent: ev.dst_ip || "" }),
+    el("td", { textContent: ev.user_name || "" }),
+    el("td", { className: "msg", textContent: text, title: text }),
+  );
+  const detail = el("tr", { className: "detail hidden" },
+    el("td", { colSpan: 7 }, el("pre", { textContent: prettyRaw(ev.raw_data) })));
+  row.onclick = () => detail.classList.toggle("hidden");
+  return [row, detail];
+}
+
+// Prefer the OCSF "message" when raw_data is an OCSF JSON document.
+function eventText(ev) {
+  try { const o = JSON.parse(ev.raw_data); if (o && o.message) return o.message; } catch {}
+  return ev.raw_data;
+}
+function prettyRaw(raw) {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+}
+
+$("search-form").onsubmit = (e) => { e.preventDefault(); offset = 0; runSearch(); };
+$("prev").onclick = () => { offset = Math.max(0, offset - Number($("limit").value)); runSearch(); };
+$("next").onclick = () => { offset += Number($("limit").value); runSearch(); };
+
+// Ingest
+$("file").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (f) $("logs").value = await f.text();
+};
+
+$("send").onclick = async () => {
+  const msg = $("ingest-msg");
+  const text = $("logs").value;
+  const p = new URLSearchParams();
+  if ($("source").value.trim()) p.set("source", $("source").value.trim());
+  if ($("sev-override").value) p.set("severity", $("sev-override").value);
+
+  $("send").disabled = true;
+  try {
+    const res = await fetch("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: text });
+    const data = await res.json();
+    msg.classList.remove("hidden", "ok", "err");
+    if (res.ok) {
+      msg.classList.add("ok");
+      msg.textContent = `Stored ${data.accepted} log line(s)` + (data.rejected ? `, rejected ${data.rejected}` : "") + ".";
+      $("logs").value = "";
+      $("file").value = "";
+      refreshHealth();
+    } else {
+      msg.classList.add("err");
+      msg.textContent = data.error || (data.errors && data.errors[0].error) || "ingest failed";
+    }
+  } catch (e) {
+    msg.classList.remove("hidden", "ok");
+    msg.classList.add("err");
+    msg.textContent = "Request failed: " + e.message;
+  } finally {
+    $("send").disabled = false;
+  }
+};
+
+runSearch();
+</script>
+</body>
+</html>

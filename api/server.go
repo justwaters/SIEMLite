@@ -15,13 +15,16 @@ import (
 
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/ocsf"
+	"siemlite/pkg/parser"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
+	"siemlite/web"
 )
 
 const (
 	maxBodyBytes   = 16 << 20
 	maxBatchEvents = 10000
+	maxLogLines    = 100000
 	submitTimeout  = 5 * time.Second
 )
 
@@ -62,7 +65,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/events", s.handleIngest)
 	mux.HandleFunc("GET /api/v1/search", s.handleSearch)
+	mux.HandleFunc("POST /api/v1/logs", s.handleLogs)
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.Handle("GET /", web.Handler())
 	return s.recoverer(mux)
 }
 
@@ -161,6 +166,75 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	status := http.StatusAccepted
+	if resp.Accepted == 0 {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, resp)
+}
+
+// handleLogs stores raw log text: one log per line. Syslog, JSON lines and
+// plain text are parsed into OCSF events; the original line is kept verbatim.
+// Optional query params: source (product name), severity (override, 0-6/99).
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "cannot read body")
+		return
+	}
+
+	defaults := parser.Defaults{Source: r.URL.Query().Get("source")}
+	if defaults.SeverityID, err = parseOptInt(r.URL.Query().Get("severity")); err != nil {
+		writeError(w, http.StatusBadRequest, "severity: "+err.Error())
+		return
+	}
+
+	lines := bytes.Split(body, []byte("\n"))
+	events := make([]*ocsf.Event, 0, len(lines))
+	for _, l := range lines {
+		if ev := parser.ParseLine(string(l), defaults); ev != nil {
+			events = append(events, ev)
+		}
+	}
+	if len(events) == 0 {
+		writeError(w, http.StatusBadRequest, "no log lines supplied")
+		return
+	}
+	if len(events) > maxLogLines {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("at most %d lines per request", maxLogLines))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), submitTimeout)
+	defer cancel()
+
+	var resp ingestResponse
+	for i, ev := range events {
+		err := s.deps.Ingest.Submit(ctx, ev)
+		var verr *ocsf.ValidationError
+		switch {
+		case err == nil:
+			resp.Accepted++
+		case errors.As(err, &verr):
+			resp.Rejected++
+			if len(resp.Errors) < 20 {
+				resp.Errors = append(resp.Errors, ingestError{Index: i, Error: err.Error()})
+			}
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"error":            "ingest queue unavailable: " + err.Error(),
+				"accepted":         resp.Accepted,
+				"stopped_at_index": i,
+			})
+			return
+		}
+	}
 	status := http.StatusAccepted
 	if resp.Accepted == 0 {
 		status = http.StatusBadRequest
