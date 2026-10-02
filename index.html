@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIEMLite: a SIEM in a single Go binary</title>
+<meta name="description" content="SIEMLite is a lightweight, embedded SIEM written in Go. OCSF-normalized events, SQLite full-text search, HTTPS-only ingestion with API keys, and a built-in web UI.">
+<meta property="og:title" content="SIEMLite: a SIEM in a single Go binary">
+<meta property="og:description" content="Collect, search and retain security logs with one binary and one SQLite file.">
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d25; --line: #263040; --text: #d8dee9; --muted: #8392a5;
+    --accent: #4fa3f7; --ok: #3fb68b; --warn: #e0b341;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  nav { border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; gap: 28px; height: 60px; }
+  .logo { font-weight: 700; font-size: 18px; color: var(--text); }
+  .logo span { color: var(--accent); }
+  nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 14px; }
+  .hero { padding: 88px 0 64px; }
+  .hero h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.1; margin: 0 0 20px; letter-spacing: -0.02em; max-width: 780px; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p.lead { font-size: 19px; color: var(--muted); max-width: 640px; margin: 0 0 32px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 11px 20px; border-radius: 8px; font-weight: 600; font-size: 15px; }
+  .btn.primary { background: var(--accent); color: #06121f; }
+  .btn.ghost { border: 1px solid var(--line); color: var(--text); }
+  .btn:hover { text-decoration: none; filter: brightness(1.1); }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 640px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  pre { background: #0b0f14; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; margin: 0 0 16px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.92em; }
+  p code, li code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .c { color: #6b7a8d; }
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+  .steps li { counter-increment: s; position: relative; padding-left: 44px; margin-bottom: 26px; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); text-align: center; line-height: 28px; font-weight: 600; font-size: 14px; color: var(--accent); }
+  .steps h3 { margin: 0 0 8px; font-size: 17px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 14px 18px; color: var(--muted); font-size: 14.5px; }
+  footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#">SIEM<span>Lite</span></a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#security">Security</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>A SIEM in a <em>single Go binary</em>.</h1>
+    <p class="lead">Collect, search and retain security logs with one executable and one SQLite file.
+      No cluster, no agents to babysit, no cloud bill.</p>
+    <div class="cta">
+      <a class="btn primary" href="#quickstart">Get started</a>
+      <a class="btn ghost" href="https://github.com/justwaters/SIEMLite">View on GitHub</a>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything a small team needs to see what happened</h2>
+    <p class="sub">SIEMLite is built for homelabs, small companies and single services where a full SIEM stack is overkill.</p>
+    <div class="grid">
+      <div class="card"><h3>Send any log</h3>
+        <p>Post syslog, JSON lines or plain text. SIEMLite detects the timestamp, hostname, IPs, user and severity, and keeps your original line verbatim.</p></div>
+      <div class="card"><h3>OCSF-normalized</h3>
+        <p>Events are stored in the Open Cybersecurity Schema Framework model, so categories, classes and severities mean the same thing across every source.</p></div>
+      <div class="card"><h3>Fast full-text search</h3>
+        <p>SQLite FTS5 with phrase, boolean and prefix queries, combined with time-window, severity, category, IP and user filters.</p></div>
+      <div class="card"><h3>Built-in web UI</h3>
+        <p>Search, expand any event to see the raw log, paste or upload logs, and watch ingest health live. It's embedded in the binary.</p></div>
+      <div class="card"><h3>High-throughput ingest</h3>
+        <p>Events are queued and written to SQLite in batched transactions (500 events or 500 ms, whichever comes first) over a WAL database.</p></div>
+      <div class="card"><h3>Automatic retention</h3>
+        <p>Logs older than your retention window (30 days by default) are deleted in batches, and disk space is returned with incremental vacuum.</p></div>
+      <div class="card"><h3>HTTPS only</h3>
+        <p>There is no plain-HTTP listener. A self-signed certificate is generated on first start, or bring your own.</p></div>
+      <div class="card"><h3>Scoped API keys</h3>
+        <p>Write-only keys for your apps, read keys for analysts, admin keys for you. Keys are stored hashed and shown once.</p></div>
+      <div class="card"><h3>Pure Go, no CGO</h3>
+        <p>Built on <code>modernc.org/sqlite</code>, so it cross-compiles cleanly and ships as one static-friendly binary.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Quick start</h2>
+    <p class="sub">From clone to first search in about a minute. Requires Go.</p>
+    <ol class="steps">
+      <li>
+        <h3>Build and run</h3>
+<pre>git clone https://github.com/justwaters/SIEMLite.git
+cd SIEMLite
+go build -o siemlite .
+./siemlite</pre>
+        <p>On first start SIEMLite creates <code>siemlite.db</code>, a self-signed certificate, and prints an admin API key <strong>once</strong>. Copy it.
+          The UI is at <code>https://localhost:8443</code>.</p>
+      </li>
+      <li>
+        <h3>Create a write-only key for your app</h3>
+<pre>./siemlite keys create -name myapp -role write</pre>
+      </li>
+      <li>
+        <h3>Point your app at it</h3>
+<pre><span class="c"># send a log file</span>
+curl --cacert siemlite.crt -X POST \
+  'https://localhost:8443/api/v1/logs?source=myapp' \
+  -H "Authorization: Bearer $SIEMLITE_KEY" \
+  --data-binary @app.log
+
+<span class="c"># or send structured OCSF events</span>
+curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
+  -H "Authorization: Bearer $SIEMLITE_KEY" \
+  -d '[{"category_uid":3,"class_uid":3002,"severity_id":4,
+        "message":"Failed password for root","src_endpoint":{"ip":"203.0.113.7"}}]'</pre>
+      </li>
+      <li>
+        <h3>Search</h3>
+        <p>Open the UI and sign in with a read or admin key, or query the API:</p>
+<pre>curl --cacert siemlite.crt -H "Authorization: Bearer $SIEMLITE_READ_KEY" \
+  'https://localhost:8443/api/v1/search?q=failed+AND+ssh&amp;severity=3&amp;limit=20'</pre>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section id="api">
+  <div class="wrap">
+    <h2>The API</h2>
+    <p class="sub">Four endpoints. JSON in, JSON out.</p>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Role</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /api/v1/logs</code></td><td>write</td><td>Raw log text, one entry per line (syslog, JSON lines, plain text)</td></tr>
+        <tr><td><code>POST /api/v1/events</code></td><td>write</td><td>Array of OCSF events</td></tr>
+        <tr><td><code>GET /api/v1/search</code></td><td>read</td><td><code>q</code>, <code>start</code>, <code>end</code>, <code>severity</code>, <code>category</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>limit</code>, <code>offset</code></td></tr>
+        <tr><td><code>GET /health</code></td><td>public</td><td>Up/down for load balancers; counts and queue state with a read key</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <h2>Secure by default</h2>
+    <p class="sub">A log store is a juicy target, so SIEMLite starts locked down.</p>
+    <div class="grid">
+      <div class="card"><h3>No plaintext, ever</h3><p>The server only speaks TLS 1.2+. There is no HTTP port to forget to close.</p></div>
+      <div class="card"><h3>Least-privilege keys</h3><p>An app that can write logs can't read them. A compromised app key doesn't expose your history.</p></div>
+      <div class="card"><h3>Hashed at rest</h3><p>Only a SHA-256 of each key is stored. Revoke any key instantly with <code>siemlite keys revoke</code>.</p></div>
+    </div>
+    <p style="margin-top:20px" class="note"><strong>Early-stage project.</strong>
+      Client-certificate (mTLS) verification and per-key rate limiting are not implemented yet.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    SIEMLite &middot; <a href="https://github.com/justwaters/SIEMLite">github.com/justwaters/SIEMLite</a>
+  </div>
+</footer>
+
+</body>
+</html>
