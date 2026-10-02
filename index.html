@@ -100,8 +100,8 @@
         <p>Logs older than your retention window (30 days by default) are deleted in batches, and disk space is returned with incremental vacuum.</p></div>
       <div class="card"><h3>HTTPS only</h3>
         <p>There is no plain-HTTP listener. A self-signed certificate is generated on first start, or bring your own.</p></div>
-      <div class="card"><h3>Scoped API keys</h3>
-        <p>Write-only keys for your apps, read keys for analysts, admin keys for you. Keys are stored hashed and shown once.</p></div>
+      <div class="card"><h3>Keys for apps, accounts for people</h3>
+        <p>Applications send logs with API keys that can do nothing else. People sign in with a username and password, as an admin or a search-only analyst.</p></div>
       <div class="card"><h3>Pure Go, no CGO</h3>
         <p>Built on <code>modernc.org/sqlite</code>, so it cross-compiles cleanly and ships as one static-friendly binary.</p></div>
     </div>
@@ -119,12 +119,13 @@
 cd SIEMLite
 go build -o siemlite .
 ./siemlite</pre>
-        <p>On first start SIEMLite creates <code>siemlite.db</code>, a self-signed certificate, and prints an admin API key <strong>once</strong>. Copy it.
-          The UI is at <code>https://localhost:8443</code>.</p>
+        <p>On first start SIEMLite creates <code>siemlite.db</code>, a self-signed certificate, and an <code>admin</code> user whose password is printed <strong>once</strong>. Copy it.
+          Sign in to the UI at <code>https://localhost:8443</code>.</p>
       </li>
       <li>
-        <h3>Create a write-only key for your app</h3>
-<pre>./siemlite keys create -name myapp -role write</pre>
+        <h3>Create an API key for your app</h3>
+<pre>./siemlite keys create -name myapp</pre>
+        <p>Keys can only send logs. Add people with <code>./siemlite users create -username alice -role analyst</code>.</p>
       </li>
       <li>
         <h3>Point your app at it</h3>
@@ -142,9 +143,8 @@ curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
       </li>
       <li>
         <h3>Search</h3>
-        <p>Open the UI and sign in with a read or admin key, or query the API:</p>
-<pre>curl --cacert siemlite.crt -H "Authorization: Bearer $SIEMLITE_READ_KEY" \
-  'https://localhost:8443/api/v1/search?q=failed+AND+ssh&amp;severity=3&amp;limit=20'</pre>
+        <p>Sign in to the web UI with your username and password and search by text, time, severity, category, IP or user.
+          Search is for signed-in users only; API keys can't read logs.</p>
       </li>
     </ol>
   </div>
@@ -155,12 +155,12 @@ curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
     <h2>The API</h2>
     <p class="sub">Four endpoints. JSON in, JSON out.</p>
     <table>
-      <thead><tr><th>Endpoint</th><th>Role</th><th>Purpose</th></tr></thead>
+      <thead><tr><th>Endpoint</th><th>Who</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td><code>POST /api/v1/logs</code></td><td>write</td><td>Raw log text, one entry per line (syslog, JSON lines, plain text)</td></tr>
-        <tr><td><code>POST /api/v1/events</code></td><td>write</td><td>Array of OCSF events</td></tr>
-        <tr><td><code>GET /api/v1/search</code></td><td>read</td><td><code>q</code>, <code>start</code>, <code>end</code>, <code>severity</code>, <code>category</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>limit</code>, <code>offset</code></td></tr>
-        <tr><td><code>GET /health</code></td><td>public</td><td>Up/down for load balancers; counts and queue state with a read key</td></tr>
+        <tr><td><code>POST /api/v1/logs</code></td><td>API key</td><td>Raw log text, one entry per line (syslog, JSON lines, plain text)</td></tr>
+        <tr><td><code>POST /api/v1/events</code></td><td>API key</td><td>Array of OCSF events</td></tr>
+        <tr><td><code>GET /api/v1/search</code></td><td>signed-in user</td><td><code>q</code>, <code>start</code>, <code>end</code>, <code>severity</code>, <code>category</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>limit</code>, <code>offset</code></td></tr>
+        <tr><td><code>GET /health</code></td><td>public</td><td>Up/down for load balancers; counts and queue state when signed in</td></tr>
       </tbody>
     </table>
   </div>
@@ -173,10 +173,10 @@ curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
     <div class="grid">
       <div class="card"><h3>No plaintext, ever</h3><p>The server only speaks TLS 1.2+. There is no HTTP port to forget to close.</p></div>
       <div class="card"><h3>Least-privilege keys</h3><p>An app that can write logs can't read them. A compromised app key doesn't expose your history.</p></div>
-      <div class="card"><h3>Hashed at rest</h3><p>Only a SHA-256 of each key is stored. Revoke any key instantly with <code>siemlite keys revoke</code>.</p></div>
+      <div class="card"><h3>Hashed at rest</h3><p>Passwords are stored as bcrypt hashes and API keys as SHA-256 hashes. Revoke a key instantly with <code>siemlite keys revoke</code>.</p></div>
     </div>
     <p style="margin-top:20px" class="note"><strong>Early-stage project.</strong>
-      Client-certificate (mTLS) verification and per-key rate limiting are not implemented yet.</p>
+      Client-certificate (mTLS) verification and per-key rate limiting on log ingest are not implemented yet.</p>
   </div>
 </section>
 
