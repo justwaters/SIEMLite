@@ -1,9 +1,9 @@
-# Checks every commit pushed to any branch (which covers pull requests from
-# this repository) and pull requests from forks.
+# Checks every pull request (as it would be merged) and every commit on main.
 name: Checks
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -16,8 +16,6 @@ concurrency:
 jobs:
   test:
     name: Tests
-    # Same-repository pull requests are already checked by their push.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -44,7 +42,6 @@ jobs:
 
   vulncheck:
     name: Known vulnerabilities
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -57,7 +54,6 @@ jobs:
 
   docker:
     name: Docker image
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

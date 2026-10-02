@@ -281,7 +281,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 go test -race ./...
 ```
 
-Every push and pull request runs the same checks on GitHub (`.github/workflows/ci.yml`): formatting, `go vet`, the
+Every pull request and every commit on `main` runs the same checks on GitHub (`.github/workflows/ci.yml`): formatting, `go vet`, the
 tests with the race detector, a build, a syntax check of the web UI's script, `govulncheck` for known
 vulnerabilities in code SIEMLite actually calls, and a build of the Docker image.
 
