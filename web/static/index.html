@@ -4,247 +4,443 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SIEMLite</title>
+<script>
+  // Apply a saved theme before first paint so the page never flashes.
+  try { const t = localStorage.getItem("siemlite-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}
+</script>
 <style>
+  @font-face { font-family: "Instrument Sans"; src: url(fonts/instrument-sans.woff2) format("woff2");
+               font-weight: 400 700; font-stretch: 75% 100%; font-display: swap; }
+  @font-face { font-family: "Spline Sans Mono"; src: url(fonts/spline-sans-mono.woff2) format("woff2");
+               font-weight: 400 600; font-display: swap; }
+
+  /* The interface is monochrome. Colour only ever means severity. */
   :root {
-    --bg: #0f1419; --panel: #171d25; --line: #263040; --text: #d8dee9; --muted: #8392a5;
-    --accent: #4fa3f7; --sev0: #5b6b7d; --sev1: #4a90d9; --sev2: #3fb68b; --sev3: #e0b341;
-    --sev4: #e8833a; --sev5: #e5484d; --sev6: #b02a8f;
+    color-scheme: light;
+    --paper: #f2f3f1; --surface: #ffffff; --raised: #e9ebe8; --ink: #1c1f21; --ink-2: #5f666b; --rule: #d9dcd8;
+    --sev-0: #8a949b; --sev-1: #6c7a86; --sev-2: #2f8463; --sev-3: #a47f12; --sev-4: #c35a1c; --sev-5: #c1333a; --sev-6: #8c2b69;
+    --sans: "Instrument Sans", system-ui, sans-serif;
+    --mono: "Spline Sans Mono", ui-monospace, monospace;
+    --side: 236px;
   }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a;
+      --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e05257; --sev-6: #c0559a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a;
+    --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e05257; --sev-6: #c0559a;
+  }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
-  header { display: flex; align-items: center; gap: 24px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
-  header h1 span { color: var(--accent); }
-  nav { display: flex; gap: 4px; }
-  nav button { background: none; border: 0; color: var(--muted); padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
-  nav button.active { background: var(--bg); color: var(--text); }
-  #stats { margin-left: auto; display: flex; gap: 16px; color: var(--muted); font-size: 12px; }
-  #stats b { color: var(--text); font-weight: 600; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--sev5); margin-right: 6px; }
-  .dot.ok { background: var(--sev2); }
-  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
-  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
-  label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
-  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; }
-  input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
-  #q { min-width: 320px; flex: 1; }
-  button.primary { background: var(--accent); color: #06121f; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
-  button.ghost { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
-  button:disabled { opacity: .4; cursor: default; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; font-size: 12px; }
-  tr.ev { cursor: pointer; }
-  tr.ev:hover { background: #1c2430; }
-  td.msg { max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  td.time, td.ip { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: #0b0f14; }
-  tr.detail td { background: #12171e; }
-  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, Menlo, monospace; }
-  .meta { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; margin: 4px 0 10px; }
-  .msgbox { margin-top: 10px; padding: 8px 12px; border-radius: 6px; }
-  .msgbox.ok { background: #14301f; color: #7fd8a2; }
-  .msgbox.err { background: #371a1c; color: #f09095; }
-  textarea { width: 100%; min-height: 240px; font: 12px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
-  .hidden { display: none !important; }
-  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 8px 0 24px; }
-  footer a { color: var(--muted); }
-  #login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 10; }
-  #login form { width: 420px; }
-  #login h2 { margin-top: 0; }
-  #login input { width: 100%; }
-  .empty { color: var(--muted); text-align: center; padding: 30px; }
-  tr.threat td:first-child { box-shadow: inset 3px 0 0 var(--sev5); }
-  .intel { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700;
-           background: var(--sev5); color: #0b0f14; }
-  .cc { color: var(--muted); margin-left: 6px; font-size: 11px; }
-  .check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 8px; }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin-bottom: 10px; font-size: 12px; }
-  .kv dt { color: var(--muted); }
-  .kv dd { margin: 0; font-family: ui-monospace, Menlo, monospace; }
-  .kv dd.hit { color: #f09095; }
-  .sampletag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 700;
-               letter-spacing: .4px; border: 1px solid var(--muted); color: var(--muted); }
-  .switch { white-space: nowrap; display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; cursor: pointer; user-select: none; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  [hidden] { display: none !important; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .mono { font-family: var(--mono); font-size: 13px; }
+
+  /* Controls */
+  .input, .select { height: 36px; }
+  input[type="file"] { font-size: 13.5px; color: var(--ink-2); }
+  input[type="file"]::file-selector-button { margin-right: 10px; padding: 7px 12px; border: 1px solid var(--rule); border-radius: 6px;
+                                             background: var(--surface); color: var(--ink); cursor: pointer; }
+  input[type="file"]::file-selector-button:hover { background: var(--raised); }
+  .input, .select, textarea { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px; }
+  .input:focus, .select:focus, textarea:focus { border-color: var(--ink-2); outline: none; }
+  .btn { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  .btn:hover { background: var(--raised); }
+  .btn:disabled { opacity: .4; cursor: default; background: var(--surface); }
+  .btn-primary { background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; }
+  .btn-primary:hover { background: var(--ink); opacity: .88; }
+  .field-label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
+
+  /* Shell */
+  .app { display: grid; grid-template-columns: var(--side) 1fr; min-height: 100%; }
+  .side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 28px;
+          padding: 22px 16px 18px; border-right: 1px solid var(--rule); overflow-y: auto; }
+  .wordmark { font-weight: 650; font-size: 19px; letter-spacing: -.2px; font-stretch: 88%; padding: 0 10px; margin: 0; }
+  .nav { display: grid; gap: 2px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px;
+              background: none; color: var(--ink-2); text-align: left; cursor: pointer; }
+  .nav-item:hover { color: var(--ink); background: var(--raised); }
+  .nav-item[aria-current="page"] { color: var(--ink); background: var(--raised); font-weight: 600; }
+  .nav-item svg, .icon { width: 18px; height: 18px; flex: none; }
+  .side-foot { margin-top: auto; display: grid; gap: 22px; font-size: 13px; }
+
+  .status-line { display: flex; align-items: center; gap: 8px; padding: 0 10px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sev-2); }
+  .dot.bad { background: var(--sev-5); }
+  .facts { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; margin: 8px 0 0; padding: 0 10px; color: var(--ink-2); }
+  .facts dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
+  .facts .warn { color: var(--sev-4); }
+
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; cursor: pointer; user-select: none; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  .switch .track { width: 34px; height: 20px; border-radius: 10px; background: var(--line); position: relative; transition: background .15s; }
-  .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
-                          background: var(--text); transition: transform .15s; }
-  .switch input:checked + .track { background: var(--accent); }
-  .switch input:checked + .track::after { transform: translateX(14px); background: #06121f; }
-  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .track { width: 32px; height: 18px; border-radius: 9px; background: var(--rule); position: relative; flex: none; transition: background .15s; }
+  .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface);
+                  box-shadow: 0 0 0 1px var(--rule); transition: transform .15s; }
+  .switch input:checked + .track { background: var(--ink); }
+  .switch input:checked + .track::after { transform: translateX(14px); box-shadow: none; }
+  .switch input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
   .switch.busy { opacity: .5; pointer-events: none; }
-  #sample-pill { color: var(--muted); font-size: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; }
+  .note { margin: 0; padding: 0 10px; color: var(--ink-2); }
+
+  .theme { display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px; margin: 0 10px; border: 1px solid var(--rule); border-radius: 7px; }
+  .theme button { border: 0; background: none; border-radius: 5px; padding: 4px 0; color: var(--ink-2); cursor: pointer; font-size: 12.5px; }
+  .theme button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--rule); }
+  .account { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 10px 0; border-top: 1px solid var(--rule); }
+  .account b { display: block; font-weight: 600; }
+  .account span { color: var(--ink-2); }
+  .link-btn { border: 0; background: none; padding: 4px 0; color: var(--ink-2); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .link-btn:hover { color: var(--ink); }
+
+  .main { min-width: 0; padding: 0 40px 48px; }
+  .mobile-bar { display: none; }
+
+  /* Search: an empty page with the field in the middle until you search */
+  .search { padding-top: 26px; transition: padding-top .5s cubic-bezier(.2, .7, .2, 1); }
+  .search.idle { padding-top: 33vh; }
+  .query { max-width: 860px; margin: 0 auto; }
+  .search:not(.idle) .query { max-width: none; position: sticky; top: 0; z-index: 2; background: var(--paper); padding: 12px 0 10px; }
+  .field { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--rule);
+           border-radius: 10px; padding: 0 8px 0 16px; transition: box-shadow .2s, border-color .2s; }
+  .field:focus-within { border-color: var(--ink-2); box-shadow: 0 0 0 4px var(--raised); }
+  .field > .icon { color: var(--ink-2); }
+  #q { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-family: var(--mono); padding: 12px 10px;
+       font-size: 15px; transition: font-size .5s cubic-bezier(.2, .7, .2, 1), padding .5s cubic-bezier(.2, .7, .2, 1); }
+  .idle #q { font-size: 21px; padding: 19px 12px; }
+  #q::placeholder { color: var(--ink-2); opacity: .7; }
+  #range { border: 0; background: none; color: var(--ink-2); padding: 6px 4px; cursor: pointer; }
+  .icon-btn { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 7px;
+              background: none; color: var(--ink-2); cursor: pointer; }
+  .icon-btn:hover, .icon-btn[aria-expanded="true"] { background: var(--raised); color: var(--ink); }
+  .count { position: absolute; top: 3px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+           background: var(--ink); color: var(--paper); font-size: 10px; font-weight: 700; line-height: 15px; }
+  .hint { margin: 14px 4px 0; color: var(--ink-2); font-size: 13.5px; text-align: center; }
+  .hint code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+  .search:not(.idle) .hint { display: none; }
+
+  .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 10px;
+             padding: 14px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+  .filters .wide { grid-column: span 2; }
+  .filters .input, .filters .select { width: 100%; min-width: 0; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; align-self: end; padding-bottom: 7px; }
+  .syntax { grid-column: 1 / -1; margin: 4px 0 0; font-size: 13px; color: var(--ink-2); max-width: 75ch; }
+  .syntax code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+  .filters-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+
+  .results { margin-top: 6px; animation: rise .45s .12s both cubic-bezier(.2, .7, .2, 1); }
+  .idle .results { display: none; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  .meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0 10px; font-size: 13px; color: var(--ink-2); }
+  .pager { display: flex; gap: 6px; }
+  .pager .btn { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 8px; font-size: 13px; }
+  .pager .btn:last-child { padding: 4px 8px 4px 10px; }
+  .error { margin: 10px 0 0; padding: 10px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--sev-5); color: var(--sev-5); font-size: 13.5px; }
+
+  .table-wrap { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { text-align: left; font-weight: 500; font-size: 12.5px; color: var(--ink-2); padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: 0; }
+  col.c-time { width: 156px; } col.c-sev { width: 92px; } col.c-cat { width: 96px; } col.c-src { width: 150px; } col.c-dst { width: 132px; } col.c-user { width: 96px; }
+  tr.ev { cursor: pointer; }
+  tr.ev:hover td { background: var(--raised); }
+  tr.ev.open td { background: var(--raised); border-bottom-color: transparent; }
+  tr.threat td:first-child { box-shadow: inset 3px 0 0 var(--sev-5); }
+  .time { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13.5px; }
+  .sev { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
+  .sev i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
+  .cc { margin-left: 6px; color: var(--ink-2); font-family: var(--sans); font-size: 12px; }
+  .tag { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 4px; font-size: 12px; font-weight: 600; line-height: 19px; }
+  .tag-threat { color: var(--sev-5); box-shadow: inset 0 0 0 1px var(--sev-5); }
+  .tag-sample { padding: 0; color: var(--ink-2); font-weight: 500; }
+  .empty td { white-space: normal; text-align: center; color: var(--ink-2); padding: 44px 20px; cursor: default; }
+
+  tr.detail td { background: var(--raised); white-space: normal; padding: 4px 16px 18px; }
+  .facts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 24px; margin: 6px 0 14px; }
+  .facts-grid dt { font-size: 12.5px; color: var(--ink-2); }
+  .facts-grid dd { margin: 2px 0 0; }
+  .facts-grid dd span { display: block; color: var(--ink-2); font-size: 13px; }
+  .facts-grid dd .ip { display: inline; color: inherit; font-size: 13px; }
+  .matches { margin: 0 0 14px; padding: 12px 14px; list-style: none; border-radius: 8px; box-shadow: inset 3px 0 0 var(--sev-5); background: var(--surface); }
+  .matches li + li { margin-top: 8px; }
+  .matches b { color: var(--sev-5); font-weight: 600; }
+  .matches span { display: block; color: var(--ink-2); font-size: 13px; }
+  pre.raw { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--surface); white-space: pre-wrap; word-break: break-all;
+            font: 12.5px/1.6 var(--mono); }
+
+  /* Add logs */
+  .page { max-width: 760px; padding-top: 44px; }
+  .page h1 { font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; font-stretch: 92%; }
+  .page > p { margin: 0 0 22px; color: var(--ink-2); max-width: 62ch; }
+  textarea { width: 100%; min-height: 260px; resize: vertical; font: 13px/1.6 var(--mono); }
+  .form-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 16px; margin-top: 14px; }
+  .form-row .btn-primary { height: 36px; margin-left: auto; }
+  .notice { margin-top: 14px; font-size: 14px; }
+  .notice.ok { color: var(--sev-2); }
+  .notice.bad { color: var(--sev-5); }
+
+  /* Sign in */
+  .login { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: var(--paper); }
+  .login form { width: min(360px, 100%); display: grid; gap: 14px; }
+  .login .wordmark { padding: 0; font-size: 26px; margin-bottom: 2px; }
+  .login p { margin: 0 0 8px; color: var(--ink-2); }
+  .login .input { width: 100%; padding: 10px 12px; }
+  .login .btn-primary { padding: 10px; margin-top: 4px; }
+  .login .notice { margin: 0; }
+
+  footer { margin-top: 36px; text-align: center; font-size: 12.5px; color: var(--ink-2); }
+  footer a { color: inherit; }
+  .main:has(.search.idle:not([hidden])) footer { position: fixed; bottom: 18px; left: var(--side); right: 0; }
+
+  /* Narrow screens: the sidebar becomes a drawer */
+  .scrim { display: none; }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; }
+    .side { position: fixed; z-index: 30; inset: 0 auto 0 0; width: min(300px, 86vw); background: var(--paper);
+            transform: translateX(-100%); transition: transform .25s ease; }
+    .app.menu-open .side { transform: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35); }
+    .mobile-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--rule); }
+    .mobile-bar .wordmark { padding: 0; }
+    .main { padding: 0 16px 40px; }
+    .search.idle { padding-top: 24vh; }
+    .idle #q { font-size: 17px; padding: 15px 8px; }
+    .opt, .time .date, .sev-label { display: none; }
+    col.c-time { width: 96px; } col.c-sev { width: 34px; }
+    td, th { padding-left: 10px; padding-right: 8px; }
+    .meta { flex-wrap: wrap; }
+    td.msg { white-space: normal; }
+    .msg-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+    .tag-sample { display: none; }
+    .main:has(.search.idle:not([hidden])) footer { left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
 </style>
 </head>
 <body>
-<div id="login" class="hidden">
-  <form class="panel" id="login-form">
-    <h2>SIEM<span style="color:var(--accent)">Lite</span> sign in</h2>
-    <label>Username
-      <input id="username" autocomplete="username" required>
-    </label>
-    <label style="margin-top:10px">Password
-      <input id="password" type="password" autocomplete="current-password" required>
-    </label>
-    <button class="primary" type="submit" id="login-btn" style="margin-top:14px">Sign in</button>
-    <div id="login-err" class="msgbox err hidden"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-add" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14"/><path d="M12 4v11m-4-4 4 4 4-4"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+</svg>
+
+<div id="login" class="login" hidden>
+  <form id="login-form">
+    <h1 class="wordmark">SIEMLite</h1>
+    <p>Sign in to search your logs.</p>
+    <label class="field-label">Username <input class="input" id="username" autocomplete="username" required></label>
+    <label class="field-label">Password <input class="input" id="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn btn-primary" type="submit" id="login-btn">Sign in</button>
+    <p id="login-err" class="notice bad" role="alert" hidden></p>
   </form>
 </div>
-<header>
-  <h1>SIEM<span>Lite</span></h1>
-  <nav>
-    <button id="tab-search" class="active">Search</button>
-    <button id="tab-ingest">Add logs</button>
-  </nav>
-  <div id="stats"></div>
-  <label class="switch hidden" id="sample-switch" title="Load a day of demo events (marked SAMPLE); turning it off deletes only those">
-    <input type="checkbox" id="sample-toggle" role="switch"><span class="track"></span> Sample data
-  </label>
-  <span id="sample-pill" class="hidden" title="An admin has loaded demo events, marked SAMPLE">Sample data on</span>
-  <span id="who" style="color:var(--muted);font-size:13px"></span>
-  <button class="ghost" id="logout">Sign out</button>
-</header>
 
-<main>
-  <section id="view-search">
-    <form id="search-form" class="panel">
-      <div class="row">
-        <label style="flex:1">Full-text query (FTS5)
-          <input id="q" placeholder='failed AND ssh   |   "invalid user"   |   admin*' autofocus>
-        </label>
-        <label>Time range
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Sidebar">
+    <p class="wordmark">SIEMLite</p>
+    <nav class="nav" aria-label="Main">
+      <button class="nav-item" id="nav-search" aria-current="page"><svg><use href="#i-search"/></svg>Search</button>
+      <button class="nav-item" id="nav-ingest" hidden><svg><use href="#i-add"/></svg>Add logs</button>
+    </nav>
+    <div class="side-foot">
+      <div id="status" aria-live="polite"></div>
+      <label class="switch" id="sample-switch" hidden title="Load a day of demo events. Turning it off deletes only those.">
+        Sample data <input type="checkbox" id="sample-toggle" role="switch"><span class="track"></span>
+      </label>
+      <p class="note" id="sample-note" hidden>Sample data is loaded.</p>
+      <div class="theme" role="group" aria-label="Theme">
+        <button type="button" data-theme-choice="system">System</button>
+        <button type="button" data-theme-choice="light">Light</button>
+        <button type="button" data-theme-choice="dark">Dark</button>
+      </div>
+      <div class="account">
+        <div><b id="who-name"></b><span id="who-role"></span></div>
+        <button class="link-btn" id="logout">Sign out</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="mobile-bar">
+      <span class="wordmark">SIEMLite</span>
+      <button class="icon-btn" id="menu-btn" aria-label="Open menu" aria-controls="side" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
+    </div>
+
+    <section id="view-search" class="search idle" aria-label="Search">
+      <form id="search-form" class="query" role="search">
+        <div class="field">
+          <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+          <input id="q" aria-label="Search logs" placeholder="Search your logs" autocomplete="off" spellcheck="false" autofocus>
+          <label class="visually-hidden" for="range">Time range</label>
           <select id="range">
-            <option value="900000">Last 15 min</option>
-            <option value="3600000" selected>Last hour</option>
-            <option value="86400000">Last 24 hours</option>
+            <option value="900000">Last 15 minutes</option>
+            <option value="3600000">Last hour</option>
+            <option value="86400000" selected>Last 24 hours</option>
             <option value="604800000">Last 7 days</option>
             <option value="2592000000">Last 30 days</option>
             <option value="0">All time</option>
           </select>
-        </label>
-        <label>Severity
-          <select id="severity">
-            <option value="">Any</option>
-            <option value="1">1 Informational</option><option value="2">2 Low</option>
-            <option value="3">3 Medium</option><option value="4">4 High</option>
-            <option value="5">5 Critical</option><option value="6">6 Fatal</option>
-            <option value="0">0 Unknown</option>
-          </select>
-        </label>
-        <label>Category
-          <select id="category">
-            <option value="">Any</option>
-            <option value="1">System Activity</option><option value="2">Findings</option>
-            <option value="3">Identity &amp; Access</option><option value="4">Network Activity</option>
-            <option value="5">Discovery</option><option value="6">Application Activity</option>
-            <option value="7">Remediation</option><option value="8">Unmanaged Devices</option>
-          </select>
-        </label>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <label>Source IP <input id="src_ip" size="14"></label>
-        <label>Dest IP <input id="dst_ip" size="14"></label>
-        <label>User <input id="user" size="14"></label>
-        <label>Source <input id="source_f" size="10" placeholder="e.g. sshd"></label>
-        <label>Country <input id="country" size="4" maxlength="2" placeholder="CN"></label>
-        <label class="check"><input type="checkbox" id="threat"> Threat intel matches only</label>
-        <label>Page size
-          <select id="limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
-        </label>
-        <button class="primary" type="submit">Search</button>
-      </div>
-    </form>
-    <div id="error" class="msgbox err hidden"></div>
-    <div class="meta">
-      <span id="summary"></span>
-      <span>
-        <button class="ghost" id="prev">&larr; Newer</button>
-        <button class="ghost" id="next">Older &rarr;</button>
-      </span>
-    </div>
-    <div class="panel" style="padding:0">
-      <table>
-        <thead><tr><th>Time</th><th>Severity</th><th>Category</th><th>Source</th><th>Dest</th><th>User</th><th>Event</th></tr></thead>
-        <tbody id="results"></tbody>
-      </table>
-    </div>
-  </section>
+          <button type="button" class="icon-btn" id="filters-btn" aria-label="Filters" aria-expanded="false" aria-controls="filters">
+            <svg class="icon"><use href="#i-filter"/></svg><span class="count" id="filter-count" hidden></span>
+          </button>
+        </div>
+        <p class="hint" id="hint"></p>
+        <div class="filters" id="filters" hidden>
+          <label class="field-label">Severity
+            <select class="select" id="severity">
+              <option value="">Any</option><option value="1">Informational</option><option value="2">Low</option>
+              <option value="3">Medium</option><option value="4">High</option><option value="5">Critical</option>
+              <option value="6">Fatal</option><option value="0">Unknown</option>
+            </select>
+          </label>
+          <label class="field-label">Category
+            <select class="select" id="category">
+              <option value="">Any</option><option value="1">System activity</option><option value="2">Findings</option>
+              <option value="3">Identity and access</option><option value="4">Network activity</option><option value="5">Discovery</option>
+              <option value="6">Application activity</option><option value="7">Remediation</option><option value="8">Unmanaged devices</option>
+            </select>
+          </label>
+          <label class="field-label">Source IP <input class="input mono" id="src_ip"></label>
+          <label class="field-label">Destination IP <input class="input mono" id="dst_ip"></label>
+          <label class="field-label">User <input class="input" id="user"></label>
+          <label class="field-label">Source <input class="input" id="source_f" placeholder="sshd"></label>
+          <label class="field-label">Country <input class="input" id="country" maxlength="2" placeholder="Two letters, e.g. NL"></label>
+          <label class="field-label">Results per page
+            <select class="select" id="limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
+          </label>
+          <label class="check wide"><input type="checkbox" id="threat"> Only threat intel matches</label>
+          <p class="syntax">Search for words or <code>"exact phrases"</code>, combine them with <code>AND</code>, <code>OR</code>
+            and <code>NOT</code>, and end a word with <code>*</code> to match its beginning: <code>failed AND ssh</code>, <code>admin*</code>.</p>
+          <div class="filters-foot">
+            <button type="button" class="btn" id="clear-filters">Clear filters</button>
+            <button type="submit" class="btn btn-primary">Search</button>
+          </div>
+        </div>
+      </form>
 
-  <section id="view-ingest" class="hidden">
-    <div class="panel">
-      <p style="margin-top:0;color:var(--muted)">
-        Paste logs (one per line) or load a file. Syslog, JSON lines and plain text are supported; each line is
-        stored exactly as received and parsed into an OCSF event (time, IPs, user and severity are detected where possible).
-      </p>
+      <div class="results">
+        <p id="error" class="error" role="alert" hidden></p>
+        <div class="meta">
+          <span id="summary"></span>
+          <span class="pager">
+            <button class="btn" id="prev"><svg class="icon" aria-hidden="true"><use href="#i-left"/></svg>Newer</button>
+            <button class="btn" id="next">Older<svg class="icon" aria-hidden="true"><use href="#i-right"/></svg></button>
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <colgroup><col class="c-time"><col class="c-sev"><col class="c-cat opt"><col class="c-src opt"><col class="c-dst opt"><col class="c-user opt"><col></colgroup>
+            <thead><tr><th>Time</th><th><span class="sev-label">Severity</span></th><th class="opt">Category</th><th class="opt">Source</th><th class="opt">Destination</th><th class="opt">User</th><th>Event</th></tr></thead>
+            <tbody id="results"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-ingest" class="page" aria-labelledby="ingest-title" hidden>
+      <h1 id="ingest-title">Add logs</h1>
+      <p>Paste logs, one per line, or load a file. Syslog, JSON lines and plain text all work. Each line is stored exactly
+        as written, and its time, IP addresses, user and severity are picked up where possible.</p>
+      <label class="visually-hidden" for="logs">Logs</label>
       <textarea id="logs" placeholder="Oct  2 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2"></textarea>
-      <div class="row" style="margin-top:10px">
-        <label>Source name <input id="source" placeholder="e.g. sshd, nginx"></label>
-        <label>Severity override
-          <select id="sev-override">
-            <option value="">Auto-detect</option>
+      <div class="form-row">
+        <label class="field-label">Source <input class="input" id="source" placeholder="e.g. sshd or nginx"></label>
+        <label class="field-label">Severity
+          <select class="select" id="sev-override">
+            <option value="">Detect from each line</option>
             <option value="1">Informational</option><option value="2">Low</option><option value="3">Medium</option>
             <option value="4">High</option><option value="5">Critical</option>
           </select>
         </label>
-        <label>Or load a file <input type="file" id="file"></label>
-        <button class="primary" id="send">Store logs</button>
+        <label class="field-label">Or load a file <input type="file" id="file"></label>
+        <button class="btn btn-primary" id="send">Store logs</button>
       </div>
-      <div id="ingest-msg" class="msgbox hidden"></div>
-    </div>
-  </section>
-</main>
+      <p id="ingest-msg" class="notice" role="status" hidden></p>
+    </section>
 
-<footer>
-  SIEMLite is open source under the AGPL-3.0 &middot;
-  <a href="https://github.com/justwaters/SIEMLite" target="_blank" rel="noopener">Source code</a>
-</footer>
+    <footer>SIEMLite is open source under the AGPL-3.0. <a href="https://github.com/justwaters/SIEMLite" target="_blank" rel="noopener">Get the source code</a></footer>
+  </main>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const SEV = {0: ["Unknown", "--sev0"], 1: ["Info", "--sev1"], 2: ["Low", "--sev2"], 3: ["Medium", "--sev3"],
-             4: ["High", "--sev4"], 5: ["Critical", "--sev5"], 6: ["Fatal", "--sev6"], 99: ["Other", "--sev0"]};
-const CAT = {1: "System", 2: "Findings", 3: "IAM", 4: "Network", 5: "Discovery", 6: "Application", 7: "Remediation", 8: "Unmanaged"};
-let offset = 0;
+const SEV = { 0: "Unknown", 1: "Informational", 2: "Low", 3: "Medium", 4: "High", 5: "Critical", 6: "Fatal", 99: "Other" };
+const CAT = { 1: "System", 2: "Findings", 3: "Identity", 4: "Network", 5: "Discovery", 6: "Application", 7: "Remediation", 8: "Unmanaged" };
+const FIELD = { "src_endpoint.ip": "the source IP", "dst_endpoint.ip": "the destination IP", "raw_data": "the log text" };
+const FILTER_IDS = ["severity", "category", "src_ip", "dst_ip", "user", "source_f", "country"];
+let offset = 0, isAdmin = false, sampleOn = false, totalEvents = null;
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  for (const k of kids) if (k != null && k !== "") e.append(k);
+  return e;
+}
+function icon(name) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("class", "icon"); s.setAttribute("aria-hidden", "true");
+  const u = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  u.setAttribute("href", "#i-" + name); s.append(u);
+  return s;
+}
+
+// Theme: system by default; a choice is remembered on this browser only.
+function setTheme(choice) {
+  if (choice === "light" || choice === "dark") document.documentElement.dataset.theme = choice;
+  else delete document.documentElement.dataset.theme;
+  try { choice === "system" ? localStorage.removeItem("siemlite-theme") : localStorage.setItem("siemlite-theme", choice); } catch {}
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice));
+}
+for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => setTheme(b.dataset.themeChoice);
+setTheme(document.documentElement.dataset.theme || "system");
 
 // Sign-in is a browser session: the server sets an HttpOnly cookie, which
 // script cannot read, so there is nothing to store here.
 function showLogin(msg) {
-  $("login").classList.remove("hidden");
-  $("login-err").classList.toggle("hidden", !msg);
+  $("login").hidden = false;
+  $("login-err").hidden = !msg;
   $("login-err").textContent = msg || "";
   $("username").focus();
 }
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: "same-origin", ...opts });
-  if (res.status === 401) showLogin("Your session has ended. Please sign in again.");
+  if (res.status === 401) showLogin("Your session has ended. Sign in again.");
   return res;
 }
-let isAdmin = false;
 function applySession(me) {
-  $("who").textContent = `${me.username} (${me.role})`;
   isAdmin = me.role === "admin";
-  // Only admins may add logs from the UI; hide the tab for analysts.
-  $("tab-ingest").classList.toggle("hidden", me.role !== "admin");
+  $("who-name").textContent = me.username;
+  $("who-role").textContent = isAdmin ? "Admin" : "Analyst";
+  $("nav-ingest").hidden = !isAdmin; // only admins may add logs from the UI
 }
 $("login-form").onsubmit = async (e) => {
   e.preventDefault();
   $("login-btn").disabled = true;
   try {
     const res = await fetch("/api/v1/login", {
-      method: "POST", credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: $("username").value.trim(), password: $("password").value }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { showLogin(data.error || "Sign-in failed."); return; }
     $("password").value = "";
-    $("login").classList.add("hidden");
+    $("login").hidden = true;
     applySession(data);
     start();
   } catch (err) {
-    showLogin("Could not reach the server: " + err.message);
+    showLogin("Can't reach the server: " + err.message);
   } finally {
     $("login-btn").disabled = false;
   }
@@ -254,51 +450,81 @@ $("logout").onclick = async () => {
   location.reload();
 };
 
-function el(tag, props = {}, ...kids) {
-  const e = document.createElement(tag);
-  Object.assign(e, props);
-  for (const k of kids) e.append(k);
-  return e;
+// Navigation and the narrow-screen drawer
+function show(view) {
+  for (const v of ["search", "ingest"]) {
+    $("view-" + v).hidden = v !== view;
+    if (v === view) $("nav-" + v).setAttribute("aria-current", "page"); else $("nav-" + v).removeAttribute("aria-current");
+  }
+  setMenu(false);
 }
-
-// Tabs
-for (const name of ["search", "ingest"]) {
-  $("tab-" + name).onclick = () => {
-    for (const n of ["search", "ingest"]) {
-      $("tab-" + n).classList.toggle("active", n === name);
-      $("view-" + n).classList.toggle("hidden", n !== name);
-    }
-  };
+function setMenu(open) {
+  $("app").classList.toggle("menu-open", open);
+  $("menu-btn").setAttribute("aria-expanded", String(open));
 }
+$("nav-search").onclick = () => {
+  // From the search page itself, the Search item returns to the empty start.
+  if (!$("view-search").hidden && !$("q").value.trim() && !activeFilters()) goIdle();
+  show("search");
+  $("q").focus();
+};
+$("nav-ingest").onclick = () => { show("ingest"); $("logs").focus(); };
+$("menu-btn").onclick = () => setMenu(!$("app").classList.contains("menu-open"));
+document.addEventListener("click", (e) => {
+  if ($("app").classList.contains("menu-open") && !$("side").contains(e.target) && !$("menu-btn").contains(e.target)) setMenu(false);
+});
 
-// Health
+// Status in the sidebar
 async function refreshHealth() {
-  const box = $("stats");
+  const box = $("status");
   try {
     const h = await (await api("/health")).json();
     const db = (h.database && h.database.stats) || {};
-    box.replaceChildren(
-      el("span", {}, el("i", { className: "dot" + (h.status === "ok" ? " ok" : "") }), h.status),
-      el("span", {}, "events ", el("b", {}, String(db.events ?? "–"))),
-      el("span", {}, "db ", el("b", {}, db.size_bytes != null ? (db.size_bytes / 1048576).toFixed(2) + " MB" : "–")),
-      el("span", {}, "queue ", el("b", {}, `${h.ingest.queue_depth}/${h.ingest.queue_capacity}`)),
-      el("span", {}, "dropped ", el("b", {}, String(h.ingest.dropped))),
-    );
-    if (h.intel) box.append(el("span", {}, "indicators ", el("b", {}, String(h.intel.indicators))));
-    if (h.syslog) box.append(el("span", {}, "syslog ", el("b", {}, String(h.syslog.received))));
+    totalEvents = db.events ?? null;
+    const facts = el("dl", { className: "facts" });
+    const fact = (k, v, cls) => facts.append(el("dt", { textContent: k }), el("dd", { textContent: v, className: cls || "" }));
+    fact("Events", (db.events ?? 0).toLocaleString());
+    if (db.size_bytes != null) fact("Database", (db.size_bytes / 1048576).toFixed(1) + " MB");
+    if (h.intel) fact("Threat indicators", h.intel.indicators.toLocaleString());
+    if (h.syslog) fact("Syslog received", h.syslog.received.toLocaleString());
+    if (h.ingest && h.ingest.queue_depth > 0) fact("Waiting to store", h.ingest.queue_depth.toLocaleString());
+    if (h.ingest && h.ingest.dropped > 0) fact("Dropped", h.ingest.dropped.toLocaleString(), "warn");
+    const ok = h.status === "ok";
+    box.replaceChildren(el("div", { className: "status-line" }, el("i", { className: "dot" + (ok ? "" : " bad") }), ok ? "Running" : "Degraded"), facts);
   } catch {
-    box.replaceChildren(el("span", {}, el("i", { className: "dot" }), "backend unreachable"));
+    totalEvents = null;
+    box.replaceChildren(el("div", { className: "status-line" }, el("i", { className: "dot bad" }), "Can't reach the server"));
   }
+  updateHint();
+}
+
+// The line under the empty search field
+function updateHint() {
+  const hint = $("hint");
+  if (totalEvents === 0) {
+    hint.replaceChildren(isAdmin
+      ? "No events yet. Send logs, or turn on Sample data in the sidebar to look around."
+      : "No events yet.");
+    return;
+  }
+  hint.replaceChildren(totalEvents == null ? "" : `${totalEvents.toLocaleString()} events. Press Enter to see the latest.`);
 }
 
 // Search
+function activeFilters() {
+  return FILTER_IDS.filter((id) => $(id).value.trim() !== "").length + ($("threat").checked ? 1 : 0);
+}
+function updateFilterCount() {
+  const n = activeFilters();
+  $("filter-count").hidden = n === 0;
+  $("filter-count").textContent = String(n);
+}
 function params() {
   const p = new URLSearchParams();
   const range = Number($("range").value);
   if (range > 0) p.set("start", String(Date.now() - range));
-  for (const [id, key] of [["q", "q"], ["severity", "severity"], ["category", "category"],
-                           ["src_ip", "src_ip"], ["dst_ip", "dst_ip"], ["user", "user"], ["source_f", "source"],
-                           ["country", "country"], ["limit", "limit"]]) {
+  for (const [id, key] of [["q", "q"], ["severity", "severity"], ["category", "category"], ["src_ip", "src_ip"],
+                           ["dst_ip", "dst_ip"], ["user", "user"], ["source_f", "source"], ["country", "country"], ["limit", "limit"]]) {
     const v = $(id).value.trim();
     if (v !== "") p.set(key, v);
   }
@@ -306,85 +532,116 @@ function params() {
   p.set("offset", String(offset));
   return p;
 }
+function goIdle() {
+  $("view-search").classList.add("idle");
+  $("results").replaceChildren();
+  $("summary").textContent = "";
+  $("error").hidden = true;
+}
 
 async function runSearch() {
-  const err = $("error");
-  err.classList.add("hidden");
-  const res = await api("/api/v1/search?" + params());
-  const data = await res.json();
-  if (!res.ok) {
-    err.textContent = data.error || "search failed";
-    err.classList.remove("hidden");
+  $("view-search").classList.remove("idle");
+  $("error").hidden = true;
+  updateFilterCount();
+  let data, res;
+  try {
+    res = await api("/api/v1/search?" + params());
+    data = await res.json();
+  } catch (err) {
+    $("error").textContent = "Can't reach the server: " + err.message;
+    $("error").hidden = false;
     return;
   }
-  const limit = data.limit;
+  if (!res.ok) {
+    $("error").textContent = data.error || "Search failed.";
+    $("error").hidden = false;
+    return;
+  }
   $("summary").textContent = data.count
-    ? `Showing ${data.offset + 1}–${data.offset + data.count} (${data.took_ms.toFixed(1)} ms)`
-    : `No results (${data.took_ms.toFixed(1)} ms)`;
+    ? `Events ${(data.offset + 1).toLocaleString()} to ${(data.offset + data.count).toLocaleString()}, found in ${data.took_ms.toFixed(1)} ms`
+    : `Nothing found in ${data.took_ms.toFixed(1)} ms`;
   $("prev").disabled = offset === 0;
-  $("next").disabled = data.count < limit;
+  $("next").disabled = data.count < data.limit;
 
   const body = $("results");
   if (!data.events.length) {
-    const hint = isAdmin && !sampleOn && offset === 0
-      ? "No matching events. To explore SIEMLite before real logs arrive, turn on Sample data at the top right."
-      : "No matching events";
-    body.replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "empty" }, hint)));
+    const msg = totalEvents === 0 && isAdmin && !sampleOn
+      ? "No events yet. Send logs, or turn on Sample data in the sidebar to look around."
+      : "No events match. Widen the time range or remove a filter.";
+    body.replaceChildren(el("tr", { className: "empty" }, el("td", { colSpan: 7, textContent: msg })));
     return;
   }
   body.replaceChildren(...data.events.flatMap(renderRow));
 }
 
 function renderRow(ev) {
-  const [label, color] = SEV[ev.severity_id] || ["?", "--sev0"];
-  const badge = el("span", { className: "badge", textContent: label });
-  badge.style.background = `var(${color})`;
-
+  const label = SEV[ev.severity_id] || String(ev.severity_id);
+  const sev = el("span", { className: "sev", title: label }, el("i"), el("span", { className: "sev-label", textContent: ev.severity_id === 1 ? "Info" : label }));
+  sev.style.setProperty("--c", `var(--sev-${ev.severity_id in SEV && ev.severity_id !== 99 ? ev.severity_id : 0})`);
   const text = eventText(ev);
   const msg = el("td", { className: "msg", title: text });
-  if (ev.sample) msg.append(el("span", { className: "sampletag", textContent: "SAMPLE", title: "Demo event from Sample data" }));
-  if (ev.threat) msg.append(el("span", { className: "intel", textContent: "INTEL" }));
-  msg.append(text);
-  const row = el("tr", { className: "ev" + (ev.threat ? " threat" : "") },
-    el("td", { className: "time", textContent: new Date(ev.timestamp).toLocaleString() }),
-    el("td", {}, badge),
-    el("td", { textContent: CAT[ev.category_uid] || ev.category_uid }),
-    ipCell(ev.src_ip, ev.src_country),
-    ipCell(ev.dst_ip, ev.dst_country),
-    el("td", { textContent: ev.user_name || "" }),
+  if (ev.threat) msg.append(el("span", { className: "tag tag-threat", textContent: "Threat intel" }));
+  if (ev.sample) msg.append(el("span", { className: "tag tag-sample", textContent: "Sample", title: "Demo event from Sample data" }));
+  msg.append(el("span", { className: "msg-text", textContent: text }));
+  const when = new Date(ev.timestamp);
+  const row = el("tr", { className: "ev" + (ev.threat ? " threat" : ""), tabIndex: 0 },
+    el("td", { className: "time", title: when.toString() },
+      el("span", { className: "date", textContent: when.toLocaleDateString([], { month: "short", day: "numeric" }) + " " }),
+      when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })),
+    el("td", {}, sev),
+    el("td", { className: "opt", textContent: CAT[ev.category_uid] || ev.category_uid }),
+    ipCell(ev.src_ip, ev.src_country, "opt"),
+    ipCell(ev.dst_ip, ev.dst_country, "opt"),
+    el("td", { className: "opt", textContent: ev.user_name || "" }),
     msg,
   );
-  const detail = el("tr", { className: "detail hidden" },
-    el("td", { colSpan: 7 }, details(ev), el("pre", { textContent: prettyRaw(ev.raw_data) })));
-  row.onclick = () => detail.classList.toggle("hidden");
-  return [row, detail];
+  row.setAttribute("aria-expanded", "false");
+  let detail = null;
+  const toggle = () => {
+    if (!detail) {
+      detail = el("tr", { className: "detail" }, el("td", { colSpan: 7 }, details(ev), el("pre", { className: "raw", textContent: prettyRaw(ev.raw_data) })));
+      row.after(detail);
+    } else detail.hidden = !detail.hidden;
+    const open = !detail.hidden;
+    row.classList.toggle("open", open);
+    row.setAttribute("aria-expanded", String(open));
+  };
+  row.onclick = toggle;
+  row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
+  return [row];
 }
 
-function ipCell(ip, cc) {
-  const td = el("td", { className: "ip", textContent: ip || "" });
+function ipCell(ip, cc, cls) {
+  const td = el("td", { className: "mono" + (cls ? " " + cls : ""), textContent: ip || "" });
   if (cc) td.append(el("span", { className: "cc", textContent: cc }));
   return td;
 }
 
-// details lists the source, host, GeoIP/ASN and threat intel context.
+// details lists where the event came from and what is known about its IPs.
 function details(ev) {
-  const dl = el("dl", { className: "kv" });
-  const add = (k, v, cls) => { if (v) dl.append(el("dt", { textContent: k }), el("dd", { textContent: v, className: cls || "" })); };
+  const frag = document.createDocumentFragment();
+  const enr = ev.enrichment || {};
+  const matches = enr.threat_intel || [];
+  if (matches.length) {
+    frag.append(el("ul", { className: "matches", ariaLabel: "Threat intel matches" }, ...matches.map((m) => el("li", {},
+      el("b", { textContent: (m.matched || m.value) + " is on a threat list" }),
+      el("span", { textContent: `Found in ${FIELD[m.field] || m.field}` + (m.matched ? `, inside ${m.value}` : "") + `. Listed by ${m.source}` + (m.description ? `: ${m.description}.` : ".") }),
+    ))));
+  }
+  const dl = el("dl", { className: "facts-grid" });
+  const add = (k, v, ...sub) => { if (v) dl.append(el("div", {}, el("dt", { textContent: k }), el("dd", {}, v, ...sub.filter(Boolean).map((s) => el("span", { textContent: s }))))); };
+  add("Time", new Date(ev.timestamp).toLocaleString());
   add("Source", ev.source);
   add("Host", ev.host);
-  const enr = ev.enrichment || {};
-  for (const [side, ip] of [["src_endpoint", ev.src_ip], ["dst_endpoint", ev.dst_ip]]) {
-    const e = enr[side];
-    if (!e) continue;
+  add("User", ev.user_name);
+  for (const [label, side, ip] of [["Source IP", "src_endpoint", ev.src_ip], ["Destination IP", "dst_endpoint", ev.dst_ip]]) {
+    const e = enr[side] || {};
     const loc = e.location ? [e.location.city, e.location.country].filter(Boolean).join(", ") : "";
-    const as = e.autonomous_system ? `AS${e.autonomous_system.number} ${e.autonomous_system.name || ""}`.trim() : "";
-    add(side === "src_endpoint" ? "Source IP" : "Dest IP", [ip, loc, as].filter(Boolean).join("  ·  "));
+    const as = e.autonomous_system ? `AS${e.autonomous_system.number}${e.autonomous_system.name ? " " + e.autonomous_system.name : ""}` : "";
+    add(label, ip ? el("span", { className: "mono ip", textContent: ip }) : "", loc, as);
   }
-  for (const m of enr.threat_intel || []) {
-    const what = m.matched ? `${m.matched} (in ${m.value})` : m.value;
-    add("Threat intel", `${what} in ${m.field} · ${m.source}${m.description ? " · " + m.description : ""}`, "hit");
-  }
-  return dl.childElementCount ? dl : "";
+  frag.append(dl);
+  return frag;
 }
 
 // Prefer the OCSF "message" when raw_data is an OCSF JSON document. For
@@ -402,51 +659,68 @@ function prettyRaw(raw) {
 $("search-form").onsubmit = (e) => { e.preventDefault(); offset = 0; runSearch(); };
 $("prev").onclick = () => { offset = Math.max(0, offset - Number($("limit").value)); runSearch(); };
 $("next").onclick = () => { offset += Number($("limit").value); runSearch(); };
+$("range").onchange = () => { if (!$("view-search").classList.contains("idle")) { offset = 0; runSearch(); } };
+$("filters-btn").onclick = () => {
+  const open = $("filters").hidden;
+  $("filters").hidden = !open;
+  $("filters-btn").setAttribute("aria-expanded", String(open));
+  if (open) $("severity").focus();
+};
+$("clear-filters").onclick = () => {
+  for (const id of FILTER_IDS) $(id).value = "";
+  $("threat").checked = false;
+  updateFilterCount();
+  if (!$("view-search").classList.contains("idle")) { offset = 0; runSearch(); }
+};
+for (const id of [...FILTER_IDS, "threat"]) $(id).addEventListener("input", updateFilterCount);
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("q").value && !activeFilters()) goIdle();
+});
+// "/" jumps to the search field from anywhere that isn't a text box.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+    e.preventDefault(); show("search"); $("q").focus();
+  }
+});
 
-// Ingest
+// Add logs
 $("file").onchange = async (e) => {
   const f = e.target.files[0];
   if (f) $("logs").value = await f.text();
 };
-
 $("send").onclick = async () => {
   const msg = $("ingest-msg");
-  const text = $("logs").value;
   const p = new URLSearchParams();
   if ($("source").value.trim()) p.set("source", $("source").value.trim());
   if ($("sev-override").value) p.set("severity", $("sev-override").value);
-
   $("send").disabled = true;
   try {
-    const res = await api("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: text });
+    const res = await api("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: $("logs").value });
     const data = await res.json();
-    msg.classList.remove("hidden", "ok", "err");
+    msg.hidden = false;
+    msg.className = "notice " + (res.ok ? "ok" : "bad");
     if (res.ok) {
-      msg.classList.add("ok");
-      msg.textContent = `Stored ${data.accepted} log line(s)` + (data.rejected ? `, rejected ${data.rejected}` : "") + ".";
-      $("logs").value = "";
-      $("file").value = "";
+      msg.textContent = `Stored ${data.accepted.toLocaleString()} log ${data.accepted === 1 ? "line" : "lines"}` +
+        (data.rejected ? `. ${data.rejected} couldn't be read and were skipped.` : ".");
+      $("logs").value = ""; $("file").value = "";
       refreshHealth();
     } else {
-      msg.classList.add("err");
-      msg.textContent = data.error || (data.errors && data.errors[0].error) || "ingest failed";
+      msg.textContent = data.error || (data.errors && data.errors[0].error) || "The logs weren't stored.";
     }
-  } catch (e) {
-    msg.classList.remove("hidden", "ok");
-    msg.classList.add("err");
-    msg.textContent = "Request failed: " + e.message;
+  } catch (err) {
+    msg.hidden = false; msg.className = "notice bad";
+    msg.textContent = "Can't reach the server: " + err.message;
   } finally {
     $("send").disabled = false;
   }
 };
 
 // Sample data: admins get a switch, everyone else sees whether it is on.
-let sampleOn = false;
 function showSample(st) {
   sampleOn = !!st.enabled;
   $("sample-toggle").checked = sampleOn;
-  $("sample-switch").classList.toggle("hidden", !isAdmin);
-  $("sample-pill").classList.toggle("hidden", isAdmin || !sampleOn);
+  $("sample-switch").hidden = !isAdmin;
+  $("sample-note").hidden = isAdmin || !sampleOn;
 }
 async function refreshSample() {
   const res = await api("/api/v1/sample");
@@ -457,21 +731,20 @@ $("sample-toggle").onchange = async (e) => {
   const sw = $("sample-switch");
   sw.classList.add("busy");
   try {
-    const res = await api("/api/v1/sample", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: want }),
-    });
+    const res = await api("/api/v1/sample", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: want }) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "request failed");
     showSample(data);
-    // The sample covers the last day; widen a short time range so it shows.
-    if (want && Number($("range").value) > 0 && Number($("range").value) < 86400000) $("range").value = "86400000";
-    offset = 0;
-    runSearch();
-    refreshHealth();
+    // The sample covers the last day; widen a shorter range so it shows.
+    const range = Number($("range").value);
+    if (want && range > 0 && range < 86400000) $("range").value = "86400000";
+    await refreshHealth();
+    if (!$("view-search").classList.contains("idle")) { offset = 0; runSearch(); }
   } catch (err) {
     e.target.checked = !want;
-    $("error").textContent = "Could not change sample data: " + err.message;
-    $("error").classList.remove("hidden");
+    $("error").textContent = "Sample data wasn't changed: " + err.message;
+    $("error").hidden = false;
+    $("view-search").classList.remove("idle");
   } finally {
     sw.classList.remove("busy");
   }
@@ -483,7 +756,7 @@ function start() {
   refreshHealth();
   clearInterval(healthTimer);
   healthTimer = setInterval(refreshHealth, 5000);
-  runSearch();
+  $("q").focus();
 }
 (async () => {
   const res = await fetch("/api/v1/me", { credentials: "same-origin" });
