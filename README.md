@@ -9,6 +9,8 @@ a built-in web UI and a small JSON API.
 - **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the original line is kept verbatim.
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
 - **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
+- **A quiet web UI**: one search field to start, light and dark themes (or follow the system), and fonts bundled
+  in the binary, so the UI never contacts a font service.
 - **Full-text search**: SQLite FTS5 combined with time, severity, category, IP, user, source, country, ASN and threat filters.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
 - **Two kinds of access**: API keys let applications send logs (and nothing else); people sign in to the UI with a username and password.
@@ -32,7 +34,7 @@ On first start SIEMLite creates `siemlite.db`, generates `siemlite.crt` / `sieml
 with a random password that is printed **once**. Copy it. Open <https://localhost:8443> and sign in; your browser will
 warn about the self-signed certificate unless you trust `siemlite.crt` or supply your own with `-tls-cert` / `-tls-key`.
 
-Nothing to look at yet? Turn on **Sample data** at the top right of the UI (admins only) to load a day of demo
+Nothing to look at yet? Turn on **Sample data** in the sidebar (admins only) to load a day of demo
 events. See [Sample data](#sample-data).
 
 ### Run with Docker
@@ -200,7 +202,7 @@ Matching happens when an event is stored; adding an indicator does not flag olde
 
 ## Sample data
 
-The **Sample data** switch at the top right of the UI (admins only) loads about 380 demo events covering the last
+The **Sample data** switch in the sidebar (admins only) loads about 380 demo events covering the last
 24 hours, so you can try searching before real logs arrive. Analysts see a "Sample data on" label instead.
 
 - Background traffic: web requests, firewall blocks, DNS lookups, VPN logins, database housekeeping and backups.
