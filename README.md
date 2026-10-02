@@ -43,8 +43,11 @@ The web UI is built into the binary, so this is a single container. Deploy and u
 git clone https://github.com/justwaters/SIEMLite.git && cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
 git pull && docker compose up -d --build
-docker compose logs siemlite | grep -A1 'username: admin'   # first start only: the admin password
+docker compose logs siemlite | grep -A1 'username: admin'   # the admin password, printed on first start
 ```
+
+The password is printed only by the first container. Rebuilding replaces the container and its logs, so if you
+missed it, set a new one: `docker compose exec siemlite siemlite users passwd -username admin`.
 
 - The database and certificate live in the `siemlite-data` volume, so rebuilds and upgrades keep every event,
   account and key. `docker compose down` keeps the volume; `docker compose down -v` deletes it.
