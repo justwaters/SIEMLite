@@ -17,6 +17,7 @@ import (
 	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/intel"
+	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
@@ -60,9 +61,9 @@ func (e *env) user(name, role string) {
 // client returns an HTTP client with its own cookie jar.
 func (e *env) client() *http.Client {
 	jar, _ := cookiejar.New(nil)
-	c := e.srv.Client()
+	c := *e.srv.Client() // a copy: srv.Client() returns one shared client
 	c.Jar = jar
-	return c
+	return &c
 }
 
 func (e *env) do(c *http.Client, method, path, body string, hdr map[string]string) *http.Response {
@@ -276,4 +277,76 @@ func TestEnrichmentFilters(t *testing.T) {
 	expect(t, "bad threat param", e.do(c, "GET", "/api/v1/search?threat=maybe", "", nil), 400)
 	expect(t, "bad asn param", e.do(c, "GET", "/api/v1/search?asn=google", "", nil), 400)
 	expect(t, "asn param", e.do(c, "GET", "/api/v1/search?asn=AS15169", "", nil), 200)
+}
+
+func TestSampleDataToggle(t *testing.T) {
+	auth.HashCost = bcrypt.MinCost
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	repo := storage.NewRepository(db)
+	worker := ingest.New(repo, ingest.Config{FlushInterval: 20 * time.Millisecond})
+	t.Cleanup(worker.Close)
+	srv := httptest.NewTLSServer(api.NewServer("", api.Deps{
+		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil),
+		Sample: sample.NewManager(repo, worker),
+	}).Handler())
+	t.Cleanup(srv.Close)
+	e := &env{t: t, srv: srv, repo: repo}
+	e.user("root", auth.RoleAdmin)
+	e.user("alice", auth.RoleAnalyst)
+	root, alice := e.client(), e.client()
+	e.login(root, "root", password)
+	e.login(alice, "alice", password)
+	_, key, _ := auth.CreateKey(ctx, repo, "app")
+
+	// One real event that must survive.
+	expect(t, "real log", e.do(root, "POST", "/api/v1/logs?source=real", line, nil), 202)
+	worker.Drain(ctx)
+
+	status := func(c *http.Client) sample.Status {
+		t.Helper()
+		resp, err := c.Get(srv.URL + "/api/v1/sample")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var st sample.Status
+		json.NewDecoder(resp.Body).Decode(&st)
+		return st
+	}
+	on, off := `{"enabled":true}`, `{"enabled":false}`
+	expect(t, "analyst enable", e.do(alice, "POST", "/api/v1/sample", on, nil), 403)
+	expect(t, "key enable", e.do(e.client(), "POST", "/api/v1/sample", on, map[string]string{"Authorization": "Bearer " + key}), 403)
+	expect(t, "bad body", e.do(root, "POST", "/api/v1/sample", `{}`, nil), 400)
+	if st := status(alice); st.Enabled {
+		t.Fatalf("enabled before toggle: %+v", st)
+	}
+
+	expect(t, "admin enable", e.do(root, "POST", "/api/v1/sample", on, nil), 200)
+	st := status(alice)
+	if !st.Enabled || st.Events < 300 {
+		t.Fatalf("after enable: %+v", st)
+	}
+	// Enabling again refreshes rather than duplicates.
+	expect(t, "admin enable again", e.do(root, "POST", "/api/v1/sample", on, nil), 200)
+	if again := status(root); again.Events != st.Events {
+		t.Errorf("re-enable changed count %d -> %d", st.Events, again.Events)
+	}
+	stats, _ := repo.Stats(ctx)
+	if stats.Events != st.Events+1 {
+		t.Errorf("total events = %d, want %d", stats.Events, st.Events+1)
+	}
+
+	expect(t, "admin disable", e.do(root, "POST", "/api/v1/sample", off, nil), 200)
+	if st := status(root); st.Enabled || st.Events != 0 {
+		t.Errorf("after disable: %+v", st)
+	}
+	recs, _ := repo.Search(ctx, storage.Filter{Limit: 10})
+	if len(recs) != 1 || recs[0].Source != "real" {
+		t.Errorf("real events after disable = %+v", recs)
+	}
 }

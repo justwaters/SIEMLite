@@ -7,7 +7,6 @@ services:
     restart: unless-stopped
     command:
       - -addr=0.0.0.0:8443
-      - -sample=false
       - -syslog-udp=:5514
       - -syslog-tcp=:5514
       - -syslog-tls=:6514
@@ -15,10 +14,10 @@ services:
       - path: .env
         required: false
     ports:
-      - "${SIEMLITE_HTTPS_PORT:-8443}:8443"
-      - "${SIEMLITE_SYSLOG_PORT:-514}:5514/udp"
-      - "${SIEMLITE_SYSLOG_PORT:-514}:5514/tcp"
-      - "${SIEMLITE_SYSLOG_TLS_PORT:-6514}:6514"
+      - "${SIEMLITE_BIND:-}:${SIEMLITE_HTTPS_PORT:-8443}:8443"
+      - "${SIEMLITE_BIND:-}:${SIEMLITE_SYSLOG_PORT:-514}:5514/udp"
+      - "${SIEMLITE_BIND:-}:${SIEMLITE_SYSLOG_PORT:-514}:5514/tcp"
+      - "${SIEMLITE_BIND:-}:${SIEMLITE_SYSLOG_TLS_PORT:-6514}:6514"
     volumes:
       - siemlite-data:/data
       # Optional GeoIP databases; set SIEMLITE_GEOIP_CITY=/geoip/<file>.mmdb in .env.

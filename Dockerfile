@@ -23,4 +23,4 @@ USER nonroot
 EXPOSE 8443 5514/tcp 5514/udp 6514
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD ["siemlite", "healthcheck"]
 ENTRYPOINT ["siemlite"]
-CMD ["-addr", "0.0.0.0:8443", "-sample=false"]
+CMD ["-addr", "0.0.0.0:8443"]

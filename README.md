@@ -9,6 +9,8 @@ a built-in web UI and a small JSON API.
 - **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the original line is kept verbatim.
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
 - **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
+- **A quiet web UI**: one search field to start, light and dark themes (or follow the system), and fonts bundled
+  in the binary, so the UI never contacts a font service.
 - **Full-text search**: SQLite FTS5 combined with time, severity, category, IP, user, source, country, ASN and threat filters.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
 - **Two kinds of access**: API keys let applications send logs (and nothing else); people sign in to the UI with a username and password.
@@ -25,14 +27,15 @@ Requires Go.
 git clone https://github.com/justwaters/SIEMLite.git
 cd SIEMLite
 go build -o siemlite .
-./siemlite -sample=false
+./siemlite
 ```
 
 On first start SIEMLite creates `siemlite.db`, generates `siemlite.crt` / `siemlite.key`, and creates an `admin` user
 with a random password that is printed **once**. Copy it. Open <https://localhost:8443> and sign in; your browser will
 warn about the self-signed certificate unless you trust `siemlite.crt` or supply your own with `-tls-cert` / `-tls-key`.
 
-By default the server inserts a few demo events and runs a sample search at startup. Use `-sample=false` for real use.
+Nothing to look at yet? Turn on **Sample data** in the sidebar (admins only) to load a day of demo
+events. See [Sample data](#sample-data).
 
 ### Run with Docker
 
@@ -42,8 +45,11 @@ The web UI is built into the binary, so this is a single container. Deploy and u
 git clone https://github.com/justwaters/SIEMLite.git && cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
 git pull && docker compose up -d --build
-docker compose logs siemlite | grep -A1 'username: admin'   # first start only: the admin password
+docker compose logs siemlite | grep -A1 'username: admin'   # the admin password, printed on first start
 ```
+
+The password is printed only by the first container. Rebuilding replaces the container and its logs, so if you
+missed it, set a new one: `docker compose exec siemlite siemlite users passwd -username admin`.
 
 - The database and certificate live in the `siemlite-data` volume, so rebuilds and upgrades keep every event,
   account and key. `docker compose down` keeps the volume; `docker compose down -v` deletes it.
@@ -194,6 +200,23 @@ the previous indicators.
 
 Matching happens when an event is stored; adding an indicator does not flag older events (search for it instead).
 
+## Sample data
+
+The **Sample data** switch in the sidebar (admins only) loads about 380 demo events covering the last
+24 hours, so you can try searching before real logs arrive. Analysts see a "Sample data on" label instead.
+
+- Background traffic: web requests, firewall blocks, DNS lookups, VPN logins, database housekeeping and backups.
+- An incident to investigate: a web scanner, an SSH brute force against `web1` that ends in a successful login,
+  a malware download and antivirus detection, blocked C2 callouts, and password guessing against the database
+  and domain controller. Also, `bob` logs in to the VPN from two continents 15 minutes apart.
+- Every sample event has a **SAMPLE** badge. GeoIP, ASN and threat intel context are filled in for the sample's
+  addresses, so the INTEL badge and country filters have something to show without real databases or feeds.
+- Only documentation IP ranges, documentation AS numbers and `.example` domains are used.
+- Turning it on again reloads the data with fresh timestamps. Turning it off deletes the sample events and nothing
+  else: they carry a marker that real logs can't set.
+- `POST /api/v1/sample` with `{"enabled": true}` or `false` does the same (signed-in admins only);
+  `GET /api/v1/sample` reports the state.
+
 ## Users
 
 People sign in with a username and password. There are two roles:
@@ -243,7 +266,7 @@ by spaces.
 | `-retention-days` | `30` | Delete events older than this many days (checked daily) |
 | `-tls-cert`, `-tls-key` | `<db dir>/siemlite.crt`, `.key` | Certificate and key; a self-signed pair is generated if both are missing |
 | `-tls-hosts` | | Extra DNS names or IPs for a generated certificate |
-| `-sample` | `true` | Insert demo events and run a sample search at startup |
+| `-sample` | `false` | Load sample data at startup if it is not already loaded (same as the UI switch) |
 | `-syslog-udp`, `-syslog-tcp`, `-syslog-tls` | | Syslog listen addresses, e.g. `:514`, `:514`, `:6514` (each off when empty) |
 | `-syslog-allow` | loopback and private networks | Comma-separated IPs/CIDRs allowed to send syslog |
 | `-geoip-city` | | MaxMind or DB-IP City/Country `.mmdb` |

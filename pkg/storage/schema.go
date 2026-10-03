@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 4
+const schemaVersion = 5
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -101,6 +101,11 @@ var upgrades = map[int][]string{
 		`ALTER TABLE events ADD COLUMN threat INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE events ADD COLUMN enrichment TEXT`,
 		`CREATE INDEX IF NOT EXISTS idx_events_threat ON events(timestamp DESC) WHERE threat = 1`,
+	},
+	// v5: sample data, which the UI can load and remove without touching real events.
+	4: {
+		`ALTER TABLE events ADD COLUMN sample INTEGER NOT NULL DEFAULT 0`,
+		`CREATE INDEX IF NOT EXISTS idx_events_sample ON events(id) WHERE sample = 1`,
 	},
 }
 
