@@ -4,53 +4,71 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SIEMLite: a SIEM in a single Go binary</title>
-<meta name="description" content="SIEMLite is a lightweight, embedded SIEM written in Go. OCSF-normalized events, SQLite full-text search, HTTPS-only ingestion with API keys, and a built-in web UI.">
+<meta name="description" content="SIEMLite is a lightweight, self-hosted SIEM in one Go binary. Collect logs over HTTPS or syslog, match them against threat intel, enrich IPs with GeoIP, and search them in a built-in web UI. Runs with Docker in one command.">
 <meta property="og:title" content="SIEMLite: a SIEM in a single Go binary">
-<meta property="og:description" content="Collect, search and retain security logs with one binary and one SQLite file.">
+<meta property="og:description" content="Collect, check and search security logs with one binary and one SQLite file.">
+<meta property="og:image" content="https://justwaters.github.io/SIEMLite/screenshots/threat-dark.webp">
+<meta name="theme-color" content="#0f1419">
 <style>
   :root {
     --bg: #0f1419; --panel: #171d25; --line: #263040; --text: #d8dee9; --muted: #8392a5;
     --accent: #4fa3f7; --ok: #3fb68b; --warn: #e0b341;
+    --gutter: 24px;
   }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; overflow-wrap: break-word; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
-  nav { border-bottom: 1px solid var(--line); }
-  nav .wrap { display: flex; align-items: center; gap: 28px; height: 60px; }
-  .logo { font-weight: 700; font-size: 18px; color: var(--text); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 var(--gutter); }
+
+  nav { border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; background: rgba(15, 20, 25, .92); backdrop-filter: blur(8px); }
+  nav .wrap { display: flex; align-items: center; gap: 20px; min-height: 60px; }
+  .logo { font-weight: 700; font-size: 18px; color: var(--text); padding: 10px 0; }
   .logo span { color: var(--accent); }
-  nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 14px; }
-  .hero { padding: 88px 0 64px; }
+  nav .links { margin-left: auto; display: flex; gap: 4px; font-size: 14px; }
+  nav .links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; border-radius: 6px; }
+
+  .hero { padding: 80px 0 64px; }
   .hero h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.1; margin: 0 0 20px; letter-spacing: -0.02em; max-width: 780px; }
   .hero h1 em { font-style: normal; color: var(--accent); }
-  .hero p.lead { font-size: 19px; color: var(--muted); max-width: 640px; margin: 0 0 32px; }
+  .hero p.lead { font-size: 19px; color: var(--muted); max-width: 660px; margin: 0 0 32px; }
   .cta { display: flex; gap: 12px; flex-wrap: wrap; }
-  .btn { display: inline-block; padding: 11px 20px; border-radius: 8px; font-weight: 600; font-size: 15px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 22px; border-radius: 8px; font-weight: 600; font-size: 15px; }
   .btn.primary { background: var(--accent); color: #06121f; }
   .btn.ghost { border: 1px solid var(--line); color: var(--text); }
   .btn:hover { text-decoration: none; filter: brightness(1.1); }
-  section { padding: 56px 0; border-top: 1px solid var(--line); }
-  h2 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); margin: 0 0 32px; max-width: 640px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+  .license { margin: 20px 0 0; color: var(--muted); font-size: 14px; }
+
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: clamp(24px, 4vw, 30px); line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 660px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
   .card h3 { margin: 0 0 6px; font-size: 16px; }
-  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
-  pre { background: #0b0f14; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; margin: 0 0 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  pre { background: #0b0f14; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; max-width: 100%;
+        font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; margin: 0 0 16px; -webkit-overflow-scrolling: touch; }
   code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.92em; }
-  p code, li code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  p code, li code, td code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
   .c { color: #6b7a8d; }
+
   .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
-  .steps li { counter-increment: s; position: relative; padding-left: 44px; margin-bottom: 26px; }
-  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); text-align: center; line-height: 28px; font-weight: 600; font-size: 14px; color: var(--accent); }
-  .steps h3 { margin: 0 0 8px; font-size: 17px; }
-  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
-  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 500; }
-  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 14px 18px; color: var(--muted); font-size: 14.5px; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 48px; margin-bottom: 34px; min-width: 0; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); text-align: center; line-height: 28px; font-weight: 600; font-size: 14px; color: var(--accent); }
+  .steps h3 { margin: 0 0 8px; font-size: 18px; line-height: 30px; }
+  .steps p { margin: 0 0 12px; }
+  .steps .alt { color: var(--muted); font-size: 15px; }
+
+  .api { border-collapse: collapse; width: 100%; font-size: 15px; }
+  .api th, .api td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .api th { color: var(--muted); font-weight: 500; }
+  .api td:first-child { white-space: nowrap; }
+
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 14px 18px; color: var(--muted); font-size: 15px; margin: 24px 0 0; }
+
   .shot { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
           box-shadow: 0 24px 60px -24px rgba(0, 0, 0, .7); }
   .hero-shot { margin-top: 56px; }
@@ -58,26 +76,55 @@
   .tour-row { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: 40px; align-items: center; }
   .tour-row.flip { grid-template-columns: minmax(0, 8fr) minmax(0, 5fr); }
   .tour-row.flip .tour-text { order: 2; }
-  .tour-row.phone { grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); }
   .tour-row.phone .shot { max-width: 300px; justify-self: center; }
   .tour-text h3 { margin: 0 0 10px; font-size: 21px; letter-spacing: -0.01em; }
   .tour-text p { margin: 0; color: var(--muted); }
-  @media (max-width: 520px) {
-    nav .wrap { gap: 16px; }
-    nav .links { gap: 16px; }
-    nav .links .wide-only { display: none; }
-  }
+
+  footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+  footer p { margin: 0 0 6px; }
+  footer a { display: inline-block; padding: 6px 0; }
+
   @media (max-width: 760px) {
-    .tour-row, .tour-row.flip, .tour-row.phone { grid-template-columns: 1fr; gap: 20px; }
+    .tour-row, .tour-row.flip { grid-template-columns: 1fr; gap: 20px; }
     .tour-row.flip .tour-text { order: 0; }
     .tour-row.phone .shot { max-width: 260px; }
+    .tour { gap: 48px; }
   }
-  footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 640px) {
+    :root { --gutter: 18px; }
+    .hero { padding: 48px 0 40px; }
+    .hero p.lead { font-size: 17px; }
+    .hero-shot { margin-top: 36px; }
+    .cta .btn { flex: 1 1 auto; }
+    section { padding: 48px 0; }
+    nav .wrap { gap: 8px; }
+    nav .links { gap: 0; font-size: 14px; }
+    nav .links a { padding: 0 8px; }
+    nav .links .wide-only { display: none; }
+    /* Steps: the number sits beside the heading so code blocks get the full width. */
+    .steps > li { padding-left: 0; }
+    .steps > li::before { position: static; display: inline-block; margin-right: 10px; vertical-align: top; }
+    .steps h3 { display: inline; }
+    .steps h3::after { content: ""; display: block; margin-bottom: 10px; }
+    pre { font-size: 12px; padding: 14px; border-radius: 8px; margin-left: calc(-1 * var(--gutter) + 6px); margin-right: calc(-1 * var(--gutter) + 6px); max-width: none; }
+    /* The API table becomes one block per endpoint. */
+    .api thead { display: none; }
+    .api, .api tbody, .api tr, .api td { display: block; width: 100%; }
+    .api tr { padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .api td { border: 0; padding: 2px 0; }
+    .api td:first-child { white-space: normal; font-weight: 600; }
+    .api td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+  }
+  @media (max-width: 360px) {
+    .logo { font-size: 16px; }
+    nav .links a { padding: 0 6px; font-size: 13.5px; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
 
-<nav>
+<nav aria-label="Main">
   <div class="wrap">
     <a class="logo" href="#">SIEM<span>Lite</span></a>
     <div class="links">
@@ -93,13 +140,13 @@
 <header class="hero">
   <div class="wrap">
     <h1>A SIEM in a <em>single Go binary</em>.</h1>
-    <p class="lead">Collect, search and retain security logs with one executable and one SQLite file.
-      No cluster, no agents to babysit, no cloud bill.</p>
+    <p class="lead">Collect logs over HTTPS or syslog, check every event against threat intel, and search it all from a
+      built-in web UI. One executable, one SQLite file, and one command to run it with Docker.</p>
     <div class="cta">
       <a class="btn primary" href="#quickstart">Get started</a>
       <a class="btn ghost" href="https://github.com/justwaters/SIEMLite">View on GitHub</a>
     </div>
-    <p style="margin:20px 0 0;color:var(--muted);font-size:14px">Open source &middot; AGPL-3.0</p>
+    <p class="license">Open source &middot; AGPL-3.0</p>
     <img class="shot hero-shot" src="screenshots/threat-dark.webp" width="2880" height="1800"
       alt="SIEMLite showing events that matched threat intel. One is opened: a successful SSH login for admin from 203.0.113.7, which is on a threat list for an SSH brute-force botnet. Its details show the host web1, the source sshd, the IP's location in Moscow and its network, and the raw log line.">
   </div>
@@ -150,23 +197,32 @@
     <p class="sub">SIEMLite is built for homelabs, small companies and single services where a full SIEM stack is overkill.</p>
     <div class="grid">
       <div class="card"><h3>Send any log</h3>
-        <p>Post syslog, JSON lines or plain text. SIEMLite detects the timestamp, hostname, IPs, user and severity, and keeps your original line verbatim.</p></div>
-      <div class="card"><h3>OCSF-normalized</h3>
-        <p>Events are stored in the Open Cybersecurity Schema Framework model, so categories, classes and severities mean the same thing across every source.</p></div>
+        <p>Post logs over HTTPS, or point rsyslog, syslog-ng, firewalls and switches at its syslog listener over UDP, TCP or
+          TLS. Syslog, JSON lines and plain text all work, and every original line is kept verbatim.</p></div>
+      <div class="card"><h3>Threat intel matching</h3>
+        <p>Every event is checked against IP, IP range, domain and file hash blocklists. Load feeds like abuse.ch and Spamhaus
+          automatically, or import your own lists. A match is flagged and explained.</p></div>
+      <div class="card"><h3>GeoIP and network owner</h3>
+        <p>Add a free MaxMind or DB-IP database and every public IP gets a country, city and network (ASN). Search by
+          country or network, like <code>country=CN</code>.</p></div>
       <div class="card"><h3>Fast full-text search</h3>
-        <p>SQLite FTS5 with phrase, boolean and prefix queries, combined with time-window, severity, category, IP and user filters.</p></div>
-      <div class="card"><h3>Built-in web UI</h3>
-        <p>Search, expand any event to see the raw log, paste or upload logs, and watch ingest health live. It's embedded in the binary.</p></div>
-      <div class="card"><h3>High-throughput ingest</h3>
-        <p>Events are queued and written to SQLite in batched transactions (500 events or 500 ms, whichever comes first) over a WAL database.</p></div>
+        <p>SQLite FTS5 with phrase, boolean and prefix queries, plus filters for time, severity, category, IPs, user,
+          source, host, country, network and threat matches.</p></div>
+      <div class="card"><h3>A quiet web UI</h3>
+        <p>Start from one search field, open any event for its full context, and add logs by pasting or uploading a file.
+          Light and dark themes, and it works on a phone. It&rsquo;s built into the binary.</p></div>
+      <div class="card"><h3>Sample data to explore</h3>
+        <p>Not sending logs yet? Turn on Sample data for a day of realistic events with an intrusion to investigate. Turn it
+          off and only the sample is removed.</p></div>
+      <div class="card"><h3>OCSF-normalized</h3>
+        <p>Events follow the Open Cybersecurity Schema Framework, so categories, classes and severities mean the same thing
+          across every source.</p></div>
+      <div class="card"><h3>Docker in one command</h3>
+        <p><code>docker compose up -d --build</code> runs it, and the same command after a <code>git pull</code> upgrades it.
+          Data lives in a volume, and settings go in one <code>.env</code> file.</p></div>
       <div class="card"><h3>Automatic retention</h3>
-        <p>Logs older than your retention window (30 days by default) are deleted in batches, and disk space is returned with incremental vacuum.</p></div>
-      <div class="card"><h3>HTTPS only</h3>
-        <p>There is no plain-HTTP listener. A self-signed certificate is generated on first start, or bring your own.</p></div>
-      <div class="card"><h3>Keys for apps, accounts for people</h3>
-        <p>Applications send logs with API keys that can do nothing else. People sign in with a username and password, as an admin or a search-only analyst.</p></div>
-      <div class="card"><h3>Pure Go, no CGO</h3>
-        <p>Built on <code>modernc.org/sqlite</code>, so it cross-compiles cleanly and ships as one static-friendly binary.</p></div>
+        <p>Events older than your retention window (30 days by default) are deleted in batches, and the disk space is
+          given back.</p></div>
     </div>
   </div>
 </section>
@@ -174,40 +230,43 @@
 <section id="quickstart">
   <div class="wrap">
     <h2>Quick start</h2>
-    <p class="sub">From clone to first search in about a minute. Requires Go.</p>
+    <p class="sub">From clone to first search in about a minute.</p>
     <ol class="steps">
       <li>
-        <h3>Build and run</h3>
+        <h3>Run it</h3>
+        <p>With Docker:</p>
 <pre>git clone https://github.com/justwaters/SIEMLite.git
 cd SIEMLite
-go build -o siemlite .
-./siemlite</pre>
-        <p>On first start SIEMLite creates <code>siemlite.db</code>, a self-signed certificate, and an <code>admin</code> user whose password is printed <strong>once</strong>. Copy it.
-          Sign in to the UI at <code>https://localhost:8443</code>.</p>
+cp .env.example .env    <span class="c"># optional settings</span>
+docker compose up -d --build</pre>
+        <p class="alt">Or build it with Go: <code>go build -o siemlite .</code> then <code>./siemlite</code>.</p>
       </li>
       <li>
-        <h3>Create an API key for your app</h3>
-<pre>./siemlite keys create -name myapp</pre>
-        <p>Keys can only send logs. Add people with <code>./siemlite users create -username alice -role analyst</code>.</p>
+        <h3>Sign in</h3>
+        <p>On first start, SIEMLite creates an <code>admin</code> account and prints its password once:</p>
+<pre>docker compose logs siemlite | grep -A1 'username: admin'</pre>
+        <p>Open <code>https://your-server:8443</code> and sign in. Turn on <strong>Sample data</strong> in the sidebar to
+          look around before real logs arrive.</p>
       </li>
       <li>
-        <h3>Point your app at it</h3>
-<pre><span class="c"># send a log file</span>
-curl --cacert siemlite.crt -X POST \
-  'https://localhost:8443/api/v1/logs?source=myapp' \
-  -H "Authorization: Bearer $SIEMLITE_KEY" \
-  --data-binary @app.log
+        <h3>Send it logs</h3>
+        <p>From any Linux machine with rsyslog, forward everything over TCP:</p>
+<pre><span class="c"># /etc/rsyslog.d/siemlite.conf</span>
+*.* @@your-server:514</pre>
+        <p>Or from an app, with an API key that can only send logs:</p>
+<pre>docker compose exec siemlite siemlite keys create -name myapp
+docker compose cp siemlite:/data/siemlite.crt .
 
-<span class="c"># or send structured OCSF events</span>
-curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
+curl --cacert siemlite.crt -X POST \
+  'https://your-server:8443/api/v1/logs?source=myapp' \
   -H "Authorization: Bearer $SIEMLITE_KEY" \
-  -d '[{"category_uid":3,"class_uid":3002,"severity_id":4,
-        "message":"Failed password for root","src_endpoint":{"ip":"203.0.113.7"}}]'</pre>
+  --data-binary @app.log</pre>
       </li>
       <li>
-        <h3>Search</h3>
-        <p>Sign in to the web UI with your username and password and search by text, time, severity, category, IP or user.
-          Search is for signed-in users only; API keys can't read logs.</p>
+        <h3>Add threat intel</h3>
+        <p>List blocklist feeds in <code>.env</code>; they&rsquo;re downloaded now and refreshed every 6 hours:</p>
+<pre>SIEMLITE_INTEL_FEED=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt drop=https://www.spamhaus.org/drop/drop.txt</pre>
+        <p>Then run <code>docker compose up -d</code> again. Matching events are flagged as they arrive.</p>
       </li>
     </ol>
   </div>
@@ -216,14 +275,15 @@ curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
 <section id="api">
   <div class="wrap">
     <h2>The API</h2>
-    <p class="sub">Four endpoints. JSON in, JSON out.</p>
-    <table>
+    <p class="sub">JSON in, JSON out. Apps send logs with API keys; everything else needs a signed-in user.</p>
+    <table class="api">
       <thead><tr><th>Endpoint</th><th>Who</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td><code>POST /api/v1/logs</code></td><td>API key</td><td>Raw log text, one entry per line (syslog, JSON lines, plain text)</td></tr>
-        <tr><td><code>POST /api/v1/events</code></td><td>API key</td><td>Array of OCSF events</td></tr>
-        <tr><td><code>GET /api/v1/search</code></td><td>signed-in user</td><td><code>q</code>, <code>start</code>, <code>end</code>, <code>severity</code>, <code>category</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>limit</code>, <code>offset</code></td></tr>
-        <tr><td><code>GET /health</code></td><td>public</td><td>Up/down for load balancers; counts and queue state when signed in</td></tr>
+        <tr><td><code>POST /api/v1/logs</code></td><td data-label="Who">API key or admin</td><td data-label="Purpose">Raw log text, one entry per line (syslog, JSON lines, plain text)</td></tr>
+        <tr><td><code>POST /api/v1/events</code></td><td data-label="Who">API key or admin</td><td data-label="Purpose">An array of OCSF events, up to 10,000 per request</td></tr>
+        <tr><td><code>GET /api/v1/search</code></td><td data-label="Who">signed-in user</td><td data-label="Purpose">Full-text query plus time, severity, category, IP, user, source, host, country, network and threat filters</td></tr>
+        <tr><td><code>GET&nbsp;/&nbsp;POST /api/v1/sample</code></td><td data-label="Who">signed-in user / admin</td><td data-label="Purpose">See whether sample data is loaded, or turn it on and off</td></tr>
+        <tr><td><code>GET /health</code></td><td data-label="Who">public</td><td data-label="Purpose">Up or down for load balancers; counts, queue, intel and syslog figures when signed in</td></tr>
       </tbody>
     </table>
   </div>
@@ -234,20 +294,23 @@ curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
     <h2>Secure by default</h2>
     <p class="sub">A log store is a juicy target, so SIEMLite starts locked down.</p>
     <div class="grid">
-      <div class="card"><h3>No plaintext, ever</h3><p>The server only speaks TLS 1.2+. There is no HTTP port to forget to close.</p></div>
-      <div class="card"><h3>Least-privilege keys</h3><p>An app that can write logs can't read them. A compromised app key doesn't expose your history.</p></div>
-      <div class="card"><h3>Hashed at rest</h3><p>Passwords are stored as bcrypt hashes and API keys as SHA-256 hashes. Revoke a key instantly with <code>siemlite keys revoke</code>.</p></div>
+      <div class="card"><h3>No plaintext web</h3><p>The web UI and API only speak TLS 1.2 or newer, and there is no HTTP port to forget to close. Syslog can use TLS too.</p></div>
+      <div class="card"><h3>Least-privilege keys</h3><p>An app that can send logs can&rsquo;t read them, so a leaked app key doesn&rsquo;t expose your history.</p></div>
+      <div class="card"><h3>Hashed at rest</h3><p>Passwords are stored as bcrypt hashes and API keys as SHA-256 hashes. Sessions end on sign-out, and repeated failed sign-ins are locked out.</p></div>
+      <div class="card"><h3>Syslog allowlist</h3><p>Syslog has no login, so only senders on private networks are accepted unless you list others.</p></div>
+      <div class="card"><h3>A small, unprivileged image</h3><p>The Docker image is about 25 MB, has no shell, and runs as a non-root user.</p></div>
+      <div class="card"><h3>Checked on every change</h3><p>Every pull request runs the tests, a race detector, a build of the Docker image and Go&rsquo;s vulnerability scanner.</p></div>
     </div>
-    <p style="margin-top:20px" class="note"><strong>Early-stage project.</strong>
+    <p class="note"><strong>Early-stage project.</strong>
       Client-certificate (mTLS) verification and per-key rate limiting on log ingest are not implemented yet.</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    SIEMLite is free and open-source software, licensed under the
-    <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
-    &middot; <a href="https://github.com/justwaters/SIEMLite">github.com/justwaters/SIEMLite</a>
+    <p>SIEMLite is free and open-source software, licensed under the
+      <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.</p>
+    <p><a href="https://github.com/justwaters/SIEMLite">github.com/justwaters/SIEMLite</a></p>
   </div>
 </footer>
 
