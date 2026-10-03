@@ -19,15 +19,17 @@ import (
 	"siemlite/pkg/intel"
 	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
+	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
 )
 
 const password = "correct horse battery"
 
 type env struct {
-	t    *testing.T
-	srv  *httptest.Server
-	repo *storage.Repository
+	t      *testing.T
+	srv    *httptest.Server
+	repo   *storage.Repository
+	worker *ingest.Worker
 }
 
 func newEnv(t *testing.T) *env {
@@ -45,10 +47,10 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(worker.Close)
 
 	srv := httptest.NewTLSServer(api.NewServer("", api.Deps{
-		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil),
+		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Router: sources.New(repo),
 	}).Handler())
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, repo: repo}
+	return &env{t: t, srv: srv, repo: repo, worker: worker}
 }
 
 func (e *env) user(name, role string) {
@@ -97,12 +99,12 @@ const line = "Failed password for root from 203.0.113.7"
 func TestAPIKeysCanOnlySendLogs(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	_, key, err := auth.CreateKey(ctx, e.repo, "myapp")
+	_, key, err := auth.CreateKey(ctx, e.repo, "myapp", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	revokedID, revoked, _ := auth.CreateKey(ctx, e.repo, "old")
-	e.repo.RevokeKey(ctx, revokedID, time.Now().UnixMilli())
+	revokedID, revoked, _ := auth.CreateKey(ctx, e.repo, "old", nil)
+	e.repo.RevokeSource(ctx, revokedID, time.Now().UnixMilli())
 	bearer := func(k string) map[string]string { return map[string]string{"Authorization": "Bearer " + k} }
 	c := e.client()
 
@@ -117,7 +119,7 @@ func TestAPIKeysCanOnlySendLogs(t *testing.T) {
 
 func TestUserSessions(t *testing.T) {
 	e := newEnv(t)
-	e.user("alice", auth.RoleAnalyst)
+	e.user("alice", auth.RoleStandard)
 	e.user("root", auth.RoleAdmin)
 
 	anon := e.client()
@@ -173,7 +175,7 @@ func (e *env) login2(c *http.Client, origin string) *http.Response {
 
 func TestHealthDetailNeedsSignIn(t *testing.T) {
 	e := newEnv(t)
-	e.user("alice", auth.RoleAnalyst)
+	e.user("alice", auth.RoleStandard)
 
 	get := func(c *http.Client) string {
 		req, _ := http.NewRequest("GET", e.srv.URL+"/health", nil)
@@ -202,7 +204,7 @@ func TestHealthDetailNeedsSignIn(t *testing.T) {
 
 func TestLoginLockout(t *testing.T) {
 	e := newEnv(t)
-	e.user("alice", auth.RoleAnalyst)
+	e.user("alice", auth.RoleStandard)
 	c := e.client()
 	for i := 0; i < 10; i++ {
 		expect(t, "failed attempt", e.login(c, "alice", "wrong password!"), 401)
@@ -240,7 +242,7 @@ func TestEnrichmentFilters(t *testing.T) {
 	worker := ingest.New(repo, ingest.Config{FlushInterval: 20 * time.Millisecond, Enricher: svc.Matcher})
 	t.Cleanup(worker.Close)
 	srv := httptest.NewTLSServer(api.NewServer("", api.Deps{
-		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Intel: svc,
+		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Router: sources.New(repo), Intel: svc,
 	}).Handler())
 	t.Cleanup(srv.Close)
 	e := &env{t: t, srv: srv, repo: repo}
@@ -291,17 +293,17 @@ func TestSampleDataToggle(t *testing.T) {
 	worker := ingest.New(repo, ingest.Config{FlushInterval: 20 * time.Millisecond})
 	t.Cleanup(worker.Close)
 	srv := httptest.NewTLSServer(api.NewServer("", api.Deps{
-		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil),
+		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Router: sources.New(repo),
 		Sample: sample.NewManager(repo, worker),
 	}).Handler())
 	t.Cleanup(srv.Close)
 	e := &env{t: t, srv: srv, repo: repo}
 	e.user("root", auth.RoleAdmin)
-	e.user("alice", auth.RoleAnalyst)
+	e.user("alice", auth.RoleStandard)
 	root, alice := e.client(), e.client()
 	e.login(root, "root", password)
 	e.login(alice, "alice", password)
-	_, key, _ := auth.CreateKey(ctx, repo, "app")
+	_, key, _ := auth.CreateKey(ctx, repo, "app", nil)
 
 	// One real event that must survive.
 	expect(t, "real log", e.do(root, "POST", "/api/v1/logs?source=real", line, nil), 202)

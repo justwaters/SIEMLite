@@ -37,6 +37,11 @@ type Query struct {
 	Country     string // ISO country code of either endpoint
 	ASN         int    // autonomous system number of either endpoint
 	ThreatOnly  bool   // only events that matched threat intel
+	SourceID    int64  // one source; 0 = any
+
+	// Restrict limits results to AllowedSources (a restricted user).
+	Restrict       bool
+	AllowedSources []int64
 
 	// Text is a raw FTS5 expression, e.g. `failed AND "invalid user"`.
 	Text string
@@ -77,20 +82,23 @@ func (e *Engine) Search(ctx context.Context, q Query) (*Result, error) {
 	}
 
 	f := storage.Filter{
-		CategoryUID: q.CategoryUID,
-		ClassUID:    q.ClassUID,
-		SeverityID:  q.SeverityID,
-		SrcIP:       q.SrcIP,
-		DstIP:       q.DstIP,
-		UserName:    q.UserName,
-		Source:      q.Source,
-		Host:        q.Host,
-		Country:     strings.ToUpper(strings.TrimSpace(q.Country)),
-		ASN:         q.ASN,
-		ThreatOnly:  q.ThreatOnly,
-		Match:       strings.TrimSpace(q.Text),
-		Limit:       q.Limit,
-		Offset:      q.Offset,
+		CategoryUID:    q.CategoryUID,
+		ClassUID:       q.ClassUID,
+		SeverityID:     q.SeverityID,
+		SrcIP:          q.SrcIP,
+		DstIP:          q.DstIP,
+		UserName:       q.UserName,
+		Source:         q.Source,
+		Host:           q.Host,
+		Country:        strings.ToUpper(strings.TrimSpace(q.Country)),
+		ASN:            q.ASN,
+		ThreatOnly:     q.ThreatOnly,
+		SourceID:       q.SourceID,
+		Restrict:       q.Restrict,
+		AllowedSources: q.AllowedSources,
+		Match:          strings.TrimSpace(q.Text),
+		Limit:          q.Limit,
+		Offset:         q.Offset,
 	}
 	if !q.Start.IsZero() {
 		f.StartMs = q.Start.UnixMilli()

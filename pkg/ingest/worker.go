@@ -94,6 +94,9 @@ func New(sink Sink, cfg Config) *Worker {
 type SubmitOptions struct {
 	Sample   bool            // mark as sample data (never settable through the API)
 	Enricher enrich.Enricher // runs after the configured enricher
+	SourceID int64           // the source the event arrived through
+	// Fields are extra values a parser extracted; stored as a JSON object.
+	Fields map[string]string
 }
 
 // Submit validates ev and queues it, blocking while the queue is full until
@@ -119,6 +122,12 @@ func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOpti
 		Source:      ev.ProductName(),
 		Host:        ev.DeviceName(),
 		Sample:      opts.Sample,
+		SourceID:    opts.SourceID,
+	}
+	if len(opts.Fields) > 0 {
+		if b, err := json.Marshal(opts.Fields); err == nil {
+			rec.Fields = b
+		}
 	}
 	if w.cfg.Enricher != nil || opts.Enricher != nil {
 		var d enrich.Data

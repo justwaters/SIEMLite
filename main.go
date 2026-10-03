@@ -23,13 +23,17 @@ import (
 	"golang.org/x/term"
 
 	"siemlite/api"
+	"siemlite/pkg/ai"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/enrich"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/intel"
+	"siemlite/pkg/ocsf"
+	"siemlite/pkg/parser"
 	"siemlite/pkg/retention"
 	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
+	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
 	"siemlite/pkg/syslogd"
 )
@@ -70,6 +74,8 @@ func run() error {
 	syslogTCP := flag.String("syslog-tcp", "", "syslog TCP listen address, e.g. :514 (off when empty)")
 	syslogTLS := flag.String("syslog-tls", "", "syslog over TLS listen address, e.g. :6514 (off when empty)")
 	syslogAllow := flag.String("syslog-allow", "", "comma-separated networks allowed to send syslog (default: loopback and private ranges)")
+	aiURL := flag.String("ai-url", "", "Ollama server for AI parser help, e.g. http://ollama:11434 (off when empty)")
+	aiModel := flag.String("ai-model", ai.DefaultModel, "Ollama model for AI parser help")
 	if err := flagsFromEnv(flag.CommandLine); err != nil {
 		return err
 	}
@@ -140,6 +146,19 @@ func run() error {
 		}()
 	}
 
+	router := sources.New(repo)
+	authn := auth.New(repo, nil)
+	var aiClient *ai.Client
+	if *aiURL != "" {
+		aiClient = ai.New(*aiURL, *aiModel, nil)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			aiClient.Prepare(bgCtx)
+		}()
+		slog.Info("AI parser help enabled", "url", *aiURL, "model", *aiModel)
+	}
+
 	samples := sample.NewManager(repo, worker)
 	if *loadSample {
 		if st, err := samples.Status(ctx); err == nil && !st.Enabled {
@@ -177,7 +196,20 @@ func run() error {
 
 	var syslogSrv *syslogd.Server
 	if *syslogUDP != "" || *syslogTCP != "" || *syslogTLS != "" {
-		cfg := syslogd.Config{UDPAddr: *syslogUDP, TCPAddr: *syslogTCP, TLSAddr: *syslogTLS, Allow: allow, Submit: worker.Submit}
+		syslogID, err := router.Builtin(ctx, storage.SourceSyslog)
+		if err != nil {
+			return err
+		}
+		cfg := syslogd.Config{
+			UDPAddr: *syslogUDP, TCPAddr: *syslogTCP, TLSAddr: *syslogTLS, Allow: allow,
+			Parse: func(ctx context.Context, line string) (*ocsf.Event, map[string]string, error) {
+				return router.Parse(ctx, syslogID, line, parser.Defaults{})
+			},
+			Submit: func(ctx context.Context, ev *ocsf.Event, fields map[string]string) error {
+				authn.TouchSource(ctx, syslogID)
+				return worker.SubmitWith(ctx, ev, ingest.SubmitOptions{SourceID: syslogID, Fields: fields})
+			},
+		}
 		if *syslogTLS != "" {
 			pair, err := tls.LoadX509KeyPair(*certFile, *keyFile)
 			if err != nil {
@@ -198,7 +230,7 @@ func run() error {
 
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine,
-		Auth: auth.New(repo, nil), Intel: intelSvc, Syslog: syslogSrv, Sample: samples,
+		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Sample: samples, Router: router, AI: aiClient,
 	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Start(*certFile, *keyFile) }()
@@ -247,7 +279,7 @@ func bootstrapAdminUser(ctx context.Context, repo *storage.Repository) error {
 	}
 	fmt.Printf("\nNo users exist. Created an admin account (password shown once, store it safely):\n\n"+
 		"  username: admin\n  password: %s\n\n"+
-		"Add people with: siemlite users create -username alice -role analyst\n"+
+		"Add people with: siemlite users create -username alice -role standard\n"+
 		"Create an API key for an app that sends logs with: siemlite keys create -name myapp\n\n", password)
 	return nil
 }
@@ -285,27 +317,33 @@ func runKeys(args []string) error {
 
 	switch cmd {
 	case "create":
-		kid, key, err := auth.CreateKey(ctx, repo, *name)
+		kid, key, err := auth.CreateKey(ctx, repo, *name, nil)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Created API key %d (%s). It can only send logs. Shown once, store it safely:\n\n  %s\n", kid, *name, key)
+		fmt.Printf("Created source %d (%s). Its access token can only send logs. Shown once, store it safely:\n\n  %s\n", kid, *name, key)
 	case "list":
-		keys, err := repo.ListKeys(ctx)
+		srcs, err := repo.ListSources(ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%-4s %-24s %-20s %s\n", "ID", "NAME", "CREATED", "STATUS")
-		for _, k := range keys {
-			status := "active"
+		fmt.Printf("%-4s %-24s %-20s %-20s %s\n", "ID", "NAME", "CREATED", "LAST USED", "STATUS")
+		for _, k := range srcs {
+			if k.Kind != storage.SourceToken {
+				continue
+			}
+			status, used := "active", "never"
 			if k.RevokedAt != nil {
 				status = "revoked"
 			}
-			fmt.Printf("%-4d %-24s %-20s %s\n", k.ID, k.Name,
-				time.UnixMilli(k.CreatedAt).Format("2006-01-02 15:04:05"), status)
+			if k.LastUsedAt != nil {
+				used = time.UnixMilli(*k.LastUsedAt).Format("2006-01-02 15:04:05")
+			}
+			fmt.Printf("%-4d %-24s %-20s %-20s %s\n", k.ID, k.Name,
+				time.UnixMilli(k.CreatedAt).Format("2006-01-02 15:04:05"), used, status)
 		}
 	case "revoke":
-		ok, err := repo.RevokeKey(ctx, *id, time.Now().UnixMilli())
+		ok, err := repo.RevokeSource(ctx, *id, time.Now().UnixMilli())
 		if err != nil {
 			return err
 		}
@@ -329,7 +367,7 @@ func runUsers(args []string) error {
 	fs := flag.NewFlagSet("users "+cmd, flag.ContinueOnError)
 	dbPath := fs.String("db", "siemlite.db", "SQLite database path")
 	username := fs.String("username", "", "username")
-	role := fs.String("role", auth.RoleAnalyst, "admin (search + add logs) or analyst (search only) (create)")
+	role := fs.String("role", auth.RoleStandard, "admin (everything) or standard (search) (create)")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}

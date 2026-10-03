@@ -19,6 +19,7 @@
     color-scheme: light;
     --paper: #f2f3f1; --surface: #ffffff; --raised: #e9ebe8; --ink: #1c1f21; --ink-2: #5f666b; --rule: #d9dcd8;
     --sev-0: #8a949b; --sev-1: #6c7a86; --sev-2: #2f8463; --sev-3: #a47f12; --sev-4: #c35a1c; --sev-5: #c1333a; --sev-6: #8c2b69;
+    --chart-other: #5f666b;
     --sans: "Instrument Sans", system-ui, sans-serif;
     --mono: "Spline Sans Mono", ui-monospace, monospace;
     --side: 236px;
@@ -28,12 +29,14 @@
       color-scheme: dark;
       --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a;
       --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e05257; --sev-6: #c0559a;
+      --chart-other: #7d858a;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
     --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a;
     --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e05257; --sev-6: #c0559a;
+    --chart-other: #7d858a;
   }
 
   * { box-sizing: border-box; }
@@ -44,42 +47,53 @@
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .mono { font-family: var(--mono); font-size: 13px; }
+  .muted { color: var(--ink-2); }
+  a { color: inherit; }
 
   /* Controls */
   .input, .select { height: 36px; }
+  .input, .select, textarea { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px; min-width: 0; }
+  .input:focus, .select:focus, textarea:focus { border-color: var(--ink-2); outline: none; }
+  textarea { width: 100%; resize: vertical; font: 13px/1.6 var(--mono); }
   input[type="file"] { font-size: 13.5px; color: var(--ink-2); }
   input[type="file"]::file-selector-button { margin-right: 10px; padding: 7px 12px; border: 1px solid var(--rule); border-radius: 6px;
                                              background: var(--surface); color: var(--ink); cursor: pointer; }
-  input[type="file"]::file-selector-button:hover { background: var(--raised); }
-  .input, .select, textarea { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px; }
-  .input:focus, .select:focus, textarea:focus { border-color: var(--ink-2); outline: none; }
-  .btn { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  .btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; height: 36px; border: 1px solid var(--rule); background: var(--surface);
+         border-radius: 6px; padding: 0 14px; cursor: pointer; white-space: nowrap; }
   .btn:hover { background: var(--raised); }
-  .btn:disabled { opacity: .4; cursor: default; background: var(--surface); }
+  .btn:disabled { opacity: .45; cursor: default; background: var(--surface); }
   .btn-primary { background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; }
   .btn-primary:hover { background: var(--ink); opacity: .88; }
+  .btn-danger { color: var(--sev-5); }
+  .btn-small { height: 30px; padding: 0 10px; font-size: 13.5px; }
+  .link-btn { border: 0; background: none; padding: 4px 0; color: var(--ink-2); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .link-btn:hover { color: var(--ink); }
   .field-label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
+  .field-label > .input, .field-label > .select { width: 100%; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .notice { margin: 12px 0 0; font-size: 14px; }
+  .notice.ok { color: var(--sev-2); }
+  .notice.bad { color: var(--sev-5); }
 
   /* Shell */
   .app { display: grid; grid-template-columns: var(--side) 1fr; min-height: 100%; }
-  .side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 28px;
-          padding: 22px 16px 18px; border-right: 1px solid var(--rule); overflow-y: auto; }
+  .side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 26px;
+          padding: 22px 16px 18px; border-right: 1px solid var(--rule); overflow-y: auto; background: var(--paper); }
   .wordmark { font-weight: 650; font-size: 19px; letter-spacing: -.2px; font-stretch: 88%; padding: 0 10px; margin: 0; }
   .nav { display: grid; gap: 2px; }
-  .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px;
-              background: none; color: var(--ink-2); text-align: left; cursor: pointer; }
+  .nav-sep { height: 1px; background: var(--rule); margin: 10px 10px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 6px;
+              color: var(--ink-2); text-decoration: none; }
   .nav-item:hover { color: var(--ink); background: var(--raised); }
   .nav-item[aria-current="page"] { color: var(--ink); background: var(--raised); font-weight: 600; }
-  .nav-item svg, .icon { width: 18px; height: 18px; flex: none; }
+  .icon { width: 18px; height: 18px; flex: none; }
   .side-foot { margin-top: auto; display: grid; gap: 22px; font-size: 13px; }
-
   .status-line { display: flex; align-items: center; gap: 8px; padding: 0 10px; font-weight: 600; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sev-2); }
   .dot.bad { background: var(--sev-5); }
   .facts { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; margin: 8px 0 0; padding: 0 10px; color: var(--ink-2); }
   .facts dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
   .facts .warn { color: var(--sev-4); }
-
   .switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; cursor: pointer; user-select: none; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .track { width: 32px; height: 18px; border-radius: 9px; background: var(--rule); position: relative; flex: none; transition: background .15s; }
@@ -90,137 +104,212 @@
   .switch input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
   .switch.busy { opacity: .5; pointer-events: none; }
   .note { margin: 0; padding: 0 10px; color: var(--ink-2); }
-
   .theme { display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px; margin: 0 10px; border: 1px solid var(--rule); border-radius: 7px; }
   .theme button { border: 0; background: none; border-radius: 5px; padding: 4px 0; color: var(--ink-2); cursor: pointer; font-size: 12.5px; }
   .theme button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--rule); }
   .account { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 10px 0; border-top: 1px solid var(--rule); }
   .account b { display: block; font-weight: 600; }
   .account span { color: var(--ink-2); }
-  .link-btn { border: 0; background: none; padding: 4px 0; color: var(--ink-2); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-  .link-btn:hover { color: var(--ink); }
 
   .main { min-width: 0; padding: 0 40px 48px; }
   .mobile-bar { display: none; }
-
-  /* Search: an empty page with the field in the middle until you search */
-  .search { padding-top: 26px; transition: padding-top .5s cubic-bezier(.2, .7, .2, 1); }
-  .search.idle { padding-top: 33vh; }
-  .query { max-width: 860px; margin: 0 auto; }
-  .search:not(.idle) .query { max-width: none; position: sticky; top: 0; z-index: 2; background: var(--paper); padding: 12px 0 10px; }
-  .field { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--rule);
-           border-radius: 10px; padding: 0 8px 0 16px; transition: box-shadow .2s, border-color .2s; }
-  .field:focus-within { border-color: var(--ink-2); box-shadow: 0 0 0 4px var(--raised); }
-  .field > .icon { color: var(--ink-2); }
-  #q { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-family: var(--mono); padding: 12px 10px;
-       font-size: 15px; transition: font-size .5s cubic-bezier(.2, .7, .2, 1), padding .5s cubic-bezier(.2, .7, .2, 1); }
-  .idle #q { font-size: 21px; padding: 19px 12px; }
-  #q::placeholder { color: var(--ink-2); opacity: .7; }
-  #range { border: 0; background: none; color: var(--ink-2); padding: 6px 4px; cursor: pointer; }
   .icon-btn { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 7px;
               background: none; color: var(--ink-2); cursor: pointer; }
   .icon-btn:hover, .icon-btn[aria-expanded="true"] { background: var(--raised); color: var(--ink); }
   .count { position: absolute; top: 3px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
            background: var(--ink); color: var(--paper); font-size: 10px; font-weight: 700; line-height: 15px; }
-  .hint { margin: 14px 4px 0; color: var(--ink-2); font-size: 13.5px; text-align: center; }
-  .hint code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
-  .search:not(.idle) .hint { display: none; }
 
-  .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 10px;
+  /* Page headers */
+  .page { padding-top: 34px; }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .page-head h1 { font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.3px; margin: 0; font-stretch: 92%; }
+  .page-head p { margin: 6px 0 0; color: var(--ink-2); max-width: 70ch; }
+  .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Search fields */
+  .field { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--rule);
+           border-radius: 10px; padding: 0 8px 0 16px; transition: box-shadow .2s, border-color .2s; }
+  .field:focus-within { border-color: var(--ink-2); box-shadow: 0 0 0 4px var(--raised); }
+  .field > .icon { color: var(--ink-2); }
+  .field input.q { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-family: var(--mono); padding: 12px 10px; font-size: 15px; }
+  .field input.q::placeholder { color: var(--ink-2); opacity: .7; }
+
+  /* Dashboard */
+  .dash-search { max-width: 820px; margin: 9vh auto 0; }
+  .dash-search .field input.q { font-size: 21px; padding: 19px 12px; }
+  .dash-hint { margin: 12px 4px 0; color: var(--ink-2); font-size: 13.5px; text-align: center; }
+  .dash-body { margin-top: 56px; }
+  .dash-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .seg { display: inline-grid; grid-auto-flow: column; padding: 2px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+  .seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; color: var(--ink-2); cursor: pointer; font-size: 13.5px; }
+  .seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+  .figures { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+  .figure { background: var(--surface); padding: 18px 20px; }
+  .figure .label { font-size: 13px; color: var(--ink-2); }
+  .figure .value { font-size: 30px; font-weight: 600; letter-spacing: -.5px; line-height: 1.2; margin-top: 4px; }
+  .figure.hero .value { font-size: 52px; letter-spacing: -1.2px; }
+  .figure .sub { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+  .panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; }
+  .panel h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px; font-size: 13px; color: var(--ink-2); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: 220px; overflow: visible; }
+  .chart .grid line { stroke: var(--rule); stroke-width: 1; }
+  .chart text { fill: var(--ink-2); font-size: 11.5px; font-family: var(--sans); }
+  .chart .hit { fill: transparent; cursor: default; outline: none; }
+  .chart .hit:focus-visible { fill: var(--raised); }
+  .tooltip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+             padding: 8px 10px; font-size: 13px; box-shadow: 0 8px 24px -12px rgba(0, 0, 0, .4); white-space: nowrap; z-index: 3; }
+  .tooltip b { display: block; font-size: 15px; }
+  .tooltip span { display: block; color: var(--ink-2); }
+  .dash-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+  .rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; font-size: 14px; }
+  .rank .bar { grid-column: 1 / -1; height: 6px; border-radius: 0 3px 3px 0; background: var(--chart-other); min-width: 2px; }
+  .rank .n { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .rank a, .rank button.linkish { color: inherit; text-decoration: none; border: 0; background: none; padding: 0; cursor: pointer; text-align: left;
+                                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rank a:hover, .rank button.linkish:hover { text-decoration: underline; }
+  .empty-note { color: var(--ink-2); font-size: 14px; margin: 0; }
+
+  /* Database */
+  .db-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; position: sticky; top: 0; z-index: 2;
+            background: var(--paper); padding: 12px 0 10px; }
+  .range { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 0 6px 0 12px; height: 50px; }
+  .range label { font-size: 13px; color: var(--ink-2); }
+  .date { display: flex; align-items: center; }
+  .date input.input { width: 92px; height: 34px; border-color: transparent; font-family: var(--mono); font-size: 13.5px; padding: 0 6px; }
+  .date input.input:focus { border-color: var(--ink-2); }
+  .date input.input[aria-invalid="true"] { border-color: var(--sev-5); }
+  .date .picker { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+  .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 10px;
              padding: 14px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
   .filters .wide { grid-column: span 2; }
-  .filters .input, .filters .select { width: 100%; min-width: 0; }
-  .check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; align-self: end; padding-bottom: 7px; }
-  .syntax { grid-column: 1 / -1; margin: 4px 0 0; font-size: 13px; color: var(--ink-2); max-width: 75ch; }
+  .filters .check { align-self: end; padding-bottom: 8px; }
+  .syntax { grid-column: 1 / -1; margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
   .syntax code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
   .filters-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
-
-  .results { margin-top: 6px; animation: rise .45s .12s both cubic-bezier(.2, .7, .2, 1); }
-  .idle .results { display: none; }
-  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
   .meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0 10px; font-size: 13px; color: var(--ink-2); }
   .pager { display: flex; gap: 6px; }
-  .pager .btn { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 8px; font-size: 13px; }
-  .pager .btn:last-child { padding: 4px 8px 4px 10px; }
   .error { margin: 10px 0 0; padding: 10px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--sev-5); color: var(--sev-5); font-size: 13.5px; }
 
-  .table-wrap { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  th { text-align: left; font-weight: 500; font-size: 12.5px; color: var(--ink-2); padding: 9px 12px; border-bottom: 1px solid var(--rule); }
-  td { padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  tbody tr:last-child td { border-bottom: 0; }
-  col.c-time { width: 156px; } col.c-sev { width: 92px; } col.c-cat { width: 96px; } col.c-src { width: 176px; } col.c-dst { width: 168px; } col.c-user { width: 96px; }
+  .table-wrap { position: relative; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; overflow-x: auto; }
+  table.data { width: 100%; border-collapse: collapse; }
+  table.events { table-layout: fixed; min-width: 760px; }
+  .data th { text-align: left; font-weight: 500; font-size: 12.5px; color: var(--ink-2); padding: 9px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  .data td { padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  .data tbody tr:last-child td { border-bottom: 0; }
+  .events td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+  col.c-time { width: 156px; } col.c-sev { width: 92px; } col.c-src { width: 140px; } col.c-ip { width: 176px; } col.c-user { width: 96px; }
   tr.ev { cursor: pointer; }
   tr.ev:hover td { background: var(--raised); }
   tr.ev.open td { background: var(--raised); border-bottom-color: transparent; }
   tr.threat td:first-child { box-shadow: inset 3px 0 0 var(--sev-5); }
   .time { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13.5px; }
   .sev { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
-  .sev i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
+  .sev i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); flex: none; }
   .cc { margin-left: 6px; color: var(--ink-2); font-family: var(--sans); font-size: 12px; }
   .tag { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 4px; font-size: 12px; font-weight: 600; line-height: 19px; }
   .tag-threat { color: var(--sev-5); box-shadow: inset 0 0 0 1px var(--sev-5); }
   .tag-sample { padding: 0; color: var(--ink-2); font-weight: 500; }
+  .tag-plain { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--rule); font-weight: 500; }
   .empty td { white-space: normal; text-align: center; color: var(--ink-2); padding: 44px 20px; cursor: default; }
-
   tr.detail td { background: var(--raised); white-space: normal; padding: 4px 16px 18px; }
-  .facts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 24px; margin: 6px 0 14px; }
+  .facts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px 24px; margin: 6px 0 14px; }
   .facts-grid dt { font-size: 12.5px; color: var(--ink-2); }
-  .facts-grid dd { margin: 2px 0 0; }
+  .facts-grid dd { margin: 2px 0 0; overflow-wrap: anywhere; }
   .facts-grid dd span { display: block; color: var(--ink-2); font-size: 13px; }
   .facts-grid dd .ip { display: inline; color: inherit; font-size: 13px; }
   .matches { margin: 0 0 14px; padding: 12px 14px; list-style: none; border-radius: 8px; box-shadow: inset 3px 0 0 var(--sev-5); background: var(--surface); }
   .matches li + li { margin-top: 8px; }
   .matches b { color: var(--sev-5); font-weight: 600; }
   .matches span { display: block; color: var(--ink-2); font-size: 13px; }
-  pre.raw { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--surface); white-space: pre-wrap; word-break: break-all;
-            font: 12.5px/1.6 var(--mono); }
+  pre.raw { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--surface); white-space: pre-wrap; word-break: break-all; font: 12.5px/1.6 var(--mono); }
 
-  /* Add logs */
-  .page { max-width: 760px; padding-top: 44px; }
-  .page h1 { font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.3px; margin: 0 0 8px; font-stretch: 92%; }
-  .page > p { margin: 0 0 22px; color: var(--ink-2); max-width: 62ch; }
-  textarea { width: 100%; min-height: 260px; resize: vertical; font: 13px/1.6 var(--mono); }
-  .form-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 16px; margin-top: 14px; }
-  .form-row .btn-primary { height: 36px; margin-left: auto; }
-  .notice { margin-top: 14px; font-size: 14px; }
-  .notice.ok { color: var(--sev-2); }
-  .notice.bad { color: var(--sev-5); }
+  /* Admin lists */
+  .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .data td.actions { width: 1%; white-space: nowrap; }
+  .data .select { height: 32px; padding: 4px 8px; }
+  .kind { color: var(--ink-2); font-size: 13.5px; }
+  .pill { display: inline-block; font-size: 12.5px; padding: 1px 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
+  .pill.on { box-shadow: inset 0 0 0 1px var(--sev-2); color: var(--sev-2); }
+  .revoked td:not(.actions) { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--rule); }
+
+  /* Dialogs */
+  dialog { border: 1px solid var(--rule); border-radius: 12px; padding: 0; background: var(--surface); color: var(--ink);
+           width: min(520px, calc(100vw - 32px)); box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .55); }
+  dialog::backdrop { background: rgba(10, 12, 14, .45); }
+  dialog form { display: grid; gap: 14px; padding: 22px; }
+  dialog h2 { margin: 0; font-size: 19px; font-weight: 600; }
+  dialog p { margin: 0; color: var(--ink-2); }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .choice { display: grid; gap: 8px; }
+  .source-checks { display: grid; gap: 6px; max-height: 200px; overflow: auto; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; }
+  .token-box { display: flex; gap: 8px; }
+  .token-box input { flex: 1; font-family: var(--mono); font-size: 13px; }
+  pre.example { margin: 0; padding: 12px; border-radius: 8px; background: var(--raised); font: 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
+  dialog.wide { width: min(760px, calc(100vw - 32px)); }
+
+  /* Parser editor */
+  .editor { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px; align-items: start; }
+  .editor .panel { display: grid; gap: 14px; }
+  .editor h2 { font-size: 15px; }
+  .pattern-input { font-family: var(--mono); font-size: 13.5px; width: 100%; }
+  .hint { font-size: 13px; color: var(--ink-2); margin: 0; }
+  .hint code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .map-table td, .map-table th { padding: 6px 8px; }
+  .map-table td:first-child { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .rules { display: grid; gap: 6px; }
+  .rule-row { display: grid; grid-template-columns: minmax(0, 1fr) 140px 32px; gap: 6px; align-items: center; }
+  .preview { display: grid; gap: 8px; }
+  .preview-line { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; background: var(--surface); }
+  .preview-line .raw-line { font: 12px/1.5 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; margin-bottom: 6px; }
+  .preview-line.miss { box-shadow: inset 3px 0 0 var(--sev-5); }
+  .preview-line dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 13px; }
+  .preview-line dt { color: var(--ink-2); }
+  .preview-line dd { margin: 0; overflow-wrap: anywhere; }
+  .preview-line dd.x { font-family: var(--mono); font-size: 12.5px; }
+  .preview-status { font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
+  .preview-status.miss { color: var(--sev-5); }
+  .ai-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Sign in */
   .login { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: var(--paper); }
   .login form { width: min(360px, 100%); display: grid; gap: 14px; }
   .login .wordmark { padding: 0; font-size: 26px; margin-bottom: 2px; }
   .login p { margin: 0 0 8px; color: var(--ink-2); }
-  .login .input { width: 100%; padding: 10px 12px; }
-  .login .btn-primary { padding: 10px; margin-top: 4px; }
+  .login .input { width: 100%; height: 42px; }
+  .login .btn-primary { height: 42px; justify-content: center; margin-top: 4px; }
   .login .notice { margin: 0; }
 
-  footer { margin-top: 36px; text-align: center; font-size: 12.5px; color: var(--ink-2); }
-  footer a { color: inherit; }
-  .main:has(.search.idle:not([hidden])) footer { position: fixed; bottom: 18px; left: var(--side); right: 0; }
+  footer { margin-top: 40px; text-align: center; font-size: 12.5px; color: var(--ink-2); }
 
-  /* Narrow screens: the sidebar becomes a drawer */
-  .scrim { display: none; }
+  @media (max-width: 1100px) {
+    .editor { grid-template-columns: 1fr; }
+    .dash-grid { grid-template-columns: 1fr 1fr; }
+  }
   @media (max-width: 860px) {
     .app { grid-template-columns: 1fr; }
-    .side { position: fixed; z-index: 30; inset: 0 auto 0 0; width: min(300px, 86vw); background: var(--paper);
+    .side { position: fixed; z-index: 30; inset: 0 auto 0 0; width: min(300px, 86vw);
             transform: translateX(-100%); transition: transform .25s ease; }
     .app.menu-open .side { transform: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35); }
-    .mobile-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--rule); }
+    .mobile-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--rule); }
     .mobile-bar .wordmark { padding: 0; }
     .main { padding: 0 16px 40px; }
-    .search.idle { padding-top: 24vh; }
-    .idle #q { font-size: 17px; padding: 15px 8px; }
-    .opt, .time .date, .sev-label { display: none; }
-    col.c-time { width: 112px; } col.c-sev { width: 34px; }
-    .time { font-size: 13px; }
-    td, th { padding-left: 10px; padding-right: 8px; }
-    .meta { flex-wrap: wrap; }
-    td.msg { white-space: normal; }
-    .msg-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-    .tag-sample { display: none; }
-    .main:has(.search.idle:not([hidden])) footer { left: 0; }
+    .dash-search { margin-top: 5vh; }
+    .dash-search .field input.q { font-size: 17px; padding: 15px 8px; }
+    .figures { grid-template-columns: 1fr 1fr; }
+    .figure.hero { grid-column: 1 / -1; }
+    .dash-grid { grid-template-columns: 1fr; }
+    .db-bar { grid-template-columns: 1fr; }
+    .range { height: 44px; }
+    .two { grid-template-columns: 1fr; }
+    .page { padding-top: 22px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
@@ -229,12 +318,18 @@
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-dash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10m5.3 10V4m5.4 16v-7M20 20v-4"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6M4.5 12v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-6"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.7.7 2.7 2.4 3 5.2"/></symbol>
+  <symbol id="i-sources" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7m-7 5h7m-7 5h7"/><path d="M13.5 12h6.5m-3-3 3 3-3 3"/></symbol>
+  <symbol id="i-parsers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-4.5 5L8 17m8-10 4.5 5L16 17M13.5 5l-3 14"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
-  <symbol id="i-add" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14"/><path d="M12 4v11m-4-4 4 4 4-4"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4m7-4v4"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7 7 10 10M17 7 7 17"/></symbol>
 </svg>
 
 <div id="login" class="login" hidden>
@@ -252,12 +347,16 @@
   <aside class="side" id="side" aria-label="Sidebar">
     <p class="wordmark">SIEMLite</p>
     <nav class="nav" aria-label="Main">
-      <button class="nav-item" id="nav-search" aria-current="page"><svg><use href="#i-search"/></svg>Search</button>
-      <button class="nav-item" id="nav-ingest" hidden><svg><use href="#i-add"/></svg>Add logs</button>
+      <a class="nav-item" href="#/dashboard" data-nav="dashboard"><svg class="icon"><use href="#i-dash"/></svg>Dashboard</a>
+      <a class="nav-item" href="#/database" data-nav="database"><svg class="icon"><use href="#i-db"/></svg>Database</a>
+      <div class="admin-only nav-sep" role="separator"></div>
+      <a class="nav-item admin-only" href="#/users" data-nav="users"><svg class="icon"><use href="#i-users"/></svg>Users</a>
+      <a class="nav-item admin-only" href="#/sources" data-nav="sources"><svg class="icon"><use href="#i-sources"/></svg>Sources</a>
+      <a class="nav-item admin-only" href="#/parsers" data-nav="parsers"><svg class="icon"><use href="#i-parsers"/></svg>Parsers</a>
     </nav>
     <div class="side-foot">
       <div id="status" aria-live="polite"></div>
-      <label class="switch" id="sample-switch" hidden title="Load a day of demo events. Turning it off deletes only those.">
+      <label class="switch admin-only" id="sample-switch" title="Load a day of demo events. Turning it off deletes only those.">
         Sample data <input type="checkbox" id="sample-toggle" role="switch"><span class="track"></span>
       </label>
       <p class="note" id="sample-note" hidden>Sample data is loaded.</p>
@@ -279,49 +378,97 @@
       <button class="icon-btn" id="menu-btn" aria-label="Open menu" aria-controls="side" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
     </div>
 
-    <section id="view-search" class="search idle" aria-label="Search">
-      <form id="search-form" class="query" role="search">
+    <!-- Dashboard -->
+    <section id="view-dashboard" aria-label="Dashboard" hidden>
+      <form id="dash-form" class="dash-search" role="search">
         <div class="field">
           <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-          <input id="q" aria-label="Search logs" placeholder="Search your logs" autocomplete="off" spellcheck="false" autofocus>
-          <label class="visually-hidden" for="range">Time range</label>
-          <select id="range">
-            <option value="900000">Last 15 minutes</option>
-            <option value="3600000">Last hour</option>
-            <option value="86400000" selected>Last 24 hours</option>
-            <option value="604800000">Last 7 days</option>
-            <option value="2592000000">Last 30 days</option>
-            <option value="0">All time</option>
-          </select>
-          <button type="button" class="icon-btn" id="filters-btn" aria-label="Filters" aria-expanded="false" aria-controls="filters">
-            <svg class="icon"><use href="#i-filter"/></svg><span class="count" id="filter-count" hidden></span>
-          </button>
+          <input class="q" id="dash-q" aria-label="Search logs" placeholder="Search your logs" autocomplete="off" spellcheck="false">
         </div>
-        <p class="hint" id="hint"></p>
+        <p class="dash-hint" id="dash-hint">Press Enter to open the results in the Database.</p>
+      </form>
+      <div class="dash-body">
+        <div class="dash-bar">
+          <span class="muted" id="dash-range-label"></span>
+          <div class="seg" role="group" aria-label="Dashboard time range">
+            <button type="button" data-hours="24" aria-pressed="true">24 hours</button>
+            <button type="button" data-hours="168" aria-pressed="false">7 days</button>
+            <button type="button" data-hours="720" aria-pressed="false">30 days</button>
+          </div>
+        </div>
+        <div class="figures">
+          <div class="figure hero"><div class="label">Events</div><div class="value" id="fig-total">–</div><div class="sub" id="fig-total-sub"></div></div>
+          <div class="figure"><div class="label">Threat intel matches</div><div class="value" id="fig-threats">–</div><div class="sub" id="fig-threats-sub"></div></div>
+          <div class="figure"><div class="label">High or worse</div><div class="value" id="fig-high">–</div><div class="sub" id="fig-high-sub"></div></div>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head">
+            <h2 id="chart-title">Events per hour</h2>
+            <div style="display:flex;gap:16px;align-items:center">
+              <div class="legend"><span><i style="background:var(--sev-5)"></i>Threat intel matches</span><span><i style="background:var(--chart-other)"></i>Other events</span></div>
+              <button class="link-btn" id="chart-table-btn" aria-expanded="false">Show as table</button>
+            </div>
+          </div>
+          <div class="chart" id="chart"></div>
+          <div id="chart-table" hidden></div>
+        </div>
+        <div class="dash-grid">
+          <div class="panel"><div class="panel-head"><h2>By severity</h2></div><ul class="rank" id="dash-sev"></ul></div>
+          <div class="panel"><div class="panel-head"><h2>Busiest sources</h2></div><ul class="rank" id="dash-sources"></ul></div>
+          <div class="panel"><div class="panel-head"><h2>IPs on threat lists</h2></div><ul class="rank" id="dash-threats"></ul></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Database -->
+    <section id="view-database" aria-label="Database" hidden>
+      <form id="db-form" role="search">
+        <div class="db-bar">
+          <div class="field">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input class="q" id="q" aria-label="Search logs" placeholder="Search your logs" autocomplete="off" spellcheck="false">
+            <button type="button" class="icon-btn" id="filters-btn" aria-label="Filters" aria-expanded="false" aria-controls="filters">
+              <svg class="icon"><use href="#i-filter"/></svg><span class="count" id="filter-count" hidden></span>
+            </button>
+          </div>
+          <div class="range" role="group" aria-label="Date range">
+            <label for="from">From</label>
+            <span class="date"><input class="input" id="from" placeholder="mm/dd/yy" inputmode="numeric" autocomplete="off" maxlength="10">
+              <button type="button" class="icon-btn" data-picker="from" aria-label="Choose the start date"><svg class="icon"><use href="#i-cal"/></svg></button>
+              <input type="date" class="picker" tabindex="-1" aria-hidden="true" data-for="from"></span>
+            <label for="to">to</label>
+            <span class="date"><input class="input" id="to" placeholder="mm/dd/yy" inputmode="numeric" autocomplete="off" maxlength="10">
+              <button type="button" class="icon-btn" data-picker="to" aria-label="Choose the end date"><svg class="icon"><use href="#i-cal"/></svg></button>
+              <input type="date" class="picker" tabindex="-1" aria-hidden="true" data-for="to"></span>
+          </div>
+        </div>
         <div class="filters" id="filters" hidden>
+          <label class="field-label">Source
+            <select class="select" id="f-source"><option value="">Any source</option></select>
+          </label>
           <label class="field-label">Severity
-            <select class="select" id="severity">
+            <select class="select" id="f-severity">
               <option value="">Any</option><option value="1">Informational</option><option value="2">Low</option>
               <option value="3">Medium</option><option value="4">High</option><option value="5">Critical</option>
               <option value="6">Fatal</option><option value="0">Unknown</option>
             </select>
           </label>
           <label class="field-label">Category
-            <select class="select" id="category">
+            <select class="select" id="f-category">
               <option value="">Any</option><option value="1">System activity</option><option value="2">Findings</option>
               <option value="3">Identity and access</option><option value="4">Network activity</option><option value="5">Discovery</option>
               <option value="6">Application activity</option><option value="7">Remediation</option><option value="8">Unmanaged devices</option>
             </select>
           </label>
-          <label class="field-label">Source IP <input class="input mono" id="src_ip"></label>
-          <label class="field-label">Destination IP <input class="input mono" id="dst_ip"></label>
-          <label class="field-label">User <input class="input" id="user"></label>
-          <label class="field-label">Source <input class="input" id="source_f" placeholder="sshd"></label>
-          <label class="field-label">Country <input class="input" id="country" maxlength="2" placeholder="Two letters, e.g. NL"></label>
+          <label class="field-label">Source IP <input class="input mono" id="f-src_ip"></label>
+          <label class="field-label">Destination IP <input class="input mono" id="f-dst_ip"></label>
+          <label class="field-label">User <input class="input" id="f-user"></label>
+          <label class="field-label">Program <input class="input" id="f-program" placeholder="sshd"></label>
+          <label class="field-label">Country <input class="input" id="f-country" maxlength="2" placeholder="Two letters, e.g. NL"></label>
           <label class="field-label">Results per page
-            <select class="select" id="limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
+            <select class="select" id="f-limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
           </label>
-          <label class="check wide"><input type="checkbox" id="threat"> Only threat intel matches</label>
+          <label class="check wide"><input type="checkbox" id="f-threat"> Only threat intel matches</label>
           <p class="syntax">Search for words or <code>"exact phrases"</code>, combine them with <code>AND</code>, <code>OR</code>
             and <code>NOT</code>, and end a word with <code>*</code> to match its beginning: <code>failed AND ssh</code>, <code>admin*</code>.</p>
           <div class="filters-foot">
@@ -330,85 +477,330 @@
           </div>
         </div>
       </form>
-
-      <div class="results">
-        <p id="error" class="error" role="alert" hidden></p>
-        <div class="meta">
-          <span id="summary"></span>
-          <span class="pager">
-            <button class="btn" id="prev"><svg class="icon" aria-hidden="true"><use href="#i-left"/></svg>Newer</button>
-            <button class="btn" id="next">Older<svg class="icon" aria-hidden="true"><use href="#i-right"/></svg></button>
-          </span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <colgroup><col class="c-time"><col class="c-sev"><col class="c-cat opt"><col class="c-src opt"><col class="c-dst opt"><col class="c-user opt"><col></colgroup>
-            <thead><tr><th>Time</th><th><span class="sev-label">Severity</span></th><th class="opt">Category</th><th class="opt">Source</th><th class="opt">Destination</th><th class="opt">User</th><th>Event</th></tr></thead>
-            <tbody id="results"></tbody>
-          </table>
-        </div>
+      <p id="db-error" class="error" role="alert" hidden></p>
+      <div class="meta">
+        <span id="summary"></span>
+        <span class="pager">
+          <button class="btn btn-small" id="prev"><svg class="icon" aria-hidden="true"><use href="#i-left"/></svg>Newer</button>
+          <button class="btn btn-small" id="next">Older<svg class="icon" aria-hidden="true"><use href="#i-right"/></svg></button>
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table class="data events">
+          <colgroup><col class="c-time"><col class="c-sev"><col class="c-src"><col class="c-ip"><col class="c-ip"><col class="c-user"><col></colgroup>
+          <thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Source IP</th><th>Destination IP</th><th>User</th><th>Event</th></tr></thead>
+          <tbody id="results"></tbody>
+        </table>
       </div>
     </section>
 
-    <section id="view-ingest" class="page" aria-labelledby="ingest-title" hidden>
-      <h1 id="ingest-title">Add logs</h1>
-      <p>Paste logs, one per line, or load a file. Syslog, JSON lines and plain text all work. Each line is stored exactly
-        as written, and its time, IP addresses, user and severity are picked up where possible.</p>
-      <label class="visually-hidden" for="logs">Logs</label>
-      <textarea id="logs" placeholder="Oct  2 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2"></textarea>
-      <div class="form-row">
-        <label class="field-label">Source <input class="input" id="source" placeholder="e.g. sshd or nginx"></label>
-        <label class="field-label">Severity
-          <select class="select" id="sev-override">
-            <option value="">Detect from each line</option>
-            <option value="1">Informational</option><option value="2">Low</option><option value="3">Medium</option>
-            <option value="4">High</option><option value="5">Critical</option>
-          </select>
-        </label>
-        <label class="field-label">Or load a file <input type="file" id="file"></label>
-        <button class="btn btn-primary" id="send">Store logs</button>
+    <!-- Users -->
+    <section id="view-users" class="page" aria-labelledby="users-title" hidden>
+      <div class="page-head">
+        <div><h1 id="users-title">Users</h1><p>Admins can do everything. Standard users can search, and can be limited to the logs from chosen sources.</p></div>
+        <div class="page-actions"><button class="btn btn-primary" id="add-user">Add user</button></div>
       </div>
-      <p id="ingest-msg" class="notice" role="status" hidden></p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Username</th><th>Role</th><th>Can see</th><th>Added</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+      <p class="notice" id="users-msg" role="status" hidden></p>
+    </section>
+
+    <!-- Sources -->
+    <section id="view-sources" class="page" aria-labelledby="sources-title" hidden>
+      <div class="page-head">
+        <div><h1 id="sources-title">Sources</h1><p>Everywhere logs come from. Applications send logs with an access token; choose a parser to make a source&rsquo;s logs readable.</p></div>
+        <div class="page-actions">
+          <button class="btn" id="add-logs-btn">Add logs</button>
+          <button class="btn btn-primary" id="add-source">New access token</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Name</th><th>Type</th><th>Parser</th><th>Last used</th><th>Created</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="sources-body"></tbody>
+        </table>
+      </div>
+      <p class="notice" id="sources-msg" role="status" hidden></p>
+    </section>
+
+    <!-- Parsers -->
+    <section id="view-parsers" class="page" aria-labelledby="parsers-title" hidden>
+      <div class="page-head">
+        <div><h1 id="parsers-title">Parsers</h1><p>A parser reads a source&rsquo;s log lines and picks out the time, IPs, user, severity and anything else
+          worth keeping. Sources without one are parsed automatically.</p></div>
+        <div class="page-actions">
+          <label class="btn" for="parser-upload">Upload parser</label>
+          <input type="file" id="parser-upload" accept=".json,application/json" class="visually-hidden">
+          <a class="btn btn-primary" href="#/parsers/new">New parser</a>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Name</th><th>Reads</th><th>Used by</th><th>Updated</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="parsers-body"></tbody>
+        </table>
+      </div>
+      <p class="notice" id="parsers-msg" role="status" hidden></p>
+    </section>
+
+    <!-- Parser editor -->
+    <section id="view-parser" class="page" aria-labelledby="parser-title" hidden>
+      <div class="page-head">
+        <div><h1 id="parser-title">New parser</h1><p id="parser-sub">Paste a few log lines, describe their layout, and check the preview.</p></div>
+        <div class="page-actions">
+          <a class="btn" href="#/parsers">Cancel</a>
+          <button class="btn" id="pe-export">Export</button>
+          <button class="btn btn-primary" id="pe-save">Save parser</button>
+        </div>
+      </div>
+      <p id="pe-error" class="error" role="alert" hidden></p>
+      <div class="editor">
+        <div class="panel">
+          <h2>How to read the lines</h2>
+          <label class="field-label">Start from a template
+            <select class="select" id="pe-template"><option value="">Choose a template</option></select>
+          </label>
+          <div class="two">
+            <label class="field-label">Name <input class="input" id="pe-name" maxlength="80" required></label>
+            <label class="field-label">Lines are
+              <select class="select" id="pe-format">
+                <option value="pattern">Text with a fixed layout</option>
+                <option value="json">JSON objects</option>
+                <option value="kv">key=value pairs</option>
+              </select>
+            </label>
+          </div>
+          <label class="field-label">Description <input class="input" id="pe-desc" maxlength="200" placeholder="What logs this parser is for"></label>
+          <div id="pe-pattern-wrap" class="field-label">
+            <label for="pe-pattern">Pattern</label>
+            <input class="input pattern-input" id="pe-pattern" spellcheck="false" autocomplete="off" placeholder='{src_ip} - {user} [{time}] "{method} {path} {protocol}" {status}'>
+            <p class="hint">Write one line out and put <code>{name}</code> where values change. <code>{}</code> skips text,
+              and <code>{name:regex}</code> sets exactly what to match, like <code>{status:\d+}</code>.</p>
+          </div>
+          <label class="check"><input type="checkbox" id="pe-strip"> Lines start with a syslog header; read it first</label>
+          <div class="two">
+            <label class="field-label">Category
+              <select class="select" id="pe-category">
+                <option value="6">Application activity</option><option value="3">Identity and access</option>
+                <option value="4">Network activity</option><option value="1">System activity</option>
+                <option value="2">Findings</option><option value="5">Discovery</option>
+              </select>
+            </label>
+            <label class="field-label">Severity
+              <select class="select" id="pe-sev-from">
+                <option value="auto">Detect from the line</option>
+                <option value="fixed">Always the same</option>
+                <option value="field">Decide from a field</option>
+              </select>
+            </label>
+          </div>
+          <label class="field-label" id="pe-fixed-wrap" hidden>Severity for every line
+            <select class="select" id="pe-fixed"></select>
+          </label>
+          <div id="pe-rules-wrap" class="field-label" hidden>
+            <label for="pe-sev-field">Field</label>
+            <select class="select" id="pe-sev-field"></select>
+            <span>When the value matches (regex), use</span>
+            <div class="rules" id="pe-rules"></div>
+            <div><button type="button" class="btn btn-small" id="pe-add-rule">Add rule</button></div>
+          </div>
+          <div>
+            <h2 style="margin-bottom:8px">Fields</h2>
+            <p class="hint" id="pe-fields-hint">Fields appear here as the preview finds them.</p>
+            <table class="data map-table" id="pe-map" hidden>
+              <thead><tr><th>Field</th><th>Use as</th></tr></thead><tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Sample lines</h2>
+          <label class="visually-hidden" for="pe-samples">Sample lines</label>
+          <textarea id="pe-samples" rows="7" spellcheck="false" placeholder="Paste a few log lines from this source, one per line"></textarea>
+          <div class="ai-row" id="pe-ai" hidden>
+            <button type="button" class="btn" id="pe-suggest">Suggest a parser</button>
+            <span class="hint" id="pe-ai-status">A local AI model reads the sample lines and fills in the parser.</span>
+          </div>
+          <h2>Preview</h2>
+          <p class="hint" id="pe-preview-summary">Add sample lines to see how they&rsquo;re read.</p>
+          <div class="preview" id="pe-preview"></div>
+        </div>
+      </div>
     </section>
 
     <footer>SIEMLite is open source under the AGPL-3.0. <a href="https://github.com/justwaters/SIEMLite" target="_blank" rel="noopener">Get the source code</a></footer>
   </main>
 </div>
 
+<!-- Dialogs -->
+<dialog id="dlg-user">
+  <form method="dialog" id="user-form">
+    <h2 id="user-dlg-title">Add user</h2>
+    <label class="field-label" id="user-name-wrap">Username <input class="input" id="u-name" maxlength="64" autocomplete="off"></label>
+    <label class="field-label" id="user-pw-wrap">Password <input class="input" id="u-pw" type="password" minlength="12" maxlength="72" autocomplete="new-password">
+      <span>At least 12 characters.</span></label>
+    <label class="field-label">Role
+      <select class="select" id="u-role"><option value="standard">Standard: search the logs it can see</option><option value="admin">Admin: everything</option></select>
+    </label>
+    <div class="choice" id="u-scope-wrap">
+      <span class="muted" style="font-size:13px">Can see</span>
+      <label class="check"><input type="radio" name="u-scope" value="all" checked> Logs from every source</label>
+      <label class="check"><input type="radio" name="u-scope" value="some"> Only logs from these sources</label>
+      <div class="source-checks" id="u-sources" hidden></div>
+    </div>
+    <p class="notice bad" id="u-err" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn btn-primary" id="u-save" value="save">Add user</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-password">
+  <form method="dialog" id="pw-form">
+    <h2>Change password</h2>
+    <p id="pw-for"></p>
+    <label class="field-label">New password <input class="input" id="pw-new" type="password" minlength="12" maxlength="72" autocomplete="new-password">
+      <span>At least 12 characters. They&rsquo;ll be signed out everywhere.</span></label>
+    <p class="notice bad" id="pw-err" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn btn-primary" value="save">Change password</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-source">
+  <form method="dialog" id="source-form">
+    <h2 id="source-dlg-title">New access token</h2>
+    <p id="source-dlg-sub">An application uses the token to send its logs to SIEMLite. The token can only send logs.</p>
+    <label class="field-label">Name <input class="input" id="s-name" maxlength="80" placeholder="e.g. web shop, office firewall" autocomplete="off"></label>
+    <label class="field-label" id="s-parser-wrap">Parser <select class="select" id="s-parser"></select></label>
+    <p class="notice bad" id="s-err" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn btn-primary" id="s-save" value="save">Create token</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-token" class="wide">
+  <form method="dialog">
+    <h2>Copy the access token now</h2>
+    <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, revoke it and create another.</p>
+    <div class="token-box"><input class="input" id="t-token" readonly aria-label="Access token"><button type="button" class="btn" id="t-copy">Copy</button></div>
+    <p>Send logs with it, one per line:</p>
+    <pre class="example" id="t-example"></pre>
+    <div class="dialog-actions"><button class="btn btn-primary" value="done">Done</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-logs" class="wide">
+  <form method="dialog" id="logs-form">
+    <h2>Add logs</h2>
+    <p>Paste logs, one per line, or load a file. They&rsquo;re stored under &ldquo;Added in the UI&rdquo; and read with its parser.</p>
+    <label class="visually-hidden" for="logs">Logs</label>
+    <textarea id="logs" rows="10" placeholder="Oct  2 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2"></textarea>
+    <div class="two">
+      <label class="field-label">Severity
+        <select class="select" id="sev-override">
+          <option value="">Detect from each line</option>
+          <option value="1">Informational</option><option value="2">Low</option><option value="3">Medium</option>
+          <option value="4">High</option><option value="5">Critical</option>
+        </select>
+      </label>
+      <label class="field-label">Or load a file <input type="file" id="file"></label>
+    </div>
+    <p id="logs-msg" class="notice" role="status" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Close</button>
+      <button class="btn btn-primary" id="send" value="send">Store logs</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-confirm">
+  <form method="dialog">
+    <h2 id="c-title"></h2>
+    <p id="c-body"></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn btn-primary" id="c-ok" value="ok"></button>
+    </div>
+  </form>
+</dialog>
+
 <script>
+"use strict";
 const $ = (id) => document.getElementById(id);
 const SEV = { 0: "Unknown", 1: "Informational", 2: "Low", 3: "Medium", 4: "High", 5: "Critical", 6: "Fatal", 99: "Other" };
-const CAT = { 1: "System", 2: "Findings", 3: "Identity", 4: "Network", 5: "Discovery", 6: "Application", 7: "Remediation", 8: "Unmanaged" };
+const CAT = { 1: "System activity", 2: "Findings", 3: "Identity and access", 4: "Network activity", 5: "Discovery", 6: "Application activity", 7: "Remediation", 8: "Unmanaged devices" };
+const KIND = { token: "Access token", syslog: "Syslog listener", upload: "Pasted or uploaded", sample: "Sample data switch" };
 const FIELD = { "src_endpoint.ip": "the source IP", "dst_endpoint.ip": "the destination IP", "raw_data": "the log text" };
-const FILTER_IDS = ["severity", "category", "src_ip", "dst_ip", "user", "source_f", "country"];
-let offset = 0, isAdmin = false, sampleOn = false, totalEvents = null;
+const TARGETS = { time: "Time", src_ip: "Source IP", src_port: "Source port", dst_ip: "Destination IP", dst_port: "Destination port",
+                  user: "User", host: "Host", app: "Program", message: "Message", severity: "Severity" };
+// Mirrors pkg/parser's aliases, so the editor can say what "Automatic" means.
+const ALIASES = { time: "time", timestamp: "time", ts: "time", "@timestamp": "time", date: "time", datetime: "time",
+  src_ip: "src_ip", src: "src_ip", source_ip: "src_ip", client_ip: "src_ip", client: "src_ip", remote_addr: "src_ip", srcip: "src_ip",
+  src_port: "src_port", sport: "src_port", source_port: "src_port", srcport: "src_port",
+  dst_ip: "dst_ip", dst: "dst_ip", dest_ip: "dst_ip", destination_ip: "dst_ip", server_ip: "dst_ip", dstip: "dst_ip",
+  dst_port: "dst_port", dport: "dst_port", dest_port: "dst_port", destination_port: "dst_port", dstport: "dst_port",
+  user: "user", username: "user", user_name: "user", account: "user", host: "host", hostname: "host", device: "host",
+  app: "app", program: "app", process: "app", service: "app", message: "message", msg: "message",
+  severity: "severity", level: "severity", lvl: "severity", priority: "severity" };
+
+let me = null, isAdmin = false, sampleOn = false, totalEvents = null, sourcesCache = [];
 
 function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
-  Object.assign(e, props);
-  for (const k of kids) if (k != null && k !== "") e.append(k);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "dataset") Object.assign(e.dataset, v);
+    else if (k in e) e[k] = v;
+    else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null && k !== "" && k !== false) e.append(k);
   return e;
 }
-function icon(name) {
-  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  s.setAttribute("class", "icon"); s.setAttribute("aria-hidden", "true");
-  const u = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  u.setAttribute("href", "#i-" + name); s.append(u);
-  return s;
+function svgEl(tag, attrs = {}) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+const nf = new Intl.NumberFormat();
+function compact(n) {
+  if (n < 10000) return nf.format(n);
+  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
+}
+function ago(ms) {
+  if (!ms) return "Never";
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return "Just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+function shortDate(ms) { return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }); }
+function show(node, on = true) { node.hidden = !on; }
+function notice(node, text, ok) {
+  node.hidden = !text; node.textContent = text || "";
+  node.className = node.className.replace(/\b(ok|bad)\b/g, "").trim() + (text ? (ok ? " ok" : " bad") : "");
 }
 
-// Theme: system by default; a choice is remembered on this browser only.
+// --- Theme ---
 function setTheme(choice) {
   if (choice === "light" || choice === "dark") document.documentElement.dataset.theme = choice;
   else delete document.documentElement.dataset.theme;
   try { choice === "system" ? localStorage.removeItem("siemlite-theme") : localStorage.setItem("siemlite-theme", choice); } catch {}
   for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice));
+  if (lastStats) drawChart(lastStats); // colours come from CSS, but redraw keeps the tooltip in sync
 }
 for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => setTheme(b.dataset.themeChoice);
-setTheme(document.documentElement.dataset.theme || "system");
 
-// Sign-in is a browser session: the server sets an HttpOnly cookie, which
-// script cannot read, so there is nothing to store here.
+// --- Sign-in and API ---
 function showLogin(msg) {
   $("login").hidden = false;
   $("login-err").hidden = !msg;
@@ -416,15 +808,26 @@ function showLogin(msg) {
   $("username").focus();
 }
 async function api(path, opts = {}) {
+  if (opts.json !== undefined) {
+    opts = { ...opts, body: JSON.stringify(opts.json), headers: { "Content-Type": "application/json", ...(opts.headers || {}) } };
+    delete opts.json;
+  }
   const res = await fetch(path, { credentials: "same-origin", ...opts });
   if (res.status === 401) showLogin("Your session has ended. Sign in again.");
   return res;
 }
-function applySession(me) {
-  isAdmin = me.role === "admin";
-  $("who-name").textContent = me.username;
-  $("who-role").textContent = isAdmin ? "Admin" : "Analyst";
-  $("nav-ingest").hidden = !isAdmin; // only admins may add logs from the UI
+async function apiJSON(path, opts) {
+  const res = await api(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+function applySession(s) {
+  me = s;
+  isAdmin = s.role === "admin";
+  $("who-name").textContent = s.username;
+  $("who-role").textContent = isAdmin ? "Admin" : "Standard";
+  for (const n of document.querySelectorAll(".admin-only")) n.hidden = !isAdmin;
 }
 $("login-form").onsubmit = async (e) => {
   e.preventDefault();
@@ -448,154 +851,418 @@ $("login-form").onsubmit = async (e) => {
 };
 $("logout").onclick = async () => {
   await fetch("/api/v1/logout", { method: "POST", credentials: "same-origin" });
+  location.hash = "";
   location.reload();
 };
 
-// Navigation and the narrow-screen drawer
-function show(view) {
-  for (const v of ["search", "ingest"]) {
-    $("view-" + v).hidden = v !== view;
-    if (v === view) $("nav-" + v).setAttribute("aria-current", "page"); else $("nav-" + v).removeAttribute("aria-current");
+// --- Routing: #/page or #/page?query ---
+const VIEWS = ["dashboard", "database", "users", "sources", "parsers", "parser"];
+function route() {
+  const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
+  let [view, arg] = path.split("/");
+  if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
+  if (view === "parsers" && arg) view = "parser";
+  if (!isAdmin && ["users", "sources", "parsers", "parser"].includes(view)) view = "dashboard";
+  for (const v of VIEWS) $("view-" + v).hidden = v !== view;
+  const navKey = view === "parser" ? "parsers" : view;
+  for (const a of document.querySelectorAll("[data-nav]")) {
+    if (a.dataset.nav === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
   setMenu(false);
+  const params = new URLSearchParams(query || "");
+  ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources,
+     parsers: openParsers, parser: () => openParserEditor(arg) })[view]();
+  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser" })[view]} · SIEMLite`;
 }
+window.addEventListener("hashchange", () => { if (me) route(); });
 function setMenu(open) {
   $("app").classList.toggle("menu-open", open);
   $("menu-btn").setAttribute("aria-expanded", String(open));
 }
-$("nav-search").onclick = () => {
-  // From the search page itself, the Search item returns to the empty start.
-  if (!$("view-search").hidden && !$("q").value.trim() && !activeFilters()) goIdle();
-  show("search");
-  $("q").focus();
-};
-$("nav-ingest").onclick = () => { show("ingest"); $("logs").focus(); };
 $("menu-btn").onclick = () => setMenu(!$("app").classList.contains("menu-open"));
 document.addEventListener("click", (e) => {
   if ($("app").classList.contains("menu-open") && !$("side").contains(e.target) && !$("menu-btn").contains(e.target)) setMenu(false);
 });
+// "/" jumps to the search field from anywhere that isn't a text box.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !document.querySelector("dialog[open]")) {
+    e.preventDefault();
+    const q = !$("view-database").hidden ? $("q") : $("dash-q");
+    if ($("view-dashboard").hidden && $("view-database").hidden) location.hash = "#/dashboard";
+    setTimeout(() => (!$("view-database").hidden ? $("q") : $("dash-q")).focus(), 0);
+  }
+});
 
-// Status in the sidebar
+// --- Sidebar status and sample data ---
 async function refreshHealth() {
   const box = $("status");
   try {
     const h = await (await api("/health")).json();
-    const db = (h.database && h.database.stats) || {};
-    totalEvents = db.events ?? null;
-    const facts = el("dl", { className: "facts" });
-    const fact = (k, v, cls) => facts.append(el("dt", { textContent: k }), el("dd", { textContent: v, className: cls || "" }));
-    fact("Events", (db.events ?? 0).toLocaleString());
-    if (db.size_bytes != null) fact("Database", (db.size_bytes / 1048576).toFixed(1) + " MB");
-    if (h.intel) fact("Threat indicators", h.intel.indicators.toLocaleString());
-    if (h.syslog) fact("Syslog received", h.syslog.received.toLocaleString());
-    if (h.ingest && h.ingest.queue_depth > 0) fact("Waiting to store", h.ingest.queue_depth.toLocaleString());
-    if (h.ingest && h.ingest.dropped > 0) fact("Dropped", h.ingest.dropped.toLocaleString(), "warn");
     const ok = h.status === "ok";
-    box.replaceChildren(el("div", { className: "status-line" }, el("i", { className: "dot" + (ok ? "" : " bad") }), ok ? "Running" : "Degraded"), facts);
+    const kids = [el("div", { className: "status-line" }, el("i", { className: "dot" + (ok ? "" : " bad") }), ok ? "Running" : "Degraded")];
+    if (h.database) {
+      const db = h.database.stats || {};
+      totalEvents = db.events ?? null;
+      const facts = el("dl", { className: "facts" });
+      const fact = (k, v, cls) => facts.append(el("dt", { textContent: k }), el("dd", { textContent: v, className: cls || "" }));
+      fact("Events", nf.format(db.events ?? 0));
+      if (db.size_bytes != null) fact("Database", (db.size_bytes / 1048576).toFixed(1) + " MB");
+      if (h.intel) fact("Threat indicators", nf.format(h.intel.indicators));
+      if (h.syslog) fact("Syslog received", nf.format(h.syslog.received));
+      if (h.ingest && h.ingest.queue_depth > 0) fact("Waiting to store", nf.format(h.ingest.queue_depth));
+      if (h.ingest && h.ingest.dropped > 0) fact("Dropped", nf.format(h.ingest.dropped), "warn");
+      kids.push(facts);
+    }
+    box.replaceChildren(...kids);
   } catch {
-    totalEvents = null;
     box.replaceChildren(el("div", { className: "status-line" }, el("i", { className: "dot bad" }), "Can't reach the server"));
   }
-  updateHint();
 }
-
-// The line under the empty search field
-function updateHint() {
-  const hint = $("hint");
-  if (totalEvents === 0) {
-    hint.replaceChildren(isAdmin
-      ? "No events yet. Send logs, or turn on Sample data in the sidebar to look around."
-      : "No events yet.");
-    return;
+function showSample(st) {
+  sampleOn = !!st.enabled;
+  $("sample-toggle").checked = sampleOn;
+  $("sample-note").hidden = isAdmin || !sampleOn;
+}
+async function refreshSample() {
+  const res = await api("/api/v1/sample");
+  if (res.ok) showSample(await res.json());
+}
+$("sample-toggle").onchange = async (e) => {
+  const want = e.target.checked;
+  const sw = $("sample-switch");
+  sw.classList.add("busy");
+  try {
+    showSample(await apiJSON("/api/v1/sample", { method: "POST", json: { enabled: want } }));
+    refreshHealth();
+    route();
+  } catch (err) {
+    e.target.checked = !want;
+    alert("Sample data wasn't changed: " + err.message);
+  } finally {
+    sw.classList.remove("busy");
   }
-  hint.replaceChildren(totalEvents == null ? "" : `${totalEvents.toLocaleString()} events. Press Enter to see the latest.`);
+};
+async function loadSources() {
+  try { sourcesCache = await apiJSON("/api/v1/sources"); } catch { sourcesCache = []; }
+  return sourcesCache;
 }
 
-// Search
+// --- Dashboard ---
+let dashHours = 24, lastStats = null;
+$("dash-form").onsubmit = (e) => {
+  e.preventDefault();
+  const q = $("dash-q").value.trim();
+  location.hash = "#/database" + (q ? "?q=" + encodeURIComponent(q) : "");
+};
+for (const b of document.querySelectorAll("[data-hours]")) {
+  b.onclick = () => {
+    dashHours = Number(b.dataset.hours);
+    for (const x of document.querySelectorAll("[data-hours]")) x.setAttribute("aria-pressed", String(x === b));
+    loadStats();
+  };
+}
+function openDashboard() {
+  $("dash-q").value = "";
+  loadStats();
+  setTimeout(() => $("dash-q").focus(), 0);
+}
+async function loadStats() {
+  try {
+    const s = await apiJSON("/api/v1/stats?hours=" + dashHours);
+    lastStats = s;
+    renderStats(s);
+  } catch (err) {
+    $("dash-range-label").textContent = "The dashboard couldn't load: " + err.message;
+  }
+}
+function rangeText(h) { return h === 24 ? "the last 24 hours" : h === 168 ? "the last 7 days" : "the last 30 days"; }
+function renderStats(s) {
+  const o = s.overview;
+  const high = (o.by_severity[4] || 0) + (o.by_severity[5] || 0) + (o.by_severity[6] || 0);
+  $("dash-range-label").textContent = "In " + rangeText(s.hours);
+  $("fig-total").textContent = compact(o.total);
+  $("fig-total-sub").textContent = o.total ? `${compact(Math.round(o.total / (s.hours / (s.hours > 48 ? 24 : 1))))} per ${s.hours > 48 ? "day" : "hour"} on average` : "";
+  $("fig-threats").textContent = compact(o.threats);
+  $("fig-threats-sub").textContent = o.total ? `${(100 * o.threats / o.total).toFixed(o.threats && o.threats / o.total < .01 ? 2 : 1)}% of events` : "";
+  $("fig-high").textContent = compact(high);
+  $("fig-high-sub").textContent = o.by_severity[5] || o.by_severity[6] ? `${nf.format((o.by_severity[5] || 0) + (o.by_severity[6] || 0))} critical` : "";
+  $("dash-hint").textContent = o.total === 0 && totalEvents === 0
+    ? (isAdmin ? "No events yet. Add a source, or turn on Sample data in the sidebar to look around." : "No events yet.")
+    : "Press Enter to open the results in the Database.";
+  $("chart-title").textContent = s.bucket_ms >= 86400000 ? "Events per day" : s.bucket_ms > 3600000 ? "Events per 6 hours" : "Events per hour";
+  drawChart(s);
+  renderTable(s);
+
+  const sevList = $("dash-sev");
+  const order = [6, 5, 4, 3, 2, 1, 0].filter((k) => o.by_severity[k]);
+  const max = Math.max(1, ...order.map((k) => o.by_severity[k]));
+  sevList.replaceChildren(...(order.length ? order.map((k) => {
+    const bar = el("span", { className: "bar" }); bar.style.width = (100 * o.by_severity[k] / max) + "%"; bar.style.background = `var(--sev-${k})`;
+    return el("li", {}, el("a", { href: "#/database?severity=" + k + "&from=" + mdy(new Date(s.start)), textContent: SEV[k] }),
+      el("span", { className: "n", textContent: nf.format(o.by_severity[k]) }), bar);
+  }) : [el("li", {}, el("p", { className: "empty-note", textContent: "No events in this period." }))]));
+
+  const srcMax = Math.max(1, ...o.top_sources.map((x) => x.count));
+  $("dash-sources").replaceChildren(...(o.top_sources.length ? o.top_sources.map((x) => {
+    const bar = el("span", { className: "bar" }); bar.style.width = (100 * x.count / srcMax) + "%";
+    return el("li", {}, el("a", { href: "#/database?source=" + x.id + "&from=" + mdy(new Date(s.start)), textContent: x.name }),
+      el("span", { className: "n", textContent: nf.format(x.count) }), bar);
+  }) : [el("li", {}, el("p", { className: "empty-note", textContent: "No events in this period." }))]));
+
+  $("dash-threats").replaceChildren(...(o.top_threat_ips.length ? o.top_threat_ips.map((x) => el("li", {},
+    el("a", { href: "#/database?threat=1&q=" + encodeURIComponent('"' + x.ip + '"') + "&from=" + mdy(new Date(s.start)) },
+      el("span", { className: "mono", textContent: x.ip }), x.country ? el("span", { className: "cc", textContent: x.country }) : ""),
+    el("span", { className: "n", textContent: nf.format(x.count) }))) :
+    [el("li", {}, el("p", { className: "empty-note", textContent: "No source IPs matched a threat list in this period." }))]));
+}
+function bucketLabel(ms, width, long) {
+  const d = new Date(ms);
+  if (width >= 86400000) return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return long || width > 3600000 ? d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + t : t;
+}
+function niceMax(v) {
+  if (v <= 4) return 4;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+  return 10 * p;
+}
+function drawChart(s) {
+  const box = $("chart");
+  const W = Math.max(280, box.clientWidth), H = 220, padL = 40, padB = 26, padT = 8;
+  const buckets = s.overview.buckets, n = buckets.length;
+  const max = niceMax(Math.max(0, ...buckets.map((b) => b.count)));
+  const plotW = W - padL, plotH = H - padB - padT;
+  const slot = plotW / n, bw = Math.max(2, Math.min(24, slot - 2));
+  const y = (v) => padT + plotH - (v / max) * plotH;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": `Column chart of events over ${rangeText(s.hours)}; the busiest period had ${nf.format(Math.max(0, ...buckets.map((b) => b.count)))} events.` });
+  const grid = svgEl("g", { class: "grid" });
+  for (const v of [0, max / 2, max]) {
+    grid.append(svgEl("line", { x1: padL, x2: W, y1: y(v), y2: y(v) }));
+    const t = svgEl("text", { x: padL - 8, y: y(v) + 4, "text-anchor": "end" }); t.textContent = compact(v); grid.append(t);
+  }
+  svg.append(grid);
+  const every = Math.ceil(n / Math.max(2, Math.floor(plotW / 90)));
+  const tip = el("div", { className: "tooltip", hidden: true });
+  buckets.forEach((b, i) => {
+    const cx = padL + slot * i + slot / 2, x = cx - bw / 2;
+    const other = b.count - b.threats;
+    // Threats sit on the baseline; a 2px surface gap separates the segments.
+    const yThreat = y(b.threats), base = y(0);
+    const topIsThreat = other === 0;
+    if (b.threats > 0) svg.append(segment(x, yThreat, bw, base - yThreat, topIsThreat, "var(--sev-5)"));
+    if (other > 0) {
+      const top = y(b.count), bottom = b.threats > 0 ? yThreat - 2 : base;
+      if (bottom - top > 0.5) svg.append(segment(x, top, bw, bottom - top, true, "var(--chart-other)"));
+    }
+    if (i % every === 0) {
+      const t = svgEl("text", { x: cx, y: H - 8, "text-anchor": "middle" }); t.textContent = bucketLabel(b.start, s.bucket_ms); svg.append(t);
+    }
+    const hit = svgEl("rect", { class: "hit", x: padL + slot * i, y: padT, width: slot, height: plotH, tabindex: 0,
+      "aria-label": `${bucketLabel(b.start, s.bucket_ms, true)}: ${b.count} events, ${b.threats} threat intel matches` });
+    const showTip = () => {
+      tip.replaceChildren(el("b", { textContent: nf.format(b.count) + (b.count === 1 ? " event" : " events") }),
+        el("span", { textContent: nf.format(b.threats) + (b.threats === 1 ? " threat intel match" : " threat intel matches") }),
+        el("span", { textContent: bucketLabel(b.start, s.bucket_ms, true) }));
+      tip.hidden = false;
+      const left = Math.min(Math.max(0, (cx / W) * box.clientWidth - tip.offsetWidth / 2), box.clientWidth - tip.offsetWidth);
+      tip.style.left = left + "px";
+      tip.style.top = Math.max(0, (y(b.count) / H) * 220 - tip.offsetHeight - 8) + "px";
+    };
+    hit.addEventListener("pointerenter", showTip);
+    hit.addEventListener("focus", showTip);
+    hit.addEventListener("pointerleave", () => (tip.hidden = true));
+    hit.addEventListener("blur", () => (tip.hidden = true));
+    hit.addEventListener("click", () => {
+      location.hash = `#/database?from=${mdy(new Date(b.start))}&to=${mdy(new Date(b.start + s.bucket_ms - 1))}`;
+    });
+    svg.append(hit);
+  });
+  box.replaceChildren(svg, tip);
+}
+// segment draws a bar with a 4px rounded top (when it is the top segment)
+// and a square base.
+function segment(x, y, w, h, roundTop, fill) {
+  const r = roundTop ? Math.min(4, w / 2, h) : 0;
+  const d = `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
+  return svgEl("path", { d, fill });
+}
+function renderTable(s) {
+  const rows = s.overview.buckets.map((b) => el("tr", {}, el("td", { textContent: bucketLabel(b.start, s.bucket_ms, true) }),
+    el("td", { textContent: nf.format(b.count) }), el("td", { textContent: nf.format(b.threats) })));
+  $("chart-table").replaceChildren(el("div", { className: "table-wrap" }, el("table", { className: "data" },
+    el("thead", {}, el("tr", {}, el("th", { textContent: "Period starting" }), el("th", { textContent: "Events" }), el("th", { textContent: "Threat intel matches" }))),
+    el("tbody", {}, ...rows))));
+}
+$("chart-table-btn").onclick = () => {
+  const open = $("chart-table").hidden;
+  $("chart-table").hidden = !open; $("chart").hidden = open;
+  $("chart-table-btn").textContent = open ? "Show as chart" : "Show as table";
+  $("chart-table-btn").setAttribute("aria-expanded", String(open));
+};
+new ResizeObserver(() => { if (lastStats && !$("view-dashboard").hidden) drawChart(lastStats); }).observe($("chart"));
+
+// --- Dates as mm/dd/yy ---
+function mdy(d) {
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`;
+}
+function parseMDY(v) {
+  const m = /^\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})\s*$/.exec(v);
+  if (!m) return null;
+  const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  const d = new Date(year, Number(m[1]) - 1, Number(m[2]));
+  return d.getMonth() === Number(m[1]) - 1 && d.getDate() === Number(m[2]) ? d : null;
+}
+for (const btn of document.querySelectorAll("[data-picker]")) {
+  const target = $(btn.dataset.picker), picker = document.querySelector(`.picker[data-for="${btn.dataset.picker}"]`);
+  btn.onclick = () => {
+    const d = parseMDY(target.value);
+    picker.value = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
+    try { picker.showPicker(); } catch { picker.focus(); }
+  };
+  picker.onchange = () => {
+    if (!picker.value) return;
+    const [y, m, d] = picker.value.split("-").map(Number);
+    target.value = mdy(new Date(y, m - 1, d));
+    target.removeAttribute("aria-invalid");
+    offset = 0; runSearch();
+  };
+}
+for (const id of ["from", "to"]) {
+  $(id).addEventListener("input", () => $(id).removeAttribute("aria-invalid"));
+  $(id).addEventListener("change", () => { offset = 0; runSearch(); });
+}
+
+// --- Database ---
+const FILTERS = { "f-source": "source", "f-severity": "severity", "f-category": "category", "f-src_ip": "src_ip", "f-dst_ip": "dst_ip",
+                  "f-user": "user", "f-program": "program", "f-country": "country" };
+let offset = 0;
+async function openDatabase(params) {
+  await fillSourceFilter();
+  $("q").value = params.get("q") || "";
+  $("from").value = params.get("from") || "";
+  $("to").value = params.get("to") || "";
+  for (const [id, key] of Object.entries(FILTERS)) $(id).value = params.get(key) || "";
+  $("f-threat").checked = params.get("threat") === "1";
+  offset = 0;
+  updateFilterCount();
+  if ([...Object.values(FILTERS), "threat"].some((k) => params.get(k))) { $("filters").hidden = false; $("filters-btn").setAttribute("aria-expanded", "true"); }
+  runSearch();
+  if (!params.get("q")) setTimeout(() => $("q").focus(), 0);
+}
+async function fillSourceFilter() {
+  const list = await loadSources();
+  const sel = $("f-source"), keep = sel.value;
+  sel.replaceChildren(el("option", { value: "", textContent: "Any source" }),
+    ...list.map((s) => el("option", { value: String(s.id), textContent: s.name + (s.revoked_at ? " (revoked)" : "") })));
+  sel.value = keep;
+}
 function activeFilters() {
-  return FILTER_IDS.filter((id) => $(id).value.trim() !== "").length + ($("threat").checked ? 1 : 0);
+  return Object.keys(FILTERS).filter((id) => $(id).value.trim() !== "").length + ($("f-threat").checked ? 1 : 0);
 }
 function updateFilterCount() {
   const n = activeFilters();
   $("filter-count").hidden = n === 0;
   $("filter-count").textContent = String(n);
 }
-function params() {
+// Keep the address bar in step so a search can be bookmarked or shared.
+function syncHash() {
   const p = new URLSearchParams();
-  const range = Number($("range").value);
-  if (range > 0) p.set("start", String(Date.now() - range));
-  for (const [id, key] of [["q", "q"], ["severity", "severity"], ["category", "category"], ["src_ip", "src_ip"],
-                           ["dst_ip", "dst_ip"], ["user", "user"], ["source_f", "source"], ["country", "country"], ["limit", "limit"]]) {
-    const v = $(id).value.trim();
-    if (v !== "") p.set(key, v);
+  if ($("q").value.trim()) p.set("q", $("q").value.trim());
+  if ($("from").value.trim()) p.set("from", $("from").value.trim());
+  if ($("to").value.trim()) p.set("to", $("to").value.trim());
+  for (const [id, key] of Object.entries(FILTERS)) if ($(id).value.trim()) p.set(key, $(id).value.trim());
+  if ($("f-threat").checked) p.set("threat", "1");
+  const s = p.toString();
+  history.replaceState(null, "", "#/database" + (s ? "?" + s : ""));
+}
+function searchParams() {
+  const p = new URLSearchParams();
+  const from = $("from").value.trim(), to = $("to").value.trim();
+  if (from) {
+    const d = parseMDY(from);
+    if (!d) { $("from").setAttribute("aria-invalid", "true"); throw new Error("Enter the start date as mm/dd/yy."); }
+    p.set("start", String(d.getTime()));
   }
-  if ($("threat").checked) p.set("threat", "true");
+  if (to) {
+    const d = parseMDY(to);
+    if (!d) { $("to").setAttribute("aria-invalid", "true"); throw new Error("Enter the end date as mm/dd/yy."); }
+    d.setHours(23, 59, 59, 999);
+    p.set("end", String(d.getTime()));
+  }
+  if (p.has("start") && p.has("end") && Number(p.get("end")) < Number(p.get("start"))) {
+    $("to").setAttribute("aria-invalid", "true"); throw new Error("The end date is before the start date.");
+  }
+  const map = { q: "q", "f-severity": "severity", "f-category": "category", "f-src_ip": "src_ip", "f-dst_ip": "dst_ip",
+                "f-user": "user", "f-program": "source", "f-country": "country", "f-source": "source_id", "f-limit": "limit" };
+  for (const [id, key] of Object.entries(map)) { const v = $(id).value.trim(); if (v) p.set(key, v); }
+  if ($("f-threat").checked) p.set("threat", "true");
   p.set("offset", String(offset));
   return p;
 }
-function goIdle() {
-  $("view-search").classList.add("idle");
-  $("results").replaceChildren();
-  $("summary").textContent = "";
-  $("error").hidden = true;
-}
-
 async function runSearch() {
-  $("view-search").classList.remove("idle");
-  $("error").hidden = true;
+  $("db-error").hidden = true;
   updateFilterCount();
-  let data, res;
+  let p;
+  try { p = searchParams(); } catch (err) { $("db-error").textContent = err.message; $("db-error").hidden = false; return; }
+  syncHash();
+  let data;
   try {
-    res = await api("/api/v1/search?" + params());
-    data = await res.json();
+    data = await apiJSON("/api/v1/search?" + p);
   } catch (err) {
-    $("error").textContent = "Can't reach the server: " + err.message;
-    $("error").hidden = false;
-    return;
-  }
-  if (!res.ok) {
-    $("error").textContent = data.error || "Search failed.";
-    $("error").hidden = false;
-    return;
+    $("db-error").textContent = err.message; $("db-error").hidden = false; return;
   }
   $("summary").textContent = data.count
-    ? `Events ${(data.offset + 1).toLocaleString()} to ${(data.offset + data.count).toLocaleString()}, found in ${data.took_ms.toFixed(1)} ms`
+    ? `Events ${nf.format(data.offset + 1)} to ${nf.format(data.offset + data.count)}, found in ${data.took_ms.toFixed(1)} ms`
     : `Nothing found in ${data.took_ms.toFixed(1)} ms`;
   $("prev").disabled = offset === 0;
   $("next").disabled = data.count < data.limit;
-
   const body = $("results");
   if (!data.events.length) {
     const msg = totalEvents === 0 && isAdmin && !sampleOn
-      ? "No events yet. Send logs, or turn on Sample data in the sidebar to look around."
-      : "No events match. Widen the time range or remove a filter.";
+      ? "No events yet. Add a source, or turn on Sample data in the sidebar to look around."
+      : "No events match. Widen the dates or remove a filter.";
     body.replaceChildren(el("tr", { className: "empty" }, el("td", { colSpan: 7, textContent: msg })));
     return;
   }
-  body.replaceChildren(...data.events.flatMap(renderRow));
+  body.replaceChildren(...data.events.map(renderRow));
 }
+$("db-form").onsubmit = (e) => { e.preventDefault(); offset = 0; runSearch(); };
+$("prev").onclick = () => { offset = Math.max(0, offset - Number($("f-limit").value)); runSearch(); };
+$("next").onclick = () => { offset += Number($("f-limit").value); runSearch(); };
+$("filters-btn").onclick = () => {
+  const open = $("filters").hidden;
+  $("filters").hidden = !open;
+  $("filters-btn").setAttribute("aria-expanded", String(open));
+  if (open) $("f-source").focus();
+};
+$("clear-filters").onclick = () => {
+  for (const id of Object.keys(FILTERS)) $(id).value = "";
+  $("f-threat").checked = false;
+  offset = 0; runSearch();
+};
+for (const id of [...Object.keys(FILTERS), "f-threat"]) $(id).addEventListener("input", updateFilterCount);
+for (const id of ["f-source", "f-severity", "f-category", "f-threat", "f-limit"]) $(id).addEventListener("change", () => { offset = 0; runSearch(); });
 
 function renderRow(ev) {
   const label = SEV[ev.severity_id] || String(ev.severity_id);
-  const sev = el("span", { className: "sev", title: label }, el("i"), el("span", { className: "sev-label", textContent: ev.severity_id === 1 ? "Info" : label }));
+  const sev = el("span", { className: "sev", title: label }, el("i"), el("span", { textContent: ev.severity_id === 1 ? "Info" : label }));
   sev.style.setProperty("--c", `var(--sev-${ev.severity_id in SEV && ev.severity_id !== 99 ? ev.severity_id : 0})`);
   const text = eventText(ev);
-  const msg = el("td", { className: "msg", title: text });
+  const msg = el("td", { title: text });
   if (ev.threat) msg.append(el("span", { className: "tag tag-threat", textContent: "Threat intel" }));
   if (ev.sample) msg.append(el("span", { className: "tag tag-sample", textContent: "Sample", title: "Demo event from Sample data" }));
-  msg.append(el("span", { className: "msg-text", textContent: text }));
+  msg.append(text);
   const when = new Date(ev.timestamp);
   const row = el("tr", { className: "ev" + (ev.threat ? " threat" : ""), tabIndex: 0 },
-    el("td", { className: "time", title: when.toString() },
-      el("span", { className: "date", textContent: when.toLocaleDateString([], { month: "short", day: "numeric" }) + " " }),
-      when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })),
+    el("td", { className: "time", title: when.toString(),
+      textContent: when.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) }),
     el("td", {}, sev),
-    el("td", { className: "opt", textContent: CAT[ev.category_uid] || ev.category_uid }),
-    ipCell(ev.src_ip, ev.src_country, "opt"),
-    ipCell(ev.dst_ip, ev.dst_country, "opt"),
-    el("td", { className: "opt", textContent: ev.user_name || "" }),
-    msg,
-  );
+    el("td", { textContent: ev.source_name || "", title: ev.source_name || "" }),
+    ipCell(ev.src_ip, ev.src_country), ipCell(ev.dst_ip, ev.dst_country),
+    el("td", { textContent: ev.user_name || "" }),
+    msg);
   row.setAttribute("aria-expanded", "false");
   let detail = null;
   const toggle = () => {
@@ -609,156 +1276,504 @@ function renderRow(ev) {
   };
   row.onclick = toggle;
   row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
-  return [row];
+  return row;
 }
-
-function ipCell(ip, cc, cls) {
-  const td = el("td", { className: "mono" + (cls ? " " + cls : ""), textContent: ip || "" });
+function ipCell(ip, cc) {
+  const td = el("td", { className: "mono", textContent: ip || "" });
   if (cc) td.append(el("span", { className: "cc", textContent: cc }));
   return td;
 }
-
-// details lists where the event came from and what is known about its IPs.
 function details(ev) {
   const frag = document.createDocumentFragment();
   const enr = ev.enrichment || {};
   const matches = enr.threat_intel || [];
   if (matches.length) {
-    frag.append(el("ul", { className: "matches", ariaLabel: "Threat intel matches" }, ...matches.map((m) => el("li", {},
+    frag.append(el("ul", { className: "matches", "aria-label": "Threat intel matches" }, ...matches.map((m) => el("li", {},
       el("b", { textContent: (m.matched || m.value) + " is on a threat list" }),
-      el("span", { textContent: `Found in ${FIELD[m.field] || m.field}` + (m.matched ? `, inside ${m.value}` : "") + `. Listed by ${m.source}` + (m.description ? `: ${m.description}.` : ".") }),
-    ))));
+      el("span", { textContent: `Found in ${FIELD[m.field] || m.field}` + (m.matched ? `, inside ${m.value}` : "") + `. Listed by ${m.source}` + (m.description ? `: ${m.description}.` : ".") })))));
   }
   const dl = el("dl", { className: "facts-grid" });
   const add = (k, v, ...sub) => { if (v) dl.append(el("div", {}, el("dt", { textContent: k }), el("dd", {}, v, ...sub.filter(Boolean).map((s) => el("span", { textContent: s }))))); };
   add("Time", new Date(ev.timestamp).toLocaleString());
-  add("Source", ev.source);
+  add("Source", ev.source_name);
+  add("Program", ev.source);
   add("Host", ev.host);
   add("User", ev.user_name);
+  add("Category", CAT[ev.category_uid]);
   for (const [label, side, ip] of [["Source IP", "src_endpoint", ev.src_ip], ["Destination IP", "dst_endpoint", ev.dst_ip]]) {
     const e = enr[side] || {};
     const loc = e.location ? [e.location.city, e.location.country].filter(Boolean).join(", ") : "";
     const as = e.autonomous_system ? `AS${e.autonomous_system.number}${e.autonomous_system.name ? " " + e.autonomous_system.name : ""}` : "";
     add(label, ip ? el("span", { className: "mono ip", textContent: ip }) : "", loc, as);
   }
+  for (const [k, v] of Object.entries(ev.fields || {})) add(k === "parse_error" ? "Parser" : k, v);
   frag.append(dl);
   return frag;
 }
-
-// Prefer the OCSF "message" when raw_data is an OCSF JSON document. For
-// syslog, drop the header (priority, time, host, app, ids): the host and
-// source have their own fields, and the detail view keeps the raw line.
 const SYSLOG_HEADER = /^<\d{1,3}>(?:\d \S+ \S+ \S+ \S+ \S+ (?:-|\[.*?\])\s?|[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ [^\s:]+: ?)/;
 function eventText(ev) {
   try { const o = JSON.parse(ev.raw_data); if (o && o.message) return o.message; } catch {}
   return ev.raw_data.replace(SYSLOG_HEADER, "");
 }
-function prettyRaw(raw) {
-  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+function prettyRaw(raw) { try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; } }
+
+// --- Confirm dialog ---
+function confirmAction(title, body, ok) {
+  return new Promise((resolve) => {
+    $("c-title").textContent = title; $("c-body").textContent = body; $("c-ok").textContent = ok;
+    const d = $("dlg-confirm");
+    d.onclose = () => resolve(d.returnValue === "ok");
+    d.returnValue = ""; d.showModal();
+  });
 }
 
-$("search-form").onsubmit = (e) => { e.preventDefault(); offset = 0; runSearch(); };
-$("prev").onclick = () => { offset = Math.max(0, offset - Number($("limit").value)); runSearch(); };
-$("next").onclick = () => { offset += Number($("limit").value); runSearch(); };
-$("range").onchange = () => { if (!$("view-search").classList.contains("idle")) { offset = 0; runSearch(); } };
-$("filters-btn").onclick = () => {
-  const open = $("filters").hidden;
-  $("filters").hidden = !open;
-  $("filters-btn").setAttribute("aria-expanded", String(open));
-  if (open) $("severity").focus();
-};
-$("clear-filters").onclick = () => {
-  for (const id of FILTER_IDS) $(id).value = "";
-  $("threat").checked = false;
-  updateFilterCount();
-  if (!$("view-search").classList.contains("idle")) { offset = 0; runSearch(); }
-};
-for (const id of [...FILTER_IDS, "threat"]) $(id).addEventListener("input", updateFilterCount);
-$("q").addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("q").value && !activeFilters()) goIdle();
-});
-// "/" jumps to the search field from anywhere that isn't a text box.
-document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
-    e.preventDefault(); show("search"); $("q").focus();
-  }
-});
-
-// Add logs
-$("file").onchange = async (e) => {
-  const f = e.target.files[0];
-  if (f) $("logs").value = await f.text();
-};
-$("send").onclick = async () => {
-  const msg = $("ingest-msg");
-  const p = new URLSearchParams();
-  if ($("source").value.trim()) p.set("source", $("source").value.trim());
-  if ($("sev-override").value) p.set("severity", $("sev-override").value);
-  $("send").disabled = true;
+// --- Users ---
+let usersCache = [];
+async function openUsers() {
+  notice($("users-msg"), "");
   try {
-    const res = await api("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: $("logs").value });
-    const data = await res.json();
-    msg.hidden = false;
-    msg.className = "notice " + (res.ok ? "ok" : "bad");
-    if (res.ok) {
-      msg.textContent = `Stored ${data.accepted.toLocaleString()} log ${data.accepted === 1 ? "line" : "lines"}` +
-        (data.rejected ? `. ${data.rejected} couldn't be read and were skipped.` : ".");
+    const [users] = await Promise.all([apiJSON("/api/v1/users"), loadSources()]);
+    usersCache = users;
+    const name = (id) => (sourcesCache.find((s) => s.id === id) || {}).name || `Source ${id}`;
+    $("users-body").replaceChildren(...users.map((u) => el("tr", {},
+      el("td", {}, el("b", { textContent: u.username }), u.username === me.username ? el("span", { className: "muted", textContent: " (you)" }) : ""),
+      el("td", { textContent: u.role === "admin" ? "Admin" : "Standard" }),
+      el("td", { className: u.limited ? "" : "muted", textContent: u.role === "admin" || !u.limited ? "Every source" : (u.sources.map(name).join(", ") || "No sources") }),
+      el("td", { className: "muted", textContent: shortDate(u.created_at) }),
+      el("td", { className: "actions" }, el("div", { className: "row-actions" },
+        el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => userDialog(u) }),
+        el("button", { className: "btn btn-small", textContent: "Change password", onclick: () => passwordDialog(u) }),
+        u.username === me.username ? "" : el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: () => deleteUser(u) }))))));
+  } catch (err) { notice($("users-msg"), err.message); }
+}
+function userDialog(u) {
+  const editing = !!u;
+  $("user-dlg-title").textContent = editing ? `Edit ${u.username}` : "Add user";
+  $("u-save").textContent = editing ? "Save changes" : "Add user";
+  show($("user-name-wrap"), !editing); show($("user-pw-wrap"), !editing);
+  $("u-name").value = ""; $("u-pw").value = "";
+  $("u-role").value = editing ? u.role : "standard";
+  const limited = editing && u.role !== "admin" && u.limited;
+  for (const r of document.querySelectorAll('[name="u-scope"]')) r.checked = r.value === (limited ? "some" : "all");
+  $("u-sources").replaceChildren(...sourcesCache.map((s) => el("label", { className: "check" },
+    el("input", { type: "checkbox", value: String(s.id), checked: limited && u.sources.includes(s.id) }),
+    s.name, el("span", { className: "muted", textContent: " " + KIND[s.kind] }))));
+  syncScope();
+  notice($("u-err"), "");
+  const d = $("dlg-user");
+  $("user-form").onsubmit = async (e) => {
+    if (e.submitter && e.submitter.value === "cancel") return;
+    e.preventDefault();
+    const role = $("u-role").value;
+    const some = document.querySelector('[name="u-scope"]:checked').value === "some";
+    const limited = role !== "admin" && some;
+    const sources = limited ? [...$("u-sources").querySelectorAll("input:checked")].map((c) => Number(c.value)) : [];
+    if (limited && !sources.length) { notice($("u-err"), "Choose at least one source, or let them see every source."); return; }
+    try {
+      if (editing) await apiJSON(`/api/v1/users/${u.id}`, { method: "PATCH", json: { role, limited, sources } });
+      else await apiJSON("/api/v1/users", { method: "POST", json: { username: $("u-name").value.trim(), password: $("u-pw").value, role, limited, sources } });
+      d.close();
+      await openUsers();
+      notice($("users-msg"), editing ? `Saved ${u.username}.` : `Added ${$("u-name").value.trim()}.`, true);
+    } catch (err) { notice($("u-err"), err.message); }
+  };
+  d.showModal();
+  (editing ? $("u-role") : $("u-name")).focus();
+}
+function syncScope() {
+  const admin = $("u-role").value === "admin";
+  show($("u-scope-wrap"), !admin);
+  show($("u-sources"), !admin && document.querySelector('[name="u-scope"]:checked').value === "some");
+}
+$("u-role").onchange = syncScope;
+for (const r of document.querySelectorAll('[name="u-scope"]')) r.onchange = syncScope;
+$("add-user").onclick = () => userDialog(null);
+function passwordDialog(u) {
+  $("pw-for").textContent = `For ${u.username}.`;
+  $("pw-new").value = "";
+  notice($("pw-err"), "");
+  const d = $("dlg-password");
+  $("pw-form").onsubmit = async (e) => {
+    if (e.submitter && e.submitter.value === "cancel") return;
+    e.preventDefault();
+    try {
+      await apiJSON(`/api/v1/users/${u.id}/password`, { method: "POST", json: { password: $("pw-new").value } });
+      d.close();
+      notice($("users-msg"), `Changed the password for ${u.username}.`, true);
+    } catch (err) { notice($("pw-err"), err.message); }
+  };
+  d.showModal(); $("pw-new").focus();
+}
+async function deleteUser(u) {
+  if (!(await confirmAction(`Delete ${u.username}?`, "They'll be signed out and can't sign in again. Their account can't be restored.", "Delete user"))) return;
+  try {
+    await apiJSON(`/api/v1/users/${u.id}`, { method: "DELETE" });
+    await openUsers();
+    notice($("users-msg"), `Deleted ${u.username}.`, true);
+  } catch (err) { notice($("users-msg"), err.message); }
+}
+
+// --- Sources ---
+let parsersCache = [];
+async function loadParsers() {
+  try { parsersCache = await apiJSON("/api/v1/parsers"); } catch { parsersCache = []; }
+  return parsersCache;
+}
+function parserOptions(selected) {
+  return [el("option", { value: "", textContent: "Automatic" }),
+    ...parsersCache.map((p) => el("option", { value: String(p.id), textContent: p.name, selected: p.id === selected }))];
+}
+async function openSources() {
+  notice($("sources-msg"), "");
+  try {
+    await Promise.all([loadSources(), loadParsers()]);
+    $("sources-body").replaceChildren(...sourcesCache.map((s) => {
+      const parserSel = el("select", { className: "select", "aria-label": `Parser for ${s.name}` }, ...parserOptions(s.parser_id));
+      parserSel.disabled = s.kind === "sample" || !!s.revoked_at;
+      parserSel.onchange = async () => {
+        try {
+          await apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: { parser_id: parserSel.value ? Number(parserSel.value) : null } });
+          notice($("sources-msg"), `${s.name} now uses ${parserSel.value ? parserSel.selectedOptions[0].textContent : "automatic parsing"}.`, true);
+        } catch (err) { notice($("sources-msg"), err.message); }
+      };
+      const fresh = s.last_used_at && Date.now() - s.last_used_at < 86400000;
+      return el("tr", { className: s.revoked_at ? "revoked" : "" },
+        el("td", {}, el("b", { textContent: s.name })),
+        el("td", { className: "kind", textContent: KIND[s.kind] + (s.revoked_at ? ", revoked" : "") }),
+        el("td", {}, s.kind === "sample" ? el("span", { className: "muted", textContent: "Built in" }) : parserSel),
+        el("td", {}, el("span", { className: "pill" + (fresh ? " on" : ""), textContent: ago(s.last_used_at), title: s.last_used_at ? new Date(s.last_used_at).toString() : "" })),
+        el("td", { className: "muted", textContent: shortDate(s.created_at) }),
+        el("td", { className: "actions" }, el("div", { className: "row-actions" },
+          el("a", { className: "btn btn-small", href: `#/database?source=${s.id}`, textContent: "View logs" }),
+          s.kind === "upload" ? el("button", { className: "btn btn-small", textContent: "Add logs", onclick: logsDialog }) : "",
+          s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) }) : "",
+          s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small btn-danger", textContent: "Revoke", onclick: () => revokeSource(s) }) : "")));
+    }));
+  } catch (err) { notice($("sources-msg"), err.message); }
+}
+function sourceDialog(s) {
+  const editing = !!s;
+  $("source-dlg-title").textContent = editing ? `Rename ${s.name}` : "New access token";
+  $("source-dlg-sub").hidden = editing;
+  $("s-parser-wrap").hidden = editing;
+  $("s-save").textContent = editing ? "Save" : "Create token";
+  $("s-name").value = editing ? s.name : "";
+  $("s-parser").replaceChildren(...parserOptions(null));
+  notice($("s-err"), "");
+  const d = $("dlg-source");
+  $("source-form").onsubmit = async (e) => {
+    if (e.submitter && e.submitter.value === "cancel") return;
+    e.preventDefault();
+    const name = $("s-name").value.trim();
+    try {
+      if (editing) {
+        await apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: { name } });
+        d.close(); await openSources();
+        notice($("sources-msg"), `Renamed to ${name}.`, true);
+        return;
+      }
+      const res = await apiJSON("/api/v1/sources", { method: "POST", json: { name, parser_id: $("s-parser").value ? Number($("s-parser").value) : null } });
+      d.close();
+      await openSources();
+      tokenDialog(res.token);
+    } catch (err) { notice($("s-err"), err.message); }
+  };
+  d.showModal(); $("s-name").focus();
+}
+function tokenDialog(token) {
+  $("t-token").value = token;
+  $("t-example").textContent = `curl --cacert siemlite.crt -X POST '${location.origin}/api/v1/logs' \\\n  -H 'Authorization: Bearer ${token}' \\\n  --data-binary @app.log`;
+  $("t-copy").textContent = "Copy";
+  $("dlg-token").showModal();
+  $("t-token").select();
+}
+$("t-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("t-token").value); $("t-copy").textContent = "Copied"; }
+  catch { $("t-token").select(); document.execCommand("copy"); $("t-copy").textContent = "Copied"; }
+};
+$("add-source").onclick = () => sourceDialog(null);
+async function revokeSource(s) {
+  if (!(await confirmAction(`Revoke ${s.name}?`, "Its access token stops working straight away. Logs it already sent are kept.", "Revoke token"))) return;
+  try { await apiJSON(`/api/v1/sources/${s.id}`, { method: "DELETE" }); await openSources(); notice($("sources-msg"), `Revoked ${s.name}.`, true); }
+  catch (err) { notice($("sources-msg"), err.message); }
+}
+
+// --- Add logs ---
+function logsDialog() {
+  notice($("logs-msg"), "");
+  const d = $("dlg-logs");
+  $("logs-form").onsubmit = async (e) => {
+    if (e.submitter && e.submitter.value !== "send") return;
+    e.preventDefault();
+    const p = new URLSearchParams();
+    if ($("sev-override").value) p.set("severity", $("sev-override").value);
+    $("send").disabled = true;
+    try {
+      const data = await apiJSON("/api/v1/logs?" + p, { method: "POST", headers: { "Content-Type": "text/plain" }, body: $("logs").value });
+      notice($("logs-msg"), `Stored ${nf.format(data.accepted)} log ${data.accepted === 1 ? "line" : "lines"}` +
+        (data.rejected ? `. ${data.rejected} couldn't be read and were skipped.` : "."), true);
       $("logs").value = ""; $("file").value = "";
       refreshHealth();
-    } else {
-      msg.textContent = data.error || (data.errors && data.errors[0].error) || "The logs weren't stored.";
-    }
-  } catch (err) {
-    msg.hidden = false; msg.className = "notice bad";
-    msg.textContent = "Can't reach the server: " + err.message;
-  } finally {
-    $("send").disabled = false;
-  }
-};
+    } catch (err) { notice($("logs-msg"), err.message); }
+    finally { $("send").disabled = false; }
+  };
+  d.showModal(); $("logs").focus();
+}
+$("add-logs-btn").onclick = logsDialog;
+$("file").onchange = async (e) => { const f = e.target.files[0]; if (f) $("logs").value = await f.text(); };
 
-// Sample data: admins get a switch, everyone else sees whether it is on.
-function showSample(st) {
-  sampleOn = !!st.enabled;
-  $("sample-toggle").checked = sampleOn;
-  $("sample-switch").hidden = !isAdmin;
-  $("sample-note").hidden = isAdmin || !sampleOn;
+// --- Parsers ---
+async function openParsers() {
+  notice($("parsers-msg"), "");
+  await loadParsers();
+  $("parsers-body").replaceChildren(...(parsersCache.length ? parsersCache.map((p) => el("tr", {},
+    el("td", {}, el("b", { textContent: p.name }), p.description ? el("div", { className: "muted", textContent: p.description }) : ""),
+    el("td", { className: "kind", textContent: ({ pattern: "Text with a fixed layout", json: "JSON objects", kv: "key=value pairs" })[p.format] || p.format }),
+    el("td", { className: p.used_by ? "" : "muted", textContent: p.used_by ? `${p.used_by} ${p.used_by === 1 ? "source" : "sources"}` : "No sources" }),
+    el("td", { className: "muted", textContent: ago(p.updated_at) }),
+    el("td", { className: "actions" }, el("div", { className: "row-actions" },
+      el("a", { className: "btn btn-small", href: `#/parsers/${p.id}`, textContent: "Edit" }),
+      el("button", { className: "btn btn-small", textContent: "Export", onclick: () => exportParser(p.id) }),
+      el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: () => deleteParser(p) }))))) :
+    [el("tr", { className: "empty" }, el("td", { colSpan: 5, textContent: "No parsers yet. Every source is parsed automatically until you add one." }))]));
 }
-async function refreshSample() {
-  const res = await api("/api/v1/sample");
-  if (res.ok) showSample(await res.json());
+async function exportParser(id) {
+  try { const p = await apiJSON(`/api/v1/parsers/${id}`); download(p.definition); }
+  catch (err) { notice($("parsers-msg"), err.message); }
 }
-$("sample-toggle").onchange = async (e) => {
-  const want = e.target.checked;
-  const sw = $("sample-switch");
-  sw.classList.add("busy");
+function download(def) {
+  const blob = new Blob([JSON.stringify(def, null, 2) + "\n"], { type: "application/json" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: (def.name || "parser").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".json" });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+async function deleteParser(p) {
+  const used = p.used_by ? ` ${p.used_by} ${p.used_by === 1 ? "source uses" : "sources use"} it and will go back to automatic parsing.` : "";
+  if (!(await confirmAction(`Delete ${p.name}?`, "Logs already stored stay as they are." + used, "Delete parser"))) return;
+  try { await apiJSON(`/api/v1/parsers/${p.id}`, { method: "DELETE" }); await openParsers(); notice($("parsers-msg"), `Deleted ${p.name}.`, true); }
+  catch (err) { notice($("parsers-msg"), err.message); }
+}
+$("parser-upload").onchange = async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
   try {
-    const res = await api("/api/v1/sample", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: want }) });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "request failed");
-    showSample(data);
-    // The sample covers the last day; widen a shorter range so it shows.
-    const range = Number($("range").value);
-    if (want && range > 0 && range < 86400000) $("range").value = "86400000";
-    await refreshHealth();
-    if (!$("view-search").classList.contains("idle")) { offset = 0; runSearch(); }
+    const def = JSON.parse(await f.text());
+    const res = await apiJSON("/api/v1/parsers", { method: "POST", json: def });
+    location.hash = `#/parsers/${res.id}`;
   } catch (err) {
-    e.target.checked = !want;
-    $("error").textContent = "Sample data wasn't changed: " + err.message;
-    $("error").hidden = false;
-    $("view-search").classList.remove("idle");
-  } finally {
-    sw.classList.remove("busy");
+    notice($("parsers-msg"), err instanceof SyntaxError ? `${f.name} isn't a parser file (it isn't valid JSON).` : `${f.name} couldn't be added: ${err.message}`);
   }
 };
 
+// --- Parser editor ---
+let editId = null, templates = [], previewTimer = null, previewSeq = 0, knownFields = [];
+const pe = (id) => $("pe-" + id);
+function sevOptions(sel) { return [1, 2, 3, 4, 5, 6, 0].map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === sel })); }
+async function openParserEditor(arg) {
+  pe("error").hidden = true;
+  editId = arg && arg !== "new" ? Number(arg) : null;
+  $("parser-title").textContent = editId ? "Edit parser" : "New parser";
+  if (!templates.length) { try { templates = await apiJSON("/api/v1/parsers/templates"); } catch {} }
+  pe("template").replaceChildren(el("option", { value: "", textContent: editId ? "Replace with a template" : "Start from scratch" }),
+    ...templates.map((t, i) => el("option", { value: String(i), textContent: t.name })));
+  pe("ai").hidden = !(me.ai && me.ai.enabled);
+  pe("ai-status").textContent = me.ai && me.ai.ready ? "A local AI model reads the sample lines and fills in the parser." : "The AI model is still downloading. It'll be ready in a few minutes.";
+  let def = { name: "", format: "pattern", pattern: "", severity: { from: "auto" }, category: 6, samples: [] };
+  if (editId) {
+    try { def = (await apiJSON(`/api/v1/parsers/${editId}`)).definition; }
+    catch (err) { pe("error").textContent = err.message; pe("error").hidden = false; }
+  }
+  fillEditor(def);
+}
+function fillEditor(def) {
+  pe("name").value = def.name || "";
+  pe("desc").value = def.description || "";
+  pe("format").value = def.format || "pattern";
+  pe("pattern").value = def.pattern || "";
+  pe("strip").checked = !!def.strip_syslog;
+  pe("category").value = String(def.category || 6);
+  const sev = def.severity || { from: "auto" };
+  pe("sev-from").value = sev.from || "auto";
+  pe("fixed").replaceChildren(...sevOptions(sev.fixed ?? 3));
+  pe("rules").replaceChildren(...(sev.rules || []).map((r) => ruleRow(r.match, r.severity)));
+  mapping = { ...(def.fields || {}) };
+  knownFields = []; sevFieldWanted = sev.field || "";
+  if (def.samples) pe("samples").value = def.samples.join("\n");
+  syncEditor();
+  schedulePreview(0);
+}
+let mapping = {}, sevFieldWanted = "";
+function ruleRow(match = "", sev = 2) {
+  const row = el("div", { className: "rule-row" },
+    el("input", { className: "input mono", value: match, placeholder: "^5", "aria-label": "Value matches" }),
+    el("select", { className: "select", "aria-label": "Severity" }, ...sevOptions(sev)),
+    el("button", { type: "button", className: "icon-btn", "aria-label": "Remove rule", onclick: () => { row.remove(); schedulePreview(); } },
+      el("svg", {})));
+  row.querySelector("svg").outerHTML = '<svg class="icon"><use href="#i-x"/></svg>';
+  row.addEventListener("input", () => schedulePreview());
+  row.addEventListener("change", () => schedulePreview());
+  return row;
+}
+pe("add-rule").onclick = () => { pe("rules").append(ruleRow()); pe("rules").lastChild.querySelector("input").focus(); };
+function syncEditor() {
+  const fmt = pe("format").value;
+  pe("pattern-wrap").hidden = fmt !== "pattern";
+  const from = pe("sev-from").value;
+  pe("fixed-wrap").hidden = from !== "fixed";
+  pe("rules-wrap").hidden = from !== "field";
+}
+function readDefinition() {
+  const from = pe("sev-from").value;
+  const severity = { from };
+  if (from === "fixed") severity.fixed = Number(pe("fixed").value);
+  if (from === "field") {
+    severity.field = pe("sev-field").value || sevFieldWanted;
+    severity.rules = [...pe("rules").children].map((r) => ({ match: r.querySelector("input").value, severity: Number(r.querySelector("select").value) }))
+      .filter((r) => r.match !== "");
+  }
+  const def = { name: pe("name").value.trim(), description: pe("desc").value.trim(), format: pe("format").value,
+    strip_syslog: pe("strip").checked, category: Number(pe("category").value), severity,
+    samples: pe("samples").value.split("\n").filter((l) => l.trim()).slice(0, 50) };
+  if (def.format === "pattern") def.pattern = pe("pattern").value;
+  const fields = {};
+  for (const [k, v] of Object.entries(mapping)) if (v !== undefined) fields[k] = v;
+  if (Object.keys(fields).length) def.fields = fields;
+  return def;
+}
+for (const id of ["name", "desc", "pattern", "samples"]) pe(id).addEventListener("input", () => schedulePreview());
+for (const id of ["format", "strip", "category", "sev-from", "fixed", "sev-field"]) pe(id).addEventListener("change", () => { syncEditor(); schedulePreview(0); });
+pe("sev-field").addEventListener("change", () => (sevFieldWanted = pe("sev-field").value));
+pe("template").onchange = () => {
+  const t = templates[Number(pe("template").value)];
+  if (!t) return;
+  const keepName = pe("name").value.trim();
+  fillEditor({ ...t, name: keepName || t.name });
+  pe("template").value = "";
+};
+function schedulePreview(delay = 400) {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(runPreview, delay);
+}
+// Field names from the pattern, so the mapping table can show them even
+// before any sample line matches.
+function patternFields() {
+  return [...pe("pattern").value.matchAll(/\{([^{}:]*)(?::(?:[^{}]|\{[0-9,]*\})*)?\}/g)].map((m) => m[1].trim()).filter((n) => n && n !== "_");
+}
+async function runPreview() {
+  const seq = ++previewSeq;
+  const def = readDefinition();
+  const lines = pe("samples").value.split("\n").filter((l) => l.trim());
+  let names = def.format === "pattern" ? patternFields() : [];
+  if (!lines.length) {
+    renderMapping(names);
+    pe("preview-summary").textContent = "Add sample lines to see how they're read.";
+    pe("preview").replaceChildren();
+    pe("error").hidden = true;
+    return;
+  }
+  let data;
+  try {
+    data = await apiJSON("/api/v1/parsers/test", { method: "POST", json: { definition: { ...def, name: def.name || "preview" }, lines } });
+  } catch (err) {
+    if (seq !== previewSeq) return;
+    renderMapping(names);
+    pe("preview-summary").textContent = "The parser can't run yet: " + err.message;
+    pe("preview").replaceChildren();
+    return;
+  }
+  if (seq !== previewSeq) return;
+  for (const r of data.results) for (const k of Object.keys(r.fields || {})) if (!names.includes(k)) names.push(k);
+  renderMapping(names);
+  const ok = data.results.filter((r) => r.matched).length;
+  pe("preview-summary").textContent = `${ok} of ${data.results.length} ${data.results.length === 1 ? "line" : "lines"} read.` +
+    (ok < data.results.length ? " Lines that don't match are still stored, parsed automatically." : "");
+  pe("preview").replaceChildren(...data.results.map(previewLine));
+}
+function previewLine(r) {
+  const box = el("div", { className: "preview-line" + (r.matched ? "" : " miss") }, el("div", { className: "raw-line", textContent: r.line }));
+  if (!r.matched) {
+    box.append(el("div", { className: "preview-status miss", textContent: "Doesn't match" }));
+    return box;
+  }
+  const ev = r.event, dl = el("dl");
+  const add = (k, v, mono) => { if (v !== undefined && v !== "") dl.append(el("dt", { textContent: k }), el("dd", { className: mono ? "x" : "", textContent: String(v) })); };
+  add("Time", new Date(ev.time).toLocaleString());
+  const sev = el("span", { className: "sev" }, el("i"), SEV[ev.severity_id]); sev.style.setProperty("--c", `var(--sev-${ev.severity_id})`);
+  dl.append(el("dt", { textContent: "Severity" }), el("dd", {}, sev));
+  add("Source IP", ev.src_ip ? ev.src_ip + (ev.src_port ? ":" + ev.src_port : "") : "", true);
+  add("Destination IP", ev.dst_ip ? ev.dst_ip + (ev.dst_port ? ":" + ev.dst_port : "") : "", true);
+  add("User", ev.user); add("Host", ev.host); add("Program", ev.app); add("Message", ev.message);
+  for (const [k, v] of Object.entries(r.extra || {})) add(k, v, true);
+  box.append(dl);
+  return box;
+}
+function renderMapping(names) {
+  knownFields = names;
+  const body = pe("map").querySelector("tbody");
+  pe("map").hidden = !names.length;
+  pe("fields-hint").textContent = names.length
+    ? "Fields named like time, src_ip or user are used automatically. Anything else is kept as an extra field."
+    : "Fields appear here as the preview finds them.";
+  body.replaceChildren(...names.map((n) => {
+    const auto = ALIASES[n.toLowerCase()];
+    const sel = el("select", { className: "select", "aria-label": `Use ${n} as` },
+      el("option", { value: "@auto", textContent: auto ? `Automatic: ${TARGETS[auto]}` : "Automatic: extra field" }),
+      el("option", { value: "", textContent: "Extra field" }),
+      ...Object.entries(TARGETS).map(([k, v]) => el("option", { value: k, textContent: v })));
+    sel.value = n in mapping ? mapping[n] : "@auto";
+    sel.onchange = () => { if (sel.value === "@auto") delete mapping[n]; else mapping[n] = sel.value; schedulePreview(0); };
+    return el("tr", {}, el("td", { textContent: n }), el("td", {}, sel));
+  }));
+  // Severity-from-field choices follow the fields found.
+  const fieldSel = pe("sev-field"), want = sevFieldWanted || fieldSel.value;
+  fieldSel.replaceChildren(...(names.length ? names : [want].filter(Boolean)).map((n) => el("option", { value: n, textContent: n })));
+  if (want) fieldSel.value = want;
+}
+pe("save").onclick = async () => {
+  pe("error").hidden = true;
+  const def = readDefinition();
+  if (!def.name) { pe("error").textContent = "Give the parser a name."; pe("error").hidden = false; pe("name").focus(); return; }
+  try {
+    const res = await apiJSON(editId ? `/api/v1/parsers/${editId}` : "/api/v1/parsers", { method: editId ? "PUT" : "POST", json: def });
+    location.hash = "#/parsers";
+    setTimeout(() => notice($("parsers-msg"), `Saved ${res.definition.name}. Choose it for a source on the Sources page.`, true), 50);
+  } catch (err) { pe("error").textContent = err.message; pe("error").hidden = false; window.scrollTo(0, 0); }
+};
+pe("export").onclick = () => download(readDefinition());
+pe("suggest").onclick = async () => {
+  const lines = pe("samples").value.split("\n").filter((l) => l.trim());
+  if (!lines.length) { pe("ai-status").textContent = "Paste a few sample lines first."; pe("samples").focus(); return; }
+  const btn = pe("suggest");
+  btn.disabled = true;
+  pe("ai-status").replaceChildren(el("span", { className: "spinner" }), " Reading the samples. This can take a minute on a CPU.");
+  pe("ai-status").style.display = "inline-flex"; pe("ai-status").style.gap = "8px"; pe("ai-status").style.alignItems = "center";
+  try {
+    const s = await apiJSON("/api/v1/parsers/suggest", { method: "POST", json: { lines } });
+    const name = pe("name").value.trim();
+    fillEditor({ ...s.definition, name: name || "", description: pe("desc").value.trim(), samples: lines });
+    pe("ai-status").textContent = s.matched === s.total
+      ? `Suggested a parser that reads all ${s.total} sample lines. Check the preview before saving.`
+      : `Suggested a parser that reads ${s.matched} of ${s.total} sample lines. Adjust the pattern, then check the preview.`;
+  } catch (err) {
+    pe("ai-status").textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// --- Start ---
 let healthTimer;
 function start() {
+  setTheme(document.documentElement.dataset.theme || "system");
   refreshSample();
   refreshHealth();
   clearInterval(healthTimer);
   healthTimer = setInterval(refreshHealth, 5000);
-  $("q").focus();
+  if (!location.hash || location.hash === "#") history.replaceState(null, "", "#/dashboard");
+  route();
 }
+setTheme(document.documentElement.dataset.theme || "system");
 (async () => {
   const res = await fetch("/api/v1/me", { credentials: "same-origin" });
   if (res.ok) { applySession(await res.json()); start(); } else showLogin();

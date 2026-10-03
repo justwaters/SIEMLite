@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"siemlite/pkg/ai"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/intel"
@@ -23,6 +24,7 @@ import (
 	"siemlite/pkg/parser"
 	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
+	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
 	"siemlite/pkg/syslogd"
 	"siemlite/web"
@@ -45,6 +47,8 @@ type Deps struct {
 	Intel  *intel.Service  // optional
 	Syslog *syslogd.Server // optional
 	Sample *sample.Manager // optional
+	Router *sources.Router // per-source parsers (required)
+	AI     *ai.Client      // optional parser suggestions
 	Logger *slog.Logger
 }
 
@@ -81,7 +85,26 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/logs", a.Require(auth.PermIngest, http.HandlerFunc(s.handleLogs)))
 	mux.Handle("GET /api/v1/search", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSearch)))
 	mux.Handle("GET /api/v1/sample", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSampleStatus)))
-	mux.Handle("POST /api/v1/sample", a.Require(auth.PermIngest, http.HandlerFunc(s.handleSampleSet)))
+	mux.Handle("POST /api/v1/sample", a.Require(auth.PermAdmin, http.HandlerFunc(s.handleSampleSet)))
+	mux.Handle("GET /api/v1/stats", a.Require(auth.PermSearch, http.HandlerFunc(s.handleStats)))
+	mux.Handle("GET /api/v1/sources", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListSources)))
+	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.Require(auth.PermAdmin, h)) }
+	admin("POST /api/v1/sources", s.handleCreateSource)
+	admin("PATCH /api/v1/sources/{id}", s.handleUpdateSource)
+	admin("DELETE /api/v1/sources/{id}", s.handleRevokeSource)
+	admin("GET /api/v1/users", s.handleListUsers)
+	admin("POST /api/v1/users", s.handleCreateUser)
+	admin("PATCH /api/v1/users/{id}", s.handleUpdateUser)
+	admin("POST /api/v1/users/{id}/password", s.handleSetPassword)
+	admin("DELETE /api/v1/users/{id}", s.handleDeleteUser)
+	admin("GET /api/v1/parsers", s.handleListParsers)
+	admin("GET /api/v1/parsers/templates", s.handleParserTemplates)
+	admin("GET /api/v1/parsers/{id}", s.handleGetParser)
+	admin("POST /api/v1/parsers", s.handleSaveParser)
+	admin("PUT /api/v1/parsers/{id}", s.handleSaveParser)
+	admin("DELETE /api/v1/parsers/{id}", s.handleDeleteParser)
+	admin("POST /api/v1/parsers/test", s.handleTestParser)
+	admin("POST /api/v1/parsers/suggest", s.handleSuggestParser)
 	mux.HandleFunc("POST /api/v1/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
@@ -162,12 +185,18 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sourceID, err := s.ingestSource(r)
+	if err != nil {
+		s.deps.Logger.Error("resolve source failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "ingest unavailable")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), submitTimeout)
 	defer cancel()
 
 	var resp ingestResponse
 	for i := range events {
-		err := s.deps.Ingest.Submit(ctx, &events[i])
+		err := s.deps.Ingest.SubmitWith(ctx, &events[i], ingest.SubmitOptions{SourceID: sourceID})
 		var verr *ocsf.ValidationError
 		switch {
 		case err == nil:
@@ -216,11 +245,25 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sourceID, err := s.ingestSource(r)
+	if err != nil {
+		s.deps.Logger.Error("resolve source failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "ingest unavailable")
+		return
+	}
 	lines := bytes.Split(body, []byte("\n"))
 	events := make([]*ocsf.Event, 0, len(lines))
+	extras := make([]map[string]string, 0, len(lines))
 	for _, l := range lines {
-		if ev := parser.ParseLine(string(l), defaults); ev != nil {
+		ev, fields, err := s.deps.Router.Parse(r.Context(), sourceID, string(l), defaults)
+		if err != nil {
+			s.deps.Logger.Error("parse failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "ingest unavailable")
+			return
+		}
+		if ev != nil {
 			events = append(events, ev)
+			extras = append(extras, fields)
 		}
 	}
 	if len(events) == 0 {
@@ -237,7 +280,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	var resp ingestResponse
 	for i, ev := range events {
-		err := s.deps.Ingest.Submit(ctx, ev)
+		err := s.deps.Ingest.SubmitWith(ctx, ev, ingest.SubmitOptions{SourceID: sourceID, Fields: extras[i]})
 		var verr *ocsf.ValidationError
 		switch {
 		case err == nil:
@@ -275,6 +318,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Source:   p.Get("source"),
 		Host:     p.Get("host"),
 		Country:  p.Get("country"),
+	}
+	if v := p.Get("source_id"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if q.SourceID = id; err != nil {
+			writeError(w, http.StatusBadRequest, "source_id: must be a number")
+			return
+		}
+	}
+	if pr := auth.FromContext(r.Context()); pr != nil && pr.Restricted() {
+		q.Restrict, q.AllowedSources = true, pr.Sources
 	}
 	switch p.Get("threat") {
 	case "", "0", "false":
@@ -395,6 +448,17 @@ type loginRequest struct {
 type sessionInfo struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	// Limited users see only Sources (possibly none).
+	Limited bool      `json:"limited"`
+	Sources []int64   `json:"sources"`
+	AI      ai.Status `json:"ai"`
+}
+
+func (s *Server) session(username, role string, limited bool, sources []int64) sessionInfo {
+	if sources == nil || role == auth.RoleAdmin {
+		sources = []int64{}
+	}
+	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status()}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +491,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.SetSessionCookie(w, token)
-	writeJSON(w, http.StatusOK, sessionInfo{Username: user.Username, Role: user.Role})
+	limited, sources := true, []int64{} // if the lookup fails, show nothing rather than everything
+	if full, err := s.deps.Repo.GetUser(r.Context(), user.ID); err == nil {
+		limited, sources = full.Limited, full.Sources
+	}
+	writeJSON(w, http.StatusOK, s.session(user.Username, user.Role, limited, sources))
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -449,7 +517,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not signed in")
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionInfo{Username: p.Name, Role: p.Role})
+	writeJSON(w, http.StatusOK, s.session(p.Name, p.Role, p.Limited, p.Sources))
 }
 
 type healthResponse struct {
@@ -467,7 +535,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// Details (counts, sizes, queue state) are only for signed-in users.
 	p, _ := s.deps.Auth.Authenticate(r)
-	detailed := p != nil && p.Can(auth.PermSearch)
+	// Database-wide figures would reveal activity in sources a restricted
+	// user can't see, so they get up/down only.
+	detailed := p != nil && p.Can(auth.PermSearch) && !p.Restricted()
 
 	resp := healthResponse{Status: "ok", Time: time.Now().UTC()}
 	if detailed {

@@ -13,7 +13,9 @@ a built-in web UI and a small JSON API.
   in the binary, so the UI never contacts a font service.
 - **Full-text search**: SQLite FTS5 combined with time, severity, category, IP, user, source, country, ASN and threat filters.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
-- **Two kinds of access**: API keys let applications send logs (and nothing else); people sign in to the UI with a username and password.
+- **Sources and parsers**: each application gets an access token that can only send logs, with a "last used" time and
+  a parser of your choice. Build parsers in the UI from sample lines, upload them, or let a local AI model suggest one.
+- **People and permissions**: Admins manage everything; Standard users search, optionally limited to chosen sources.
 - **Automatic retention**: old events are deleted in batches and disk space is reclaimed.
 - **Pure Go, no CGO**: uses [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite).
 
@@ -63,16 +65,29 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
   To trust the certificate on a client, copy it out with `docker compose cp siemlite:/data/siemlite.crt .`.
 - GeoIP: put the `.mmdb` files in `./geoip/` and set `SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb` (and `_ASN`).
 - Management commands run inside the container:
-  `docker compose exec siemlite siemlite users create -username alice -role analyst`, and the same for `keys`
+  `docker compose exec siemlite siemlite users create -username alice -role standard`, and the same for `keys`
   and `intel`. To import a feed file, pipe it in: `docker compose exec -T siemlite siemlite intel import -source x -file - < iocs.txt`.
 - Syslog senders keep their real IP through Docker's port mapping, so `-syslog-allow` works. The exception is a
   sender on the Docker host itself, which appears as the Docker network's gateway address.
 - The image is about 25 MB, has no shell, and runs as an unprivileged user. Docker restarts it if `/health` stops
   answering.
 
+### The pages
+
+- **Dashboard**: a search field and the last 24 hours, 7 days or 30 days at a glance: events, threat intel matches,
+  high-severity events, events over time, severity, busiest sources and the IPs on threat lists. Type a search and press
+  Enter to open the results in the Database.
+- **Database**: every event, newest first, with full-text search, a **From mm/dd/yy to mm/dd/yy** date range and filters
+  for source, severity, category, IPs, user, program, country and threat matches. Open an event for its details.
+  The address bar keeps the search, so it can be bookmarked or shared.
+- **Users** (admins): add people, set their role, limit what they can see, change passwords.
+- **Sources** (admins): create access tokens, see when each source last sent logs, choose its parser, add logs by hand.
+- **Parsers** (admins): build, upload, export and edit parsers.
+
 ### Send logs from an app
 
-Create an API key for the app. Keys can only send logs; they cannot search or sign in.
+On the **Sources** page, choose **New access token**, name it after the app and optionally pick a parser. The token is
+shown once. Tokens can only send logs; they can't search or sign in. From the command line:
 
 ```sh
 ./siemlite keys create -name myapp
@@ -120,7 +135,8 @@ rsyslog example (`/etc/rsyslog.d/siemlite.conf`): `*.* @@siemlite.internal:514` 
 
 ### Search
 
-Sign in to the UI with your username and password. Searching is for signed-in users only; API keys are refused.
+Sign in to the UI and search from the Dashboard or the Database. Searching is for signed-in users only; access tokens
+are refused. Standard users limited to some sources only ever see events from those sources.
 The search API uses the same browser session (an `HttpOnly` cookie), so it is meant for the UI rather than scripts.
 
 `q` uses [FTS5 query syntax](https://www.sqlite.org/fts5.html#full_text_query_syntax): `failed AND ssh`,
@@ -130,14 +146,20 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 
 | Endpoint | Who | Purpose |
 |---|---|---|
-| `POST /api/v1/logs` | API key, or admin user | Raw log text, one entry per line. Optional `source` and `severity` query params. |
-| `POST /api/v1/events` | API key, or admin user | JSON array of OCSF events (up to 10,000 per request). |
-| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its `enrichment` (location, autonomous system, threat intel matches). |
+| `POST /api/v1/logs` | access token, or admin | Raw log text, one entry per line, read with the source's parser. Optional `source` (program name) and `severity` query params. |
+| `POST /api/v1/events` | access token, or admin | JSON array of OCSF events (up to 10,000 per request). |
+| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its `source_name`, extra parsed `fields` and `enrichment`. |
+| `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
+| `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
+| `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id"}`), rename or set the parser (`"parser_id": null` for automatic), revoke. |
+| `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
+| `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates` | admin | Manage parsers. |
+| `POST /api/v1/parsers/test`, `POST /api/v1/parsers/suggest` | admin | Run a parser over `{"definition", "lines"}`; ask the AI model for a parser for `{"lines"}`. |
 | `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session. |
 | `GET /health` | public | Up/down only. When signed in it also returns event count, database size, ingest queue state, indicator count and syslog counters. |
 
-Applications authenticate with `Authorization: Bearer <key>`. A missing or revoked key returns `401`; an API key used on
-a search returns `403`.
+Applications authenticate with `Authorization: Bearer <token>`. A missing or revoked token returns `401`; a token used
+for anything but sending logs returns `403`.
 
 ### Log parsing
 
@@ -145,7 +167,43 @@ a search returns `403`.
 the first two IPv4 addresses become source and destination, a user is picked up from patterns like `for user alice`,
 and severity comes from the syslog priority or keywords (`error`, `failed`, `warning`, ...). JSON objects that already
 contain `category_uid` are stored as OCSF; other JSON uses its `message`, `level` and timestamp fields. The detection
-is heuristic; use `?severity=` to override it.
+is heuristic; use `?severity=` to override it, or give the source a parser.
+
+## Parsers
+
+A parser tells SIEMLite how to read one source's lines: where the time, IPs, user and severity are, and which other
+values to keep. Choose a parser for a source on the Sources page; sources without one are parsed automatically.
+Build one on the Parsers page: paste a few sample lines, describe them, and the preview shows how each line is read.
+
+- **Text with a fixed layout**: write one line out with `{name}` where values change, e.g.
+  `{src_ip} - {user} [{time}] "{method} {path} {protocol}" {status}`. Spaces match any run of spaces, `{}` skips text,
+  and `{name:regex}` sets exactly what to match (`{status:\d+}`).
+- **JSON objects** and **key=value pairs**: every field is picked up; nested JSON keys read as `client.ip`.
+- **Fields**: values named like `time`, `src_ip`, `dst_port`, `user`, `host`, `message` or `level` fill the event
+  automatically; map any other name in the Fields table. Everything else is kept as an extra field, shown in the
+  event's details.
+- **Syslog**: tick "Lines start with a syslog header" and the pattern only needs to describe the message.
+- **Severity**: detected from the line, always the same, or decided by rules on a field (e.g. status `^5` -> High).
+- **Templates** for web server access logs, JSON application logs and key=value firewall logs.
+- **Upload and export** parsers as small JSON files to share them or keep them in version control.
+- A line that doesn't match its source's parser is still stored, parsed automatically, with a `parse_error` field.
+
+### AI help
+
+With a local model running in [Ollama](https://ollama.com), the editor gets a **Suggest a parser** button. SIEMLite
+removes syslog headers and recognises JSON and key=value lines itself, drafts a pattern that matches every sample
+line, and asks the model to name the fields and pick severity and category. It keeps the model's answer only when it
+still reads every sample line. Nothing leaves your network.
+
+With Docker, add to `.env` and run `docker compose up -d` (the model, about 2 GB, downloads once on first start):
+
+```sh
+COMPOSE_PROFILES=ai
+SIEMLITE_AI_URL=http://ollama:11434
+```
+
+Without Docker, run Ollama yourself and start SIEMLite with `-ai-url http://localhost:11434`. The default model is
+`qwen2.5-coder:3b`, which runs on a CPU; a suggestion takes about 10-40 seconds there. Choose another with `-ai-model`.
 
 ## GeoIP and ASN
 
@@ -219,13 +277,16 @@ The **Sample data** switch in the sidebar (admins only) loads about 380 demo eve
 
 ## Users
 
-People sign in with a username and password. There are two roles:
+People sign in with a username and password. Manage them on the Users page or from the command line. There are two roles:
 
-- **admin**: search, and add logs from the UI.
-- **analyst**: search only.
+- **Admin**: everything, including the Users, Sources and Parsers pages and the Sample data switch.
+- **Standard**: the Dashboard and Database. A standard user can be limited to the events from chosen sources; they then
+  see only those sources' events, in search and on the dashboard.
+
+There must always be at least one admin, and admins can't delete themselves.
 
 ```sh
-./siemlite users create -username alice -role analyst   # prompts for a password (min 12 characters)
+./siemlite users create -username alice -role standard  # prompts for a password (min 12 characters)
 ./siemlite users list
 ./siemlite users passwd -username alice                 # also signs alice out everywhere
 ./siemlite users delete -username alice
@@ -234,18 +295,27 @@ People sign in with a username and password. There are two roles:
 Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an `HttpOnly`, `Secure`, `SameSite=Strict` cookie,
 and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window.
 
-## API keys
+## Sources
 
-For applications that send logs. A key can only post to `/api/v1/logs` and `/api/v1/events`.
+Every event belongs to a source: an **access token** an application sends with, the **Syslog** listener, **Added in
+the UI** (logs pasted or uploaded on the Sources page) or **Sample data**. Each shows when it was last used, so you can
+see which are active, and each (except Sample data) can have a parser.
+
+Access tokens can only post to `/api/v1/logs` and `/api/v1/events`. Revoking one stops it immediately; its events are
+kept. From the command line:
 
 ```sh
 ./siemlite keys create -name <name>
-./siemlite keys list
+./siemlite keys list      # with last used times
 ./siemlite keys revoke -id <id>
 ```
 
-Keys look like `slk_...`. Only a SHA-256 hash is stored, so the secret is shown once at creation. The `keys` and `users`
+Tokens look like `slk_...`. Only a SHA-256 hash is stored, so a token is shown once at creation. The `keys` and `users`
 commands work while the server is running. Pass `-db` if your database is not `./siemlite.db`.
+
+**Upgrading from v0.4:** the database is upgraded automatically and keeps every event. API keys become access token
+sources and keep working; analysts become Standard users who can see every source. Everyone is signed out once
+during the upgrade. Events stored before it have no source except sample data.
 
 **Upgrading from v0.2:** the database is upgraded automatically on first start and keeps every event. Events stored
 before the upgrade have no source, host or enrichment.
@@ -273,11 +343,13 @@ by spaces.
 | `-geoip-asn` | | MaxMind or DB-IP ASN `.mmdb` |
 | `-intel-feed` | | Threat intel feed as `name=https://url`; repeat for several |
 | `-intel-refresh` | `6h` | How often to re-download feeds |
+| `-ai-url` | | Ollama server for AI parser help, e.g. `http://ollama:11434` (off when empty) |
+| `-ai-model` | `qwen2.5-coder:3b` | Model for AI parser help; downloaded on first start if missing |
 
 ## How it works
 
 ```
-clients ──HTTPS + API key──▶ api ─────┐
+clients ──HTTPS + token──▶ api ───────┐
 devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threat intel) ─▶ ingest worker pool ─▶ batched SQLite transactions
                                                                           (500 events or 500 ms)            │
                                api ──▶ search engine ──▶ events ⋈ events_fts ◀──────────────────────────────┘
@@ -286,7 +358,9 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 ```
 
 - **`pkg/ocsf`**: event model and validation.
-- **`pkg/parser`**: raw log lines to OCSF events.
+- **`pkg/parser`**: automatic parsing, custom parsers (pattern, JSON, key=value), templates and pattern drafting.
+- **`pkg/sources`**: applies each source's parser to its lines.
+- **`pkg/ai`**: parser suggestions from a local model via Ollama.
 - **`pkg/storage`**: SQLite setup (WAL, `synchronous=NORMAL`, `busy_timeout=5000`), schema, queries. `events_fts` is an
   external-content FTS5 table kept in sync by triggers, so log text is not stored twice.
 - **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.
@@ -295,7 +369,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 - **`pkg/intel`**: feed parsing, the in-memory indicator matcher and feed refresh.
 - **`pkg/search`**: combines time window, OCSF filters and FTS5.
 - **`pkg/retention`**: deletes expired events in batches, then runs `PRAGMA incremental_vacuum`.
-- **`pkg/auth`**: API keys, users, sessions and permission checks.
+- **`pkg/auth`**: access tokens, users, roles, source limits, sessions and permission checks.
 - **`api`**: HTTPS server and endpoints. **`web`**: the embedded UI.
 
 ## Development

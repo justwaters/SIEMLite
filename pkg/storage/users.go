@@ -19,6 +19,10 @@ type User struct {
 	Username  string `json:"username"`
 	Role      string `json:"role"`
 	CreatedAt int64  `json:"created_at"`
+	// Limited users see only events from Sources (possibly none). Admins and
+	// unlimited standard users see everything.
+	Limited bool    `json:"limited"`
+	Sources []int64 `json:"sources"`
 }
 
 // CreateUser stores a new user with an already-hashed password.
@@ -53,7 +57,7 @@ func (r *Repository) GetUserForLogin(ctx context.Context, username string) (*Use
 
 // ListUsers returns all users.
 func (r *Repository) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := r.db.Read.QueryContext(ctx, `SELECT id, username, role, created_at FROM users ORDER BY id`)
+	rows, err := r.db.Read.QueryContext(ctx, `SELECT id, username, role, limited, created_at FROM users ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -61,12 +65,130 @@ func (r *Repository) ListUsers(ctx context.Context) ([]User, error) {
 	var out []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Limited, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Sources, err = r.userSources(ctx, out[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (r *Repository) userSources(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := r.db.Read.QueryContext(ctx, `SELECT source_id FROM user_sources WHERE user_id = ? ORDER BY source_id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("user sources: %w", err)
+	}
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
 	return out, rows.Err()
+}
+
+// GetUser returns a user by id.
+func (r *Repository) GetUser(ctx context.Context, id int64) (*User, error) {
+	var u User
+	err := r.db.Read.QueryRowContext(ctx, `SELECT id, username, role, limited, created_at FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.Username, &u.Role, &u.Limited, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if u.Sources, err = r.userSources(ctx, id); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// UpdateUserAccess sets a user's role, whether they are limited to some
+// sources, and which. Admins always see everything, so their limit and
+// source list are cleared. It refuses to demote the last admin.
+func (r *Repository) UpdateUserAccess(ctx context.Context, id int64, role string, limited bool, sources []int64) error {
+	tx, err := r.db.Write.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var current string
+	if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+		return ErrUserNotFound
+	} else if err != nil {
+		return fmt.Errorf("get user: %w", err)
+	}
+	if current == "admin" && role != "admin" {
+		if err := lastAdminCheck(ctx, tx); err != nil {
+			return err
+		}
+	}
+	limited = limited && role != "admin"
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET role = ?, limited = ? WHERE id = ?`, role, limited, id); err != nil {
+		return fmt.Errorf("set role: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_sources WHERE user_id = ?`, id); err != nil {
+		return fmt.Errorf("clear sources: %w", err)
+	}
+	if limited {
+		for _, sid := range sources {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO user_sources (user_id, source_id) VALUES (?, ?)`, id, sid); err != nil {
+				return fmt.Errorf("add source %d: %w", sid, err)
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// ErrLastAdmin protects against locking everyone out.
+var ErrLastAdmin = errors.New("there must always be at least one admin")
+
+func lastAdminCheck(ctx context.Context, tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&n); err != nil {
+		return fmt.Errorf("count admins: %w", err)
+	}
+	if n <= 1 {
+		return ErrLastAdmin
+	}
+	return nil
+}
+
+// DeleteUserByID removes a user (sessions and source limits cascade). It
+// refuses to delete the last admin.
+func (r *Repository) DeleteUserByID(ctx context.Context, id int64) error {
+	tx, err := r.db.Write.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var role string
+	if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, id).Scan(&role); errors.Is(err, sql.ErrNoRows) {
+		return ErrUserNotFound
+	} else if err != nil {
+		return fmt.Errorf("get user: %w", err)
+	}
+	if role == "admin" {
+		if err := lastAdminCheck(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return tx.Commit()
 }
 
 // CountUsers returns the number of users.
@@ -99,14 +221,20 @@ func (r *Repository) SetPassword(ctx context.Context, username, passwordHash str
 	return true, tx.Commit()
 }
 
-// DeleteUser removes a user and, via cascade, their sessions.
+// DeleteUser removes a user by name; see DeleteUserByID.
 func (r *Repository) DeleteUser(ctx context.Context, username string) (bool, error) {
-	res, err := r.db.Write.ExecContext(ctx, `DELETE FROM users WHERE username = ?`, username)
-	if err != nil {
-		return false, fmt.Errorf("delete user: %w", err)
+	var id int64
+	err := r.db.Read.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ?`, username).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	if err != nil {
+		return false, fmt.Errorf("find user: %w", err)
+	}
+	if err := r.DeleteUserByID(ctx, id); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CreateSession stores a session by token hash.
@@ -123,15 +251,18 @@ func (r *Repository) CreateSession(ctx context.Context, tokenHash string, userID
 func (r *Repository) FindSession(ctx context.Context, tokenHash string, nowMs int64) (*User, error) {
 	var u User
 	err := r.db.Read.QueryRowContext(ctx,
-		`SELECT u.id, u.username, u.role, u.created_at FROM sessions s
+		`SELECT u.id, u.username, u.role, u.limited, u.created_at FROM sessions s
 		 JOIN users u ON u.id = s.user_id
 		 WHERE s.token_hash = ? AND s.expires_at > ?`,
-		tokenHash, nowMs).Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt)
+		tokenHash, nowMs).Scan(&u.ID, &u.Username, &u.Role, &u.Limited, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find session: %w", err)
+	}
+	if u.Sources, err = r.userSources(ctx, u.ID); err != nil {
+		return nil, err
 	}
 	return &u, nil
 }
