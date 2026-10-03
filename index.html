@@ -51,6 +51,27 @@
   th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 500; }
   .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 14px 18px; color: var(--muted); font-size: 14.5px; }
+  .shot { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+          box-shadow: 0 24px 60px -24px rgba(0, 0, 0, .7); }
+  .hero-shot { margin-top: 56px; }
+  .tour { display: grid; gap: 64px; }
+  .tour-row { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: 40px; align-items: center; }
+  .tour-row.flip { grid-template-columns: minmax(0, 8fr) minmax(0, 5fr); }
+  .tour-row.flip .tour-text { order: 2; }
+  .tour-row.phone { grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); }
+  .tour-row.phone .shot { max-width: 300px; justify-self: center; }
+  .tour-text h3 { margin: 0 0 10px; font-size: 21px; letter-spacing: -0.01em; }
+  .tour-text p { margin: 0; color: var(--muted); }
+  @media (max-width: 520px) {
+    nav .wrap { gap: 16px; }
+    nav .links { gap: 16px; }
+    nav .links .wide-only { display: none; }
+  }
+  @media (max-width: 760px) {
+    .tour-row, .tour-row.flip, .tour-row.phone { grid-template-columns: 1fr; gap: 20px; }
+    .tour-row.flip .tour-text { order: 0; }
+    .tour-row.phone .shot { max-width: 260px; }
+  }
   footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
 </style>
 </head>
@@ -60,9 +81,10 @@
   <div class="wrap">
     <a class="logo" href="#">SIEM<span>Lite</span></a>
     <div class="links">
-      <a href="#features">Features</a>
+      <a href="#see-it">See it</a>
+      <a class="wide-only" href="#features">Features</a>
       <a href="#quickstart">Quick start</a>
-      <a href="#security">Security</a>
+      <a class="wide-only" href="#security">Security</a>
       <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
     </div>
   </div>
@@ -78,8 +100,49 @@
       <a class="btn ghost" href="https://github.com/justwaters/SIEMLite">View on GitHub</a>
     </div>
     <p style="margin:20px 0 0;color:var(--muted);font-size:14px">Open source &middot; AGPL-3.0</p>
+    <img class="shot hero-shot" src="screenshots/threat-dark.webp" width="2880" height="1800"
+      alt="SIEMLite showing events that matched threat intel. One is opened: a successful SSH login for admin from 203.0.113.7, which is on a threat list for an SSH brute-force botnet. Its details show the host web1, the source sshd, the IP's location in Moscow and its network, and the raw log line.">
   </div>
 </header>
+
+<section id="see-it">
+  <div class="wrap">
+    <h2>See it</h2>
+    <p class="sub">These screenshots are from SIEMLite itself, running its built-in sample data: a day of normal traffic with an
+      intrusion hidden in it. Turn on Sample data in the sidebar to explore the same events yourself.</p>
+    <div class="tour">
+      <div class="tour-row">
+        <div class="tour-text">
+          <h3>One search field to start</h3>
+          <p>The search page opens empty, with nothing but the field. Type words, &ldquo;exact phrases&rdquo; or
+            <code>failed AND ssh</code>, or press Enter to see the latest events. Filters for time, severity, IPs, users,
+            sources and countries are a click away.</p>
+        </div>
+        <img class="shot" src="screenshots/search-dark.webp" width="2880" height="1800" loading="lazy"
+          alt="The SIEMLite search page: an empty screen with a single search field, a time range set to the last 24 hours, and a sidebar showing 386 events and the Sample data switch.">
+      </div>
+      <div class="tour-row flip">
+        <div class="tour-text">
+          <h3>Threats stand out</h3>
+          <p>Colour only ever means severity, so a red edge is impossible to miss. Every event is checked against threat
+            intel blocklists as it arrives, and opening one explains the match in a sentence, next to the IP&rsquo;s
+            location, its network and the raw log line. Light and dark themes are both built in.</p>
+        </div>
+        <img class="shot" src="screenshots/threat-light.webp" width="2880" height="1800" loading="lazy"
+          alt="SIEMLite in its light theme, filtered to threat intel matches: blocked connections to a botnet C2 server in the Netherlands, a critical malware detection, and an opened SSH login from a listed IP in Moscow.">
+      </div>
+      <div class="tour-row phone">
+        <div class="tour-text">
+          <h3>Check in from your phone</h3>
+          <p>On a small screen, the table shrinks to the time, severity and message, and the sidebar becomes a menu.
+            Here, a search for <code>&quot;failed password&quot;</code> shows a brute-force attack against one server.</p>
+        </div>
+        <img class="shot" src="screenshots/phone-dark.webp" width="1170" height="2532" loading="lazy"
+          alt="SIEMLite on a phone in dark mode, showing failed SSH password attempts for root, admin and other users from 203.0.113.7, each marked as a threat intel match.">
+      </div>
+    </div>
+  </div>
+</section>
 
 <section id="features">
   <div class="wrap">
