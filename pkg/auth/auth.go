@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"siemlite/pkg/storage"
@@ -28,6 +29,7 @@ type Permission int
 const (
 	PermIngest Permission = iota + 1 // send events and logs
 	PermSearch                       // search and read health details
+	PermAdmin                        // manage users, sources and parsers
 )
 
 // Kind says how a caller authenticated.
@@ -40,8 +42,8 @@ const (
 
 // User roles.
 const (
-	RoleAdmin   = "admin"   // search, add logs
-	RoleAnalyst = "analyst" // search only
+	RoleAdmin    = "admin"    // everything
+	RoleStandard = "standard" // search, optionally limited to some sources
 )
 
 // KeyPrefix makes keys recognizable to secret scanners.
@@ -57,6 +59,16 @@ type Principal struct {
 	Kind Kind
 	Name string
 	Role string // users only
+	// UserID is set for users; SourceID for access tokens.
+	UserID   int64
+	SourceID int64
+	// Sources limits a standard user to these sources; empty means all.
+	Sources []int64
+}
+
+// Restricted reports whether the caller may only see some sources.
+func (p *Principal) Restricted() bool {
+	return p.Kind == KindUser && p.Role != RoleAdmin && len(p.Sources) > 0
 }
 
 // Can reports whether the caller holds perm.
@@ -68,7 +80,7 @@ func (p *Principal) Can(perm Permission) bool {
 		switch p.Role {
 		case RoleAdmin:
 			return true
-		case RoleAnalyst:
+		case RoleStandard:
 			return perm == PermSearch
 		}
 	}
@@ -109,17 +121,18 @@ func randomToken(prefix string) (string, error) {
 	return prefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// CreateKey generates and stores an application API key (send-only). The
-// plaintext is only available from this call.
-func CreateKey(ctx context.Context, repo *storage.Repository, name string) (id int64, plaintext string, err error) {
-	if strings.TrimSpace(name) == "" {
-		return 0, "", errors.New("key name is required")
+// CreateKey creates an access token source (send-only) with an optional
+// parser. The plaintext token is only available from this call.
+func CreateKey(ctx context.Context, repo *storage.Repository, name string, parserID *int64) (id int64, plaintext string, err error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 80 {
+		return 0, "", errors.New("source name must be 1-80 characters")
 	}
 	plaintext, hash, err := GenerateKey()
 	if err != nil {
 		return 0, "", err
 	}
-	id, err = repo.CreateKey(ctx, name, "write", hash, time.Now().UnixMilli())
+	id, err = repo.CreateTokenSource(ctx, name, hash, parserID, time.Now().UnixMilli())
 	return id, plaintext, err
 }
 
@@ -128,6 +141,10 @@ type Authenticator struct {
 	repo    *storage.Repository
 	log     *slog.Logger
 	limiter *loginLimiter
+
+	// lastTouch throttles "last used" writes to one per source per minute.
+	touchMu   sync.Mutex
+	lastTouch map[int64]time.Time
 }
 
 // New returns an Authenticator.
@@ -135,7 +152,23 @@ func New(repo *storage.Repository, log *slog.Logger) *Authenticator {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Authenticator{repo: repo, log: log, limiter: newLoginLimiter()}
+	return &Authenticator{repo: repo, log: log, limiter: newLoginLimiter(), lastTouch: map[int64]time.Time{}}
+}
+
+// TouchSource records that a source sent logs, at most once a minute per
+// source so busy senders don't turn every request into a write.
+func (a *Authenticator) TouchSource(ctx context.Context, id int64) {
+	now := time.Now()
+	a.touchMu.Lock()
+	if now.Sub(a.lastTouch[id]) < time.Minute {
+		a.touchMu.Unlock()
+		return
+	}
+	a.lastTouch[id] = now
+	a.touchMu.Unlock()
+	if err := a.repo.TouchSource(ctx, id, now.UnixMilli()); err != nil {
+		a.log.Warn("recording source use failed", "source", id, "err", err)
+	}
 }
 
 // Authenticate identifies the caller. A bearer API key is used if an
@@ -147,14 +180,14 @@ func (a *Authenticator) Authenticate(r *http.Request) (*Principal, error) {
 		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
 			return nil, ErrInvalid
 		}
-		key, err := a.repo.FindActiveKey(r.Context(), hashToken(strings.TrimSpace(token)))
-		if errors.Is(err, storage.ErrKeyNotFound) {
+		src, err := a.repo.FindActiveToken(r.Context(), hashToken(strings.TrimSpace(token)))
+		if errors.Is(err, storage.ErrSourceNotFound) {
 			return nil, ErrInvalid
 		}
 		if err != nil {
 			return nil, err
 		}
-		return &Principal{Kind: KindKey, Name: key.Name}, nil
+		return &Principal{Kind: KindKey, Name: src.Name, SourceID: src.ID}, nil
 	}
 
 	c, err := r.Cookie(CookieName)
@@ -168,7 +201,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (*Principal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Principal{Kind: KindUser, Name: u.Username, Role: u.Role}, nil
+	return &Principal{Kind: KindUser, Name: u.Username, Role: u.Role, UserID: u.ID, Sources: u.Sources}, nil
 }
 
 // Require wraps next so only callers holding perm get through.

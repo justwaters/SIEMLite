@@ -47,8 +47,12 @@ var DefaultAllow = []netip.Prefix{
 	netip.MustParsePrefix("fe80::/10"),
 }
 
-// SubmitFunc queues one event; ingest.Worker.Submit satisfies it.
-type SubmitFunc func(ctx context.Context, ev *ocsf.Event) error
+// SubmitFunc queues one event with any extra fields its parser extracted.
+type SubmitFunc func(ctx context.Context, ev *ocsf.Event, fields map[string]string) error
+
+// ParseFunc turns one message into an event (nil for blank lines). The
+// default is the automatic parser.
+type ParseFunc func(ctx context.Context, line string) (*ocsf.Event, map[string]string, error)
 
 // Config selects listeners. An empty address disables that listener.
 type Config struct {
@@ -57,6 +61,7 @@ type Config struct {
 	TLSAddr   string
 	TLSConfig *tls.Config // required with TLSAddr
 	Allow     []netip.Prefix
+	Parse     ParseFunc
 	Submit    SubmitFunc
 	Logger    *slog.Logger
 }
@@ -99,6 +104,11 @@ func Start(cfg Config) (*Server, error) {
 	}
 	if cfg.Submit == nil {
 		return nil, errors.New("syslogd: Submit is required")
+	}
+	if cfg.Parse == nil {
+		cfg.Parse = func(_ context.Context, line string) (*ocsf.Event, map[string]string, error) {
+			return parser.ParseLine(line, parser.Defaults{}), nil, nil
+		}
 	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]struct{}{}, slots: make(chan struct{}, maxConns)}
 
@@ -371,7 +381,13 @@ func (s *Server) handle(msg []byte, from netip.Addr, wait time.Duration) {
 		s.rejected.Add(1)
 		return
 	}
-	ev := parser.ParseLine(string(msg), parser.Defaults{})
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	ev, fields, err := s.cfg.Parse(ctx, string(msg))
+	if err != nil {
+		s.dropped.Add(1)
+		return
+	}
 	if ev == nil {
 		return
 	}
@@ -383,9 +399,7 @@ func (s *Server) handle(msg []byte, from netip.Addr, wait time.Duration) {
 	}
 	ev.Device.IP = from.Unmap().String()
 
-	ctx, cancel := context.WithTimeout(context.Background(), wait)
-	defer cancel()
-	err := s.cfg.Submit(ctx, ev)
+	err = s.cfg.Submit(ctx, ev, fields)
 	var verr *ocsf.ValidationError
 	switch {
 	case err == nil:

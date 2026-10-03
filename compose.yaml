@@ -25,5 +25,16 @@ services:
     # SIEMLite flushes queued events on shutdown; allow time for that.
     stop_grace_period: 20s
 
+  # Optional local AI model for parser suggestions. Turn it on with
+  # COMPOSE_PROFILES=ai and SIEMLITE_AI_URL=http://ollama:11434 in .env.
+  # Only SIEMLite can reach it; no port is published.
+  ollama:
+    image: ollama/ollama
+    profiles: [ai]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+
 volumes:
   siemlite-data:
+  ollama-models:

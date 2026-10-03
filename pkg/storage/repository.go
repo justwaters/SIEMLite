@@ -28,6 +28,10 @@ type Record struct {
 	DstASN     int    `json:"dst_asn,omitempty"`
 	Threat     bool   `json:"threat,omitempty"` // matched a threat intel indicator
 	Sample     bool   `json:"sample,omitempty"` // demo data from the Sample data switch
+	SourceID   int64  `json:"source_id,omitempty"`
+	SourceName string `json:"source_name,omitempty"` // read-only: the source's current name
+	// Fields holds extra values a parser extracted, as a JSON object.
+	Fields json.RawMessage `json:"fields,omitempty"`
 	// Enrichment is the JSON document of GeoIP/ASN and threat intel context.
 	Enrichment json.RawMessage `json:"enrichment,omitempty"`
 }
@@ -48,9 +52,14 @@ type Filter struct {
 	Country     string // either endpoint's ISO country code
 	ASN         int    // either endpoint's autonomous system number
 	ThreatOnly  bool
-	Match       string // raw FTS5 MATCH expression
-	Limit       int
-	Offset      int
+	SourceID    int64 // one source; 0 = any
+	// Restrict limits results to AllowedSources (a restricted user's view).
+	// With Restrict set and no sources, nothing matches.
+	Restrict       bool
+	AllowedSources []int64
+	Match          string // raw FTS5 MATCH expression
+	Limit          int
+	Offset         int
 }
 
 // Repository provides data access over a DB.
@@ -63,8 +72,8 @@ func NewRepository(db *DB) *Repository { return &Repository{db: db} }
 
 const insertSQL = `INSERT INTO events
 	(timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, raw_data,
-	 source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, sample)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	 source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, sample, source_id, fields)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertBatch writes all records in a single explicit transaction. The FTS
 // index is maintained by the AFTER INSERT trigger.
@@ -91,6 +100,7 @@ func (r *Repository) InsertBatch(ctx context.Context, recs []Record) error {
 			nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
 			nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
 			nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)), rec.Sample,
+			nullableInt64(rec.SourceID), nullable(string(rec.Fields)),
 		); err != nil {
 			return fmt.Errorf("insert record %d: %w", i, err)
 		}
@@ -114,11 +124,12 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
 	out := make([]Record, 0, min(max(f.Limit, 0), 1000))
 	for rows.Next() {
 		var rec Record
-		var src, dst, user, source, host, srcCC, dstCC, enrichment sql.NullString
-		var srcASN, dstASN sql.NullInt64
+		var src, dst, user, source, host, srcCC, dstCC, enrichment, fields sql.NullString
+		var srcASN, dstASN, sourceID sql.NullInt64
 		if err := rows.Scan(&rec.ID, &rec.Timestamp, &rec.CategoryUID, &rec.ClassUID,
 			&rec.SeverityID, &src, &dst, &user, &rec.RawData,
-			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment, &rec.Sample); err != nil {
+			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment, &rec.Sample,
+			&sourceID, &rec.SourceName, &fields); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		rec.SrcIP, rec.DstIP, rec.UserName = src.String, dst.String, user.String
@@ -127,6 +138,10 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
 		if enrichment.Valid {
 			rec.Enrichment = json.RawMessage(enrichment.String)
 		}
+		if fields.Valid {
+			rec.Fields = json.RawMessage(fields.String)
+		}
+		rec.SourceID = sourceID.Int64
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -143,7 +158,8 @@ func buildSearch(f Filter) (string, []any) {
 	)
 	sb.WriteString(`SELECT e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
 		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
-		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment, e.sample FROM `)
+		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment, e.sample,
+		e.source_id, COALESCE(so.name, ''), e.fields FROM `)
 
 	if f.Match != "" {
 		sb.WriteString("events_fts JOIN events e ON e.id = events_fts.rowid")
@@ -152,6 +168,8 @@ func buildSearch(f Filter) (string, []any) {
 	} else {
 		sb.WriteString("events e")
 	}
+	sb.WriteString(" LEFT JOIN sources so ON so.id = e.source_id")
+	where, args = sourceWhere(f, where, args)
 
 	if f.StartMs > 0 {
 		where = append(where, "e.timestamp >= ?")
@@ -317,6 +335,32 @@ func nullable(s string) any {
 		return nil
 	}
 	return s
+}
+
+// sourceWhere adds the single-source filter and a restricted user's limit.
+func sourceWhere(f Filter, where []string, args []any) ([]string, []any) {
+	if f.SourceID != 0 {
+		where = append(where, "e.source_id = ?")
+		args = append(args, f.SourceID)
+	}
+	if f.Restrict {
+		if len(f.AllowedSources) == 0 {
+			return append(where, "0"), args
+		}
+		marks := strings.TrimSuffix(strings.Repeat("?, ", len(f.AllowedSources)), ", ")
+		where = append(where, "e.source_id IN ("+marks+")")
+		for _, id := range f.AllowedSources {
+			args = append(args, id)
+		}
+	}
+	return where, args
+}
+
+func nullableInt64(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
 }
 
 func nullableInt(n int) any {

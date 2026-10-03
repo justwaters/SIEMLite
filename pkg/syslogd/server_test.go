@@ -19,7 +19,7 @@ type sink struct {
 	evs []*ocsf.Event
 }
 
-func (s *sink) submit(_ context.Context, ev *ocsf.Event) error {
+func (s *sink) submit(_ context.Context, ev *ocsf.Event, _ map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.evs = append(s.evs, ev)

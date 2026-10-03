@@ -330,6 +330,7 @@ type Status struct {
 type Store interface {
 	DeleteSample(ctx context.Context) (int64, error)
 	CountSample(ctx context.Context) (int64, error)
+	BuiltinSource(ctx context.Context, kind string) (*storage.Source, error)
 }
 
 // Manager turns sample data on and off.
@@ -357,11 +358,15 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 func (m *Manager) Enable(ctx context.Context) (Status, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	src, err := m.store.BuiltinSource(ctx, storage.SourceSample)
+	if err != nil {
+		return Status{}, err
+	}
 	if _, err := m.store.DeleteSample(ctx); err != nil {
 		return Status{}, err
 	}
 	for _, ev := range Generate(m.now()) {
-		if err := m.worker.SubmitWith(ctx, ev, ingest.SubmitOptions{Sample: true, Enricher: m.enricher}); err != nil {
+		if err := m.worker.SubmitWith(ctx, ev, ingest.SubmitOptions{Sample: true, Enricher: m.enricher, SourceID: src.ID}); err != nil {
 			return Status{}, fmt.Errorf("load sample data: %w", err)
 		}
 	}

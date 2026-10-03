@@ -32,13 +32,16 @@ var HashCost = 12
 
 var ErrBadCredentials = errors.New("invalid username or password")
 
-// ParseUserRole validates a user role name.
+// ParseUserRole validates a user role name. "analyst", the old name for a
+// standard user, is still accepted.
 func ParseUserRole(s string) (string, error) {
-	switch s {
-	case RoleAdmin, RoleAnalyst:
-		return s, nil
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case RoleAdmin:
+		return RoleAdmin, nil
+	case RoleStandard, "analyst":
+		return RoleStandard, nil
 	}
-	return "", fmt.Errorf("role must be admin or analyst (got %q)", s)
+	return "", fmt.Errorf("role must be admin or standard (got %q)", s)
 }
 
 // ValidatePassword enforces the password policy.
@@ -58,7 +61,8 @@ func CreateUser(ctx context.Context, repo *storage.Repository, username, passwor
 	if username == "" || len(username) > 64 {
 		return 0, errors.New("username must be 1-64 characters")
 	}
-	if _, err := ParseUserRole(role); err != nil {
+	role, err := ParseUserRole(role)
+	if err != nil {
 		return 0, err
 	}
 	if err := ValidatePassword(password); err != nil {

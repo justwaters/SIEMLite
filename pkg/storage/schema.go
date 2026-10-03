@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 5
+const schemaVersion = 6
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -40,19 +40,6 @@ var schemaStatements = []string{
 	`CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
 		INSERT INTO events_fts(events_fts, rowid, raw_data) VALUES ('delete', old.id, old.raw_data);
 	END`,
-	// Only a SHA-256 of each key is stored; the plaintext is shown once at creation.
-	`CREATE TABLE IF NOT EXISTS api_keys (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		name       TEXT NOT NULL,
-		role       TEXT NOT NULL CHECK (role IN ('read', 'write', 'admin')),
-		key_hash   TEXT NOT NULL UNIQUE,
-		created_at INTEGER NOT NULL,
-		revoked_at INTEGER
-	)`,
-	// API keys are only for applications that send logs. Retire read/admin keys
-	// issued by earlier versions; people sign in with a username and password.
-	`UPDATE api_keys SET revoked_at = CAST(strftime('%s','now') AS INTEGER) * 1000
-		WHERE role <> 'write' AND revoked_at IS NULL`,
 	// Users sign in to the web UI. Only a bcrypt hash of the password is stored.
 	`CREATE TABLE IF NOT EXISTS users (
 		id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +93,67 @@ var upgrades = map[int][]string{
 	4: {
 		`ALTER TABLE events ADD COLUMN sample INTEGER NOT NULL DEFAULT 0`,
 		`CREATE INDEX IF NOT EXISTS idx_events_sample ON events(id) WHERE sample = 1`,
+	},
+	// v6: sources (access tokens plus built-in syslog, upload and sample
+	// sources), parsers, Admin/Standard roles and per-user source limits.
+	5: {
+		`CREATE TABLE parsers (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+			definition TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		// Only a SHA-256 of each token is stored; the plaintext is shown once.
+		`CREATE TABLE sources (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT NOT NULL,
+			kind         TEXT NOT NULL CHECK (kind IN ('token', 'syslog', 'upload', 'sample')),
+			key_hash     TEXT UNIQUE,
+			parser_id    INTEGER REFERENCES parsers(id) ON DELETE SET NULL,
+			created_at   INTEGER NOT NULL,
+			revoked_at   INTEGER,
+			last_used_at INTEGER
+		)`,
+		`CREATE UNIQUE INDEX idx_sources_builtin ON sources(kind) WHERE kind <> 'token'`,
+		// Earlier versions' API keys become token sources with the same ids.
+		// api_keys only exists in databases created before v6; v0.1 read and
+		// admin keys are carried over revoked.
+		`CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, revoked_at INTEGER)`,
+		`INSERT INTO sources (id, name, kind, key_hash, created_at, revoked_at)
+			SELECT id, name, 'token', key_hash, created_at,
+				CASE WHEN role <> 'write' AND revoked_at IS NULL THEN CAST(strftime('%s','now') AS INTEGER) * 1000 ELSE revoked_at END
+			FROM api_keys`,
+		`DROP TABLE api_keys`,
+		`INSERT INTO sources (name, kind, created_at) VALUES
+			('Syslog', 'syslog', CAST(strftime('%s','now') AS INTEGER) * 1000),
+			('Added in the UI', 'upload', CAST(strftime('%s','now') AS INTEGER) * 1000),
+			('Sample data', 'sample', CAST(strftime('%s','now') AS INTEGER) * 1000)`,
+		// Roles become admin and standard. SQLite cannot change a CHECK
+		// constraint in place, so the table is rebuilt; dropping it ends all
+		// sessions (they cascade), so everyone signs in again once.
+		`CREATE TABLE users_new (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+			password_hash TEXT NOT NULL,
+			role          TEXT NOT NULL CHECK (role IN ('admin', 'standard')),
+			created_at    INTEGER NOT NULL
+		)`,
+		`INSERT INTO users_new (id, username, password_hash, role, created_at)
+			SELECT id, username, password_hash, CASE role WHEN 'analyst' THEN 'standard' ELSE role END, created_at FROM users`,
+		`DROP TABLE users`,
+		`ALTER TABLE users_new RENAME TO users`,
+		// A Standard user with rows here only sees events from those sources.
+		`CREATE TABLE user_sources (
+			user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+			PRIMARY KEY (user_id, source_id)
+		)`,
+		`ALTER TABLE events ADD COLUMN source_id INTEGER`,
+		`ALTER TABLE events ADD COLUMN fields TEXT`,
+		`CREATE INDEX idx_events_source ON events(source_id, timestamp DESC)`,
+		`UPDATE events SET source_id = (SELECT id FROM sources WHERE kind = 'sample') WHERE sample = 1`,
 	},
 }
 
