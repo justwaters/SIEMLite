@@ -278,6 +278,23 @@
   .spinner { width: 14px; height: 14px; border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* System */
+  .sys-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 16px; }
+  .sys-figures .value { font-size: 26px; }
+  .sys-figures .sub.mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sched { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 32px; align-items: end; margin-bottom: 16px; }
+  .sched h2 { margin-bottom: 4px; }
+  .sched-fields { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .sched-fields .input { width: 90px; }
+  .working td { color: var(--ink-2); }
+  .backups td { white-space: nowrap; }
+  .backups tr.working td, .backups tr.empty td { white-space: normal; }
+  .working .spinner { display: inline-block; vertical-align: -2px; margin-right: 8px; }
+  .restarting { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--paper); text-align: center; padding: 24px; }
+  .restarting .spinner { display: inline-block; width: 22px; height: 22px; }
+  .restarting h2 { font-size: 22px; margin: 16px 0 6px; }
+  .restarting p { color: var(--ink-2); margin: 0; max-width: 44ch; }
+
   /* Sign in */
   .login { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: var(--paper); }
   .login form { width: min(360px, 100%); display: grid; gap: 14px; }
@@ -304,6 +321,8 @@
     .dash-search { margin-top: 5vh; }
     .dash-search .field input.q { font-size: 17px; padding: 15px 8px; }
     .figures { grid-template-columns: 1fr 1fr; }
+    .sys-figures { grid-template-columns: 1fr; }
+    .sched { grid-template-columns: 1fr; }
     .figure.hero { grid-column: 1 / -1; }
     .dash-grid { grid-template-columns: 1fr; }
     .db-bar { grid-template-columns: 1fr; }
@@ -323,6 +342,7 @@
   <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.7.7 2.7 2.4 3 5.2"/></symbol>
   <symbol id="i-sources" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7m-7 5h7m-7 5h7"/><path d="M13.5 12h6.5m-3-3 3 3-3 3"/></symbol>
   <symbol id="i-parsers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-4.5 5L8 17m8-10 4.5 5L16 17M13.5 5l-3 14"/></symbol>
+  <symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
   <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4m7-4v4"/></symbol>
@@ -353,6 +373,7 @@
       <a class="nav-item admin-only" href="#/users" data-nav="users"><svg class="icon"><use href="#i-users"/></svg>Users</a>
       <a class="nav-item admin-only" href="#/sources" data-nav="sources"><svg class="icon"><use href="#i-sources"/></svg>Sources</a>
       <a class="nav-item admin-only" href="#/parsers" data-nav="parsers"><svg class="icon"><use href="#i-parsers"/></svg>Parsers</a>
+      <a class="nav-item admin-only" href="#/system" data-nav="system"><svg class="icon"><use href="#i-system"/></svg>System</a>
     </nav>
     <div class="side-foot">
       <div id="status" aria-live="polite"></div>
@@ -631,8 +652,56 @@
       </div>
     </section>
 
+    <!-- System -->
+    <section id="view-system" class="page" aria-labelledby="system-title" hidden>
+      <div class="page-head">
+        <div><h1 id="system-title">System</h1><p>Keep the database safe: back it up, restore it, or move it to another server.</p></div>
+        <div class="page-actions">
+          <label class="btn" for="backup-upload">Upload backup</label>
+          <input type="file" id="backup-upload" accept=".gz,.db,application/gzip" class="visually-hidden">
+          <button class="btn btn-primary" id="backup-now">Create backup now</button>
+        </div>
+      </div>
+      <div class="figures sys-figures">
+        <div class="figure"><div class="label">Database</div><div class="value" id="sys-size">–</div><div class="sub" id="sys-events"></div></div>
+        <div class="figure"><div class="label">Running since</div><div class="value" id="sys-up">–</div><div class="sub" id="sys-started"></div></div>
+        <div class="figure"><div class="label">Free space for backups</div><div class="value" id="sys-free">–</div><div class="sub mono" id="sys-dir"></div></div>
+      </div>
+      <form class="panel sched" id="sched-form">
+        <div><h2>Automatic backups</h2><p class="hint">Older automatic backups are removed as new ones are made. Backups you make,
+          upload, or that are made before a restore are only removed by you.</p></div>
+        <div class="sched-fields">
+          <label class="field-label">Make one
+            <select class="select" id="sched-interval">
+              <option value="0">Never</option><option value="6">Every 6 hours</option>
+              <option value="24">Every day</option><option value="168">Every week</option>
+            </select>
+          </label>
+          <label class="field-label">Keep the newest
+            <input class="input" id="sched-keep" type="number" min="1" max="365" value="7">
+          </label>
+          <button class="btn" type="submit">Save schedule</button>
+        </div>
+      </form>
+      <div class="table-wrap">
+        <table class="data backups">
+          <thead><tr><th>Created</th><th>Type</th><th>Size</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="backups-body"></tbody>
+        </table>
+      </div>
+      <p class="notice" id="system-msg" role="status" hidden></p>
+    </section>
+
     <footer>SIEMLite is open source under the AGPL-3.0. <a href="https://github.com/justwaters/SIEMLite" target="_blank" rel="noopener">Get the source code</a></footer>
   </main>
+</div>
+
+<div class="restarting" id="restarting" hidden role="alertdialog" aria-labelledby="restarting-title" aria-describedby="restarting-text">
+  <div>
+    <span class="spinner"></span>
+    <h2 id="restarting-title">Restoring the backup</h2>
+    <p id="restarting-text">SIEMLite is restarting with the restored database. This page reloads when it&rsquo;s back.</p>
+  </div>
 </div>
 
 <!-- Dialogs -->
@@ -856,13 +925,13 @@ $("logout").onclick = async () => {
 };
 
 // --- Routing: #/page or #/page?query ---
-const VIEWS = ["dashboard", "database", "users", "sources", "parsers", "parser"];
+const VIEWS = ["dashboard", "database", "users", "sources", "parsers", "parser", "system"];
 function route() {
   const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
   let [view, arg] = path.split("/");
   if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
   if (view === "parsers" && arg) view = "parser";
-  if (!isAdmin && ["users", "sources", "parsers", "parser"].includes(view)) view = "dashboard";
+  if (!isAdmin && ["users", "sources", "parsers", "parser", "system"].includes(view)) view = "dashboard";
   for (const v of VIEWS) $("view-" + v).hidden = v !== view;
   const navKey = view === "parser" ? "parsers" : view;
   for (const a of document.querySelectorAll("[data-nav]")) {
@@ -871,8 +940,9 @@ function route() {
   setMenu(false);
   const params = new URLSearchParams(query || "");
   ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources,
-     parsers: openParsers, parser: () => openParserEditor(arg) })[view]();
-  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser" })[view]} · SIEMLite`;
+     parsers: openParsers, parser: () => openParserEditor(arg), system: openSystem })[view]();
+  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", system: "System" })[view]} · SIEMLite`;
+  if (view !== "system") clearTimeout(backupPoll);
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
 function setMenu(open) {
@@ -1761,6 +1831,118 @@ pe("suggest").onclick = async () => {
     btn.disabled = false;
   }
 };
+
+// --- System: backups ---
+const BACKUP_KIND = { manual: "Manual", auto: "Automatic", "before-restore": "Before a restore", uploaded: "Uploaded" };
+let backupPoll = null;
+function bytes(n) {
+  if (n == null || n < 0) return "–";
+  if (n < 1048576) return Math.max(1, Math.round(n / 1024)) + " KB";
+  if (n < 1073741824) return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+  return (n / 1073741824).toFixed(1) + " GB";
+}
+function since(ms) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 3600) return Math.max(1, Math.floor(s / 60)) + " min";
+  if (s < 86400) return Math.floor(s / 3600) + " h";
+  return Math.floor(s / 86400) + " d";
+}
+async function openSystem() {
+  notice($("system-msg"), "");
+  try {
+    const sys = await apiJSON("/api/v1/system");
+    $("sys-size").textContent = bytes(sys.database.size_bytes);
+    $("sys-events").textContent = `${nf.format(sys.database.events)} events, database version ${sys.database.schema_version}`;
+    $("sys-up").textContent = since(sys.started_at);
+    $("sys-started").textContent = "Since " + new Date(sys.started_at).toLocaleString();
+    if (sys.backups) {
+      $("sys-free").textContent = bytes(sys.backups.free_bytes);
+      $("sys-dir").textContent = sys.backups.dir; $("sys-dir").title = sys.backups.dir;
+    }
+  } catch (err) { notice($("system-msg"), err.message); }
+  await loadBackups(true);
+}
+async function loadBackups(fillSettings) {
+  clearTimeout(backupPoll);
+  let data;
+  try { data = await apiJSON("/api/v1/backups"); } catch (err) { notice($("system-msg"), err.message); return; }
+  if (fillSettings) { $("sched-interval").value = String(data.settings.interval_hours); $("sched-keep").value = String(data.settings.keep); }
+  const rows = [];
+  if (data.status.running) {
+    rows.push(el("tr", { className: "working" }, el("td", { colSpan: 4 }, el("span", { className: "spinner" }),
+      `Creating ${data.status.kind === "auto" ? "an automatic" : "a"} backup. Logging carries on while it runs.`)));
+  }
+  for (const b of data.backups) {
+    rows.push(el("tr", {},
+      el("td", { textContent: new Date(b.created_at).toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }), title: b.name }),
+      el("td", { className: "kind", textContent: BACKUP_KIND[b.kind] || b.kind }),
+      el("td", { className: "muted", textContent: bytes(b.size) }),
+      el("td", { className: "actions" }, el("div", { className: "row-actions" },
+        el("a", { className: "btn btn-small", href: "/api/v1/backups/" + encodeURIComponent(b.name), download: b.name, textContent: "Download" }),
+        el("button", { className: "btn btn-small", textContent: "Restore", onclick: () => restoreBackup(b) }),
+        el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: () => deleteBackup(b) })))));
+  }
+  if (!rows.length) rows.push(el("tr", { className: "empty" }, el("td", { colSpan: 4, textContent: "No backups yet. Create one now, or turn on automatic backups." })));
+  $("backups-body").replaceChildren(...rows);
+  $("backup-now").disabled = data.status.running;
+  if (data.status.running) backupPoll = setTimeout(() => loadBackups(false), 1500);
+  else if (data.status.last_error) notice($("system-msg"), "The last backup failed: " + data.status.last_error);
+}
+$("backup-now").onclick = async () => {
+  try { await apiJSON("/api/v1/backups", { method: "POST" }); notice($("system-msg"), ""); }
+  catch (err) { notice($("system-msg"), err.message); }
+  loadBackups(false);
+};
+$("sched-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const s = await apiJSON("/api/v1/backups/settings", { method: "PUT", json: { interval_hours: Number($("sched-interval").value), keep: Number($("sched-keep").value) } });
+    notice($("system-msg"), s.interval_hours ? `Saved. A backup is made ${({ 6: "every 6 hours", 24: "every day", 168: "every week" })[s.interval_hours]}, keeping the newest ${s.keep}.` : "Saved. Automatic backups are off.", true);
+    setTimeout(() => loadBackups(false), 1500);
+  } catch (err) { notice($("system-msg"), err.message); }
+};
+$("backup-upload").onchange = async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  notice($("system-msg"), `Uploading ${f.name}…`, true);
+  try {
+    await apiJSON("/api/v1/backups/upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f });
+    notice($("system-msg"), `Uploaded ${f.name}. Restore it from the list when you're ready.`, true);
+    loadBackups(false);
+  } catch (err) { notice($("system-msg"), err.message); }
+};
+async function deleteBackup(b) {
+  if (!(await confirmAction("Delete this backup?", `The backup from ${new Date(b.created_at).toLocaleString()} is deleted for good.`, "Delete backup"))) return;
+  try { await apiJSON("/api/v1/backups/" + encodeURIComponent(b.name), { method: "DELETE" }); notice($("system-msg"), "Deleted the backup.", true); loadBackups(false); }
+  catch (err) { notice($("system-msg"), err.message); }
+}
+async function restoreBackup(b) {
+  const when = new Date(b.created_at).toLocaleString();
+  if (!(await confirmAction(`Restore the backup from ${when}?`,
+    "SIEMLite restarts and everything stored since then is replaced by the backup, including users, sources and parsers. " +
+    "The current database is backed up first, so you can restore it again if you change your mind.", "Restore and restart"))) return;
+  notice($("system-msg"), "Checking the backup and saving the current database…", true);
+  try { await apiJSON("/api/v1/backups/" + encodeURIComponent(b.name) + "/restore", { method: "POST" }); }
+  catch (err) { notice($("system-msg"), err.message); return; }
+  $("restarting").hidden = false;
+  clearInterval(healthTimer);
+  // Wait for the server to go away and come back, then reload.
+  const startedWaiting = Date.now();
+  let wentDown = false;
+  const poll = async () => {
+    try {
+      const r = await fetch("/health", { cache: "no-store" });
+      if (r.ok && (wentDown || Date.now() - startedWaiting > 4000)) { location.hash = "#/system"; location.reload(); return; }
+    } catch { wentDown = true; }
+    if (Date.now() - startedWaiting > 120000) {
+      $("restarting-text").textContent = "SIEMLite hasn't come back yet. Check the server's logs, then reload this page.";
+      return;
+    }
+    setTimeout(poll, 1000);
+  };
+  setTimeout(poll, 1500);
+}
 
 // --- Start ---
 let healthTimer;

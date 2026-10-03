@@ -83,6 +83,7 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
 - **Users** (admins): add people, set their role, limit what they can see, change passwords.
 - **Sources** (admins): create access tokens, see when each source last sent logs, choose its parser, add logs by hand.
 - **Parsers** (admins): build, upload, export and edit parsers.
+- **System** (admins): database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 
 ### Send logs from an app
 
@@ -154,6 +155,9 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 | `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id"}`), rename or set the parser (`"parser_id": null` for automatic), revoke. |
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates` | admin | Manage parsers. |
+| `GET /api/v1/system` | admin | Database size and version, uptime, backups folder and free space. |
+| `GET`/`POST /api/v1/backups`, `PUT /api/v1/backups/settings`, `POST /api/v1/backups/upload` | admin | List backups and the job status, start a backup, set the schedule (`{"interval_hours": 0/6/24/168, "keep"}`), upload a backup file. |
+| `GET`/`DELETE /api/v1/backups/{name}`, `POST /api/v1/backups/{name}/restore` | admin | Download or delete a backup; restore it (SIEMLite restarts). |
 | `POST /api/v1/parsers/test`, `POST /api/v1/parsers/suggest` | admin | Run a parser over `{"definition", "lines"}`; ask the AI model for a parser for `{"lines"}`. |
 | `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session. |
 | `GET /health` | public | Up/down only. When signed in it also returns event count, database size, ingest queue state, indicator count and syslog counters. |
@@ -275,6 +279,30 @@ The **Sample data** switch in the sidebar (admins only) loads about 380 demo eve
 - `POST /api/v1/sample` with `{"enabled": true}` or `false` does the same (signed-in admins only);
   `GET /api/v1/sample` reports the state.
 
+## Backups
+
+On the **System** page, choose **Create backup now**, or set automatic backups to run every 6 hours, every day or every
+week, keeping the newest 1-365. A backup is a consistent, compressed copy of the whole database (events, users,
+sources, parsers and settings), made while SIEMLite keeps running and logging.
+
+- **Restore**: SIEMLite checks the backup, saves the current database as a "Before a restore" backup, restarts, and
+  comes back with the backup in place, usually within seconds. To undo, restore the "Before a restore" backup.
+  Backups from older versions are upgraded as they open; backups from newer versions are refused.
+- **Download** a backup to keep a copy off the server, and **Upload** one (a `.db.gz` or `.db` file) to move SIEMLite to
+  a new server or recover after losing the old one. Uploads are checked before they're accepted.
+- Old automatic backups are removed as new ones are made. Manual, uploaded and "Before a restore" backups are only
+  removed when you delete them.
+- Backups are kept in `<db folder>/backups` (`/data/backups` with Docker, inside the same volume as the database), or
+  wherever `-backup-dir` points. Keep copies somewhere else too: download them, or point `-backup-dir` at other storage.
+
+From the command line (works while the server runs; a restore is applied at the next start):
+
+```sh
+./siemlite backups create
+./siemlite backups list
+./siemlite backups restore -name siemlite-20261003-211924-manual.db.gz
+```
+
 ## Users
 
 People sign in with a username and password. Manage them on the Users page or from the command line. There are two roles:
@@ -345,6 +373,7 @@ by spaces.
 | `-intel-refresh` | `6h` | How often to re-download feeds |
 | `-ai-url` | | Ollama server for AI parser help, e.g. `http://ollama:11434` (off when empty) |
 | `-ai-model` | `qwen2.5-coder:3b` | Model for AI parser help; downloaded on first start if missing |
+| `-backup-dir` | `<db dir>/backups` | Folder for database backups |
 
 ## How it works
 
@@ -361,6 +390,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 - **`pkg/parser`**: automatic parsing, custom parsers (pattern, JSON, key=value), templates and pattern drafting.
 - **`pkg/sources`**: applies each source's parser to its lines.
 - **`pkg/ai`**: parser suggestions from a local model via Ollama.
+- **`pkg/backup`**: backups (`VACUUM INTO`, gzipped), the schedule, uploads, and restores applied at startup.
 - **`pkg/storage`**: SQLite setup (WAL, `synchronous=NORMAL`, `busy_timeout=5000`), schema, queries. `events_fts` is an
   external-content FTS5 table kept in sync by triggers, so log text is not stored twice.
 - **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.

@@ -18,6 +18,7 @@ import (
 
 	"siemlite/pkg/ai"
 	"siemlite/pkg/auth"
+	"siemlite/pkg/backup"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/intel"
 	"siemlite/pkg/ocsf"
@@ -49,7 +50,11 @@ type Deps struct {
 	Sample *sample.Manager // optional
 	Router *sources.Router // per-source parsers (required)
 	AI     *ai.Client      // optional parser suggestions
-	Logger *slog.Logger
+	// Backups, Started and Restart serve the System page (optional).
+	Backups *backup.Manager
+	Started time.Time
+	Restart func()
+	Logger  *slog.Logger
 }
 
 // Server is the HTTP API.
@@ -105,6 +110,14 @@ func (s *Server) Handler() http.Handler {
 	admin("DELETE /api/v1/parsers/{id}", s.handleDeleteParser)
 	admin("POST /api/v1/parsers/test", s.handleTestParser)
 	admin("POST /api/v1/parsers/suggest", s.handleSuggestParser)
+	admin("GET /api/v1/system", s.handleSystem)
+	admin("GET /api/v1/backups", s.handleListBackups)
+	admin("POST /api/v1/backups", s.handleCreateBackup)
+	admin("PUT /api/v1/backups/settings", s.handleBackupSettings)
+	admin("POST /api/v1/backups/upload", s.handleUploadBackup)
+	admin("GET /api/v1/backups/{name}", s.handleDownloadBackup)
+	admin("DELETE /api/v1/backups/{name}", s.handleDeleteBackup)
+	admin("POST /api/v1/backups/{name}/restore", s.handleRestoreBackup)
 	mux.HandleFunc("POST /api/v1/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
