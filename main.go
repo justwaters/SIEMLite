@@ -25,6 +25,7 @@ import (
 	"siemlite/api"
 	"siemlite/pkg/ai"
 	"siemlite/pkg/auth"
+	"siemlite/pkg/backup"
 	"siemlite/pkg/enrich"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/intel"
@@ -48,13 +49,33 @@ func main() {
 		err = runIntel(os.Args[2:])
 	} else if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		err = runHealthcheck(os.Args[2:])
+	} else if len(os.Args) > 1 && os.Args[1] == "backups" {
+		err = runBackups(os.Args[2:])
 	} else {
 		err = run()
+		if errors.Is(err, errRestart) {
+			err = restartSelf()
+		}
 	}
 	if err != nil {
 		slog.Error("siemlite failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// errRestart asks main to start SIEMLite again, after a restore.
+var errRestart = errors.New("restart requested")
+
+// restartSelf replaces this process with a fresh copy of itself, with the
+// same arguments and environment, once everything has shut down. It works
+// the same under Docker, systemd or a plain shell.
+func restartSelf() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("restart: %w", err)
+	}
+	slog.Info("restarting SIEMLite")
+	return syscall.Exec(exe, os.Args, os.Environ())
 }
 
 func run() error {
@@ -76,6 +97,7 @@ func run() error {
 	syslogAllow := flag.String("syslog-allow", "", "comma-separated networks allowed to send syslog (default: loopback and private ranges)")
 	aiURL := flag.String("ai-url", "", "Ollama server for AI parser help, e.g. http://ollama:11434 (off when empty)")
 	aiModel := flag.String("ai-model", ai.DefaultModel, "Ollama model for AI parser help")
+	backupDir := flag.String("backup-dir", "", "folder for database backups (default: <db dir>/backups)")
 	if err := flagsFromEnv(flag.CommandLine); err != nil {
 		return err
 	}
@@ -96,6 +118,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if *backupDir == "" {
+		*backupDir = filepath.Join(filepath.Dir(*dbPath), "backups")
+	}
+	// A restore chosen on the System page is applied before the database opens.
+	if _, err := backup.ApplyPendingRestore(*dbPath, nil); err != nil {
+		slog.Error("restore not applied; starting with the current database", "err", err)
+	}
+	started := time.Now()
 	db, err := storage.Open(ctx, storage.Options{Path: *dbPath})
 	if err != nil {
 		return err
@@ -158,6 +188,18 @@ func run() error {
 		}()
 		slog.Info("AI parser help enabled", "url", *aiURL, "model", *aiModel)
 	}
+
+	backups, err := backup.New(*backupDir, db, repo, nil)
+	if err != nil {
+		return err
+	}
+	backups.CleanTemp()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		backups.Run(bgCtx)
+	}()
+	restartCh := make(chan struct{}, 1)
 
 	samples := sample.NewManager(repo, worker)
 	if *loadSample {
@@ -231,6 +273,13 @@ func run() error {
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine,
 		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Sample: samples, Router: router, AI: aiClient,
+		Backups: backups, Started: started,
+		Restart: func() {
+			select {
+			case restartCh <- struct{}{}:
+			default:
+			}
+		},
 	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Start(*certFile, *keyFile) }()
@@ -242,12 +291,15 @@ func run() error {
 	case <-ctx.Done():
 		slog.Info("shutting down")
 	case runErr = <-serveErr:
+	case <-restartCh:
+		slog.Info("restarting to apply a restore")
+		runErr = errRestart
 	}
 
 	// Stop intake first, then flush the queue, then close the database.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil && (runErr == nil || runErr == errRestart) && err != context.DeadlineExceeded {
 		runErr = err
 	}
 	if syslogSrv != nil {
@@ -474,6 +526,61 @@ func runHealthcheck(args []string) error {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health: %s", resp.Status)
+	}
+	return nil
+}
+
+// runBackups implements `siemlite backups list|create|restore`. A restore is
+// applied the next time SIEMLite starts.
+func runBackups(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: siemlite backups <list|create|restore> [flags]")
+	}
+	cmd, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("backups "+cmd, flag.ContinueOnError)
+	dbPath := fs.String("db", "siemlite.db", "SQLite database path")
+	dir := fs.String("backup-dir", "", "backups folder (default: <db dir>/backups)")
+	name := fs.String("name", "", "backup to restore (restore)")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	if *dir == "" {
+		*dir = filepath.Join(filepath.Dir(*dbPath), "backups")
+	}
+	db, repo, err := openForCLI(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	m, err := backup.New(*dir, db, repo, nil)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	switch cmd {
+	case "list":
+		list, err := m.List()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%-48s %-15s %-20s %s\n", "NAME", "KIND", "CREATED", "SIZE")
+		for _, b := range list {
+			fmt.Printf("%-48s %-15s %-20s %.1f MB\n", b.Name, b.Kind, time.UnixMilli(b.CreatedAt).Format("2006-01-02 15:04:05"), float64(b.Size)/1048576)
+		}
+	case "create":
+		b, err := m.Create(ctx, backup.Manual)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created %s (%.1f MB) in %s\n", b.Name, float64(b.Size)/1048576, m.Dir())
+	case "restore":
+		safety, err := m.StageRestore(ctx, *name)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("The current database was saved as %s.\nRestart SIEMLite to restore %s.\n", safety.Name, *name)
+	default:
+		return fmt.Errorf("unknown backups command %q (want list, create or restore)", cmd)
 	}
 	return nil
 }

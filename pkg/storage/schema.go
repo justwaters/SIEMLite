@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 7
+const schemaVersion = 8
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -161,6 +161,10 @@ var upgrades = map[int][]string{
 	6: {
 		`ALTER TABLE users ADD COLUMN limited INTEGER NOT NULL DEFAULT 0`,
 		`UPDATE users SET limited = 1 WHERE role = 'standard' AND id IN (SELECT user_id FROM user_sources)`,
+	},
+	// v8: small key/value settings changed from the UI (backup schedule).
+	7: {
+		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 	},
 }
 
