@@ -164,8 +164,41 @@ func TestSourcesParsersAndRestrictions(t *testing.T) {
 		t.Errorf("restricted sources = %v", visible)
 	}
 
-	// Removing the limit shows everything again.
-	e.call(root, "PATCH", fmt.Sprintf("/api/v1/users/%d", u.ID), map[string]any{"role": "standard", "sources": []int64{}}, nil, nil)
+	if !u.Limited {
+		t.Errorf("user created with sources should be limited: %+v", u)
+	}
+
+	// Regression: a partial update must never widen access. Changing only
+	// the role, or sending an empty list without "limited", keeps the limit.
+	if got := e.call(root, "PATCH", fmt.Sprintf("/api/v1/users/%d", u.ID), map[string]any{"role": "standard"}, nil, nil); got != 200 {
+		t.Errorf("role-only update = %d", got)
+	}
+	e.call(sam, "GET", "/api/v1/search", nil, &res, nil)
+	if len(res.Events) != 1 {
+		t.Errorf("role-only update widened access: %d events visible", len(res.Events))
+	}
+	if got := e.call(root, "PATCH", fmt.Sprintf("/api/v1/users/%d", u.ID), map[string]any{"sources": []int64{}}, nil, nil); got != 400 {
+		t.Errorf("limiting to no sources = %d, want 400", got)
+	}
+	if got := e.call(root, "POST", "/api/v1/users", map[string]any{"username": "x", "password": password, "role": "standard", "limited": true}, nil, nil); got != 400 {
+		t.Errorf("creating a user limited to no sources = %d, want 400", got)
+	}
+	// If a limited user's source rows disappear (e.g. a source is removed),
+	// they see nothing rather than everything.
+	if _, err := e.repo.DB().Write.Exec(`DELETE FROM user_sources WHERE user_id = ?`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.call(sam, "GET", "/api/v1/search", nil, &res, nil)
+	if len(res.Events) != 0 {
+		t.Errorf("lost source rows widened access: %d events visible", len(res.Events))
+	}
+	e.call(sam, "GET", "/api/v1/stats", nil, &stats, nil)
+	if stats.Overview.Total != 0 {
+		t.Errorf("lost source rows widened stats: %d", stats.Overview.Total)
+	}
+
+	// Removing the limit explicitly shows everything again.
+	e.call(root, "PATCH", fmt.Sprintf("/api/v1/users/%d", u.ID), map[string]any{"limited": false}, nil, nil)
 	e.call(sam, "GET", "/api/v1/search", nil, &res, nil)
 	if len(res.Events) != 3 {
 		t.Errorf("unrestricted search = %d events", len(res.Events))

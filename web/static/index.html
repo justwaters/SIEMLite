@@ -1338,7 +1338,7 @@ async function openUsers() {
     $("users-body").replaceChildren(...users.map((u) => el("tr", {},
       el("td", {}, el("b", { textContent: u.username }), u.username === me.username ? el("span", { className: "muted", textContent: " (you)" }) : ""),
       el("td", { textContent: u.role === "admin" ? "Admin" : "Standard" }),
-      el("td", { className: u.sources.length ? "" : "muted", textContent: u.role === "admin" || !u.sources.length ? "Every source" : u.sources.map(name).join(", ") }),
+      el("td", { className: u.limited ? "" : "muted", textContent: u.role === "admin" || !u.limited ? "Every source" : (u.sources.map(name).join(", ") || "No sources") }),
       el("td", { className: "muted", textContent: shortDate(u.created_at) }),
       el("td", { className: "actions" }, el("div", { className: "row-actions" },
         el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => userDialog(u) }),
@@ -1353,7 +1353,7 @@ function userDialog(u) {
   show($("user-name-wrap"), !editing); show($("user-pw-wrap"), !editing);
   $("u-name").value = ""; $("u-pw").value = "";
   $("u-role").value = editing ? u.role : "standard";
-  const limited = editing && u.role !== "admin" && u.sources.length > 0;
+  const limited = editing && u.role !== "admin" && u.limited;
   for (const r of document.querySelectorAll('[name="u-scope"]')) r.checked = r.value === (limited ? "some" : "all");
   $("u-sources").replaceChildren(...sourcesCache.map((s) => el("label", { className: "check" },
     el("input", { type: "checkbox", value: String(s.id), checked: limited && u.sources.includes(s.id) }),
@@ -1366,11 +1366,12 @@ function userDialog(u) {
     e.preventDefault();
     const role = $("u-role").value;
     const some = document.querySelector('[name="u-scope"]:checked').value === "some";
-    const sources = role === "admin" || !some ? [] : [...$("u-sources").querySelectorAll("input:checked")].map((c) => Number(c.value));
-    if (role !== "admin" && some && !sources.length) { notice($("u-err"), "Choose at least one source, or let them see every source."); return; }
+    const limited = role !== "admin" && some;
+    const sources = limited ? [...$("u-sources").querySelectorAll("input:checked")].map((c) => Number(c.value)) : [];
+    if (limited && !sources.length) { notice($("u-err"), "Choose at least one source, or let them see every source."); return; }
     try {
-      if (editing) await apiJSON(`/api/v1/users/${u.id}`, { method: "PATCH", json: { role, sources } });
-      else await apiJSON("/api/v1/users", { method: "POST", json: { username: $("u-name").value.trim(), password: $("u-pw").value, role, sources } });
+      if (editing) await apiJSON(`/api/v1/users/${u.id}`, { method: "PATCH", json: { role, limited, sources } });
+      else await apiJSON("/api/v1/users", { method: "POST", json: { username: $("u-name").value.trim(), password: $("u-pw").value, role, limited, sources } });
       d.close();
       await openUsers();
       notice($("users-msg"), editing ? `Saved ${u.username}.` : `Added ${$("u-name").value.trim()}.`, true);

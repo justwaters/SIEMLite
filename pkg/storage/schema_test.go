@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -124,7 +125,45 @@ func TestUpgradeToV6(t *testing.T) {
 	if recs, _ := repo.Search(ctx, Filter{Limit: 5, Restrict: true, AllowedSources: []int64{sample.ID}}); len(recs) != 1 {
 		t.Errorf("restricted to sample returned %d events", len(recs))
 	}
-	if err := repo.UpdateUserAccess(ctx, users[0].ID, "standard", nil); err != ErrLastAdmin {
+	if err := repo.UpdateUserAccess(ctx, users[0].ID, "standard", false, nil); err != ErrLastAdmin {
 		t.Errorf("demoting the last admin: %v", err)
+	}
+}
+
+// v7 marks standard users who had source rows as limited.
+func TestUpgradeToV7(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v6.db")
+	db, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(db)
+	a, _ := repo.CreateUser(ctx, "root", "x", "admin", 1)
+	b, _ := repo.CreateUser(ctx, "lim", "x", "standard", 1)
+	c, _ := repo.CreateUser(ctx, "all", "x", "standard", 1)
+	syslog, _ := repo.BuiltinSource(ctx, SourceSyslog)
+	for _, stmt := range []string{
+		fmt.Sprintf(`INSERT INTO user_sources (user_id, source_id) VALUES (%d, %d)`, b, syslog.ID),
+		`ALTER TABLE users DROP COLUMN limited`,
+		`PRAGMA user_version = 6`,
+	} {
+		if _, err := db.Write.Exec(stmt); err != nil {
+			t.Fatal(stmt, err)
+		}
+	}
+	db.Close()
+
+	db, err = Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo = NewRepository(db)
+	for id, want := range map[int64]bool{a: false, b: true, c: false} {
+		u, err := repo.GetUser(ctx, id)
+		if err != nil || u.Limited != want {
+			t.Errorf("user %d limited = %v, want %v (%v)", id, u.Limited, want, err)
+		}
 	}
 }

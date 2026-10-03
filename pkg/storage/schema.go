@@ -7,7 +7,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 6
+const schemaVersion = 7
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -154,6 +154,13 @@ var upgrades = map[int][]string{
 		`ALTER TABLE events ADD COLUMN fields TEXT`,
 		`CREATE INDEX idx_events_source ON events(source_id, timestamp DESC)`,
 		`UPDATE events SET source_id = (SELECT id FROM sources WHERE kind = 'sample') WHERE sample = 1`,
+	},
+	// v7: whether a standard user is limited to their sources is stored
+	// explicitly, so losing user_sources rows narrows access (to nothing)
+	// instead of widening it to every source.
+	6: {
+		`ALTER TABLE users ADD COLUMN limited INTEGER NOT NULL DEFAULT 0`,
+		`UPDATE users SET limited = 1 WHERE role = 'standard' AND id IN (SELECT user_id FROM user_sources)`,
 	},
 }
 

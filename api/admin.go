@@ -284,11 +284,15 @@ func (s *Server) validSources(ctx context.Context, w http.ResponseWriter, ids []
 	return true
 }
 
+// errNoSources refuses a limit that would let a user see nothing by mistake.
+const errNoSources = "choose at least one source, or let them see every source"
+
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string  `json:"username"`
 		Password string  `json:"password"`
 		Role     string  `json:"role"`
+		Limited  *bool   `json:"limited"`
 		Sources  []int64 `json:"sources"`
 	}
 	if !decodeJSON(w, r, &req, 8<<10) || !s.validSources(r.Context(), w, req.Sources) {
@@ -297,6 +301,16 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	role, err := auth.ParseUserRole(req.Role)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Sources without an explicit "limited" mean the user is limited to them.
+	limited := len(req.Sources) > 0
+	if req.Limited != nil {
+		limited = *req.Limited
+	}
+	limited = limited && role != auth.RoleAdmin
+	if limited && len(req.Sources) == 0 {
+		writeError(w, http.StatusBadRequest, errNoSources)
 		return
 	}
 	id, err := auth.CreateUser(r.Context(), s.deps.Repo, req.Username, req.Password, role)
@@ -308,36 +322,63 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.deps.Repo.UpdateUserAccess(r.Context(), id, role, req.Sources); err != nil {
+	if err := s.deps.Repo.UpdateUserAccess(r.Context(), id, role, limited, req.Sources); err != nil {
 		s.internal(w, "set user sources", err)
 		return
 	}
-	s.deps.Logger.Info("user created", "user", req.Username, "role", role, "by", auth.FromContext(r.Context()).Name)
+	s.deps.Logger.Info("user created", "user", req.Username, "role", role, "limited", limited, "by", auth.FromContext(r.Context()).Name)
 	u, _ := s.deps.Repo.GetUser(r.Context(), id)
 	writeJSON(w, http.StatusCreated, u)
 }
 
+// handleUpdateUser changes a user's role, limit or sources. Fields left out
+// keep their current values, so a partial update never widens access.
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
 	var req struct {
-		Role    string  `json:"role"`
-		Sources []int64 `json:"sources"`
+		Role    *string  `json:"role"`
+		Limited *bool    `json:"limited"`
+		Sources *[]int64 `json:"sources"`
 	}
-	if !decodeJSON(w, r, &req, 8<<10) || !s.validSources(r.Context(), w, req.Sources) {
+	if !decodeJSON(w, r, &req, 8<<10) {
 		return
 	}
-	role, err := auth.ParseUserRole(req.Role)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	switch err := s.deps.Repo.UpdateUserAccess(r.Context(), id, role, req.Sources); {
-	case errors.Is(err, storage.ErrUserNotFound):
+	cur, err := s.deps.Repo.GetUser(r.Context(), id)
+	if errors.Is(err, storage.ErrUserNotFound) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
+	} else if err != nil {
+		s.internal(w, "get user", err)
+		return
+	}
+	role, limited, sources := cur.Role, cur.Limited, cur.Sources
+	if req.Role != nil {
+		if role, err = auth.ParseUserRole(*req.Role); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Sources != nil {
+		sources = *req.Sources
+		if req.Limited == nil && len(sources) > 0 {
+			limited = true
+		}
+	}
+	if req.Limited != nil {
+		limited = *req.Limited
+	}
+	if !s.validSources(r.Context(), w, sources) {
+		return
+	}
+	limited = limited && role != auth.RoleAdmin
+	if limited && len(sources) == 0 {
+		writeError(w, http.StatusBadRequest, errNoSources)
+		return
+	}
+	switch err := s.deps.Repo.UpdateUserAccess(r.Context(), id, role, limited, sources); {
 	case errors.Is(err, storage.ErrLastAdmin):
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -346,7 +387,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, _ := s.deps.Repo.GetUser(r.Context(), id)
-	s.deps.Logger.Info("user access changed", "user", u.Username, "role", role, "sources", len(req.Sources), "by", auth.FromContext(r.Context()).Name)
+	s.deps.Logger.Info("user access changed", "user", u.Username, "role", role, "limited", limited,
+		"sources", len(sources), "by", auth.FromContext(r.Context()).Name)
 	writeJSON(w, http.StatusOK, u)
 }
 

@@ -67,6 +67,9 @@ type Repository struct {
 	db *DB
 }
 
+// DB returns the underlying database (for tests and maintenance).
+func (r *Repository) DB() *DB { return r.db }
+
 // NewRepository returns a Repository backed by db.
 func NewRepository(db *DB) *Repository { return &Repository{db: db} }
 

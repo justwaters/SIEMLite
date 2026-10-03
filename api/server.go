@@ -448,16 +448,17 @@ type loginRequest struct {
 type sessionInfo struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
-	// Sources lists what a restricted user may see; empty means everything.
+	// Limited users see only Sources (possibly none).
+	Limited bool      `json:"limited"`
 	Sources []int64   `json:"sources"`
 	AI      ai.Status `json:"ai"`
 }
 
-func (s *Server) session(username, role string, sources []int64) sessionInfo {
+func (s *Server) session(username, role string, limited bool, sources []int64) sessionInfo {
 	if sources == nil || role == auth.RoleAdmin {
 		sources = []int64{}
 	}
-	return sessionInfo{Username: username, Role: role, Sources: sources, AI: s.deps.AI.Status()}
+	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status()}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -490,11 +491,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.SetSessionCookie(w, token)
-	var sources []int64
+	limited, sources := true, []int64{} // if the lookup fails, show nothing rather than everything
 	if full, err := s.deps.Repo.GetUser(r.Context(), user.ID); err == nil {
-		sources = full.Sources
+		limited, sources = full.Limited, full.Sources
 	}
-	writeJSON(w, http.StatusOK, s.session(user.Username, user.Role, sources))
+	writeJSON(w, http.StatusOK, s.session(user.Username, user.Role, limited, sources))
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -516,7 +517,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not signed in")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.session(p.Name, p.Role, p.Sources))
+	writeJSON(w, http.StatusOK, s.session(p.Name, p.Role, p.Limited, p.Sources))
 }
 
 type healthResponse struct {

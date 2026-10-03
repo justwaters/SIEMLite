@@ -62,13 +62,16 @@ type Principal struct {
 	// UserID is set for users; SourceID for access tokens.
 	UserID   int64
 	SourceID int64
-	// Sources limits a standard user to these sources; empty means all.
+	// Limited users see only events from Sources, which may be empty (then
+	// they see nothing). The limit is an explicit flag, never inferred from
+	// the list, so a missing list can't widen access.
+	Limited bool
 	Sources []int64
 }
 
 // Restricted reports whether the caller may only see some sources.
 func (p *Principal) Restricted() bool {
-	return p.Kind == KindUser && p.Role != RoleAdmin && len(p.Sources) > 0
+	return p.Kind == KindUser && p.Role != RoleAdmin && p.Limited
 }
 
 // Can reports whether the caller holds perm.
@@ -201,7 +204,7 @@ func (a *Authenticator) Authenticate(r *http.Request) (*Principal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Principal{Kind: KindUser, Name: u.Username, Role: u.Role, UserID: u.ID, Sources: u.Sources}, nil
+	return &Principal{Kind: KindUser, Name: u.Username, Role: u.Role, UserID: u.ID, Limited: u.Limited, Sources: u.Sources}, nil
 }
 
 // Require wraps next so only callers holding perm get through.
