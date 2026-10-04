@@ -80,6 +80,7 @@ func TestUpgradeToV6(t *testing.T) {
 		`INSERT INTO api_keys (id, name, role, key_hash, created_at) VALUES (7, 'myapp', 'write', 'hash-myapp', 1)`,
 		`INSERT INTO api_keys (id, name, role, key_hash, created_at) VALUES (8, 'old-reader', 'read', 'hash-read', 1)`,
 		`INSERT INTO users (username, password_hash, role, created_at) VALUES ('root', 'x', 'admin', 1), ('alice', 'x', 'analyst', 1)`,
+		schemaStatements[3], schemaStatements[4], schemaStatements[5], // the search index and its triggers, as every version had
 		`INSERT INTO events (timestamp, category_uid, class_uid, severity_id, raw_data, sample) VALUES (1, 6, 6003, 1, 'demo', 1)`,
 		`PRAGMA user_version = 5`,
 	} {
@@ -107,23 +108,21 @@ func TestUpgradeToV6(t *testing.T) {
 	if len(users) != 2 || users[0].Role != "admin" || users[1].Role != "standard" {
 		t.Errorf("users = %+v", users)
 	}
-	for _, kind := range []string{SourceSyslog, SourceUpload, SourceSample} {
+	for _, kind := range []string{SourceSyslog, SourceUpload, SourceInternal} {
 		if _, err := repo.BuiltinSource(ctx, kind); err != nil {
 			t.Errorf("built-in %s source: %v", kind, err)
 		}
 	}
-	sample, _ := repo.BuiltinSource(ctx, SourceSample)
-	recs, _ := repo.Search(ctx, Filter{Limit: 5})
-	if len(recs) != 1 || recs[0].SourceID != sample.ID || recs[0].SourceName != "Sample data" {
-		t.Errorf("sample event source = %+v", recs)
+	// Sample data was replaced by the log generator: its source and events go.
+	if _, err := repo.BuiltinSource(ctx, "sample"); err == nil {
+		t.Error("the Sample data source is still there")
 	}
-	// A restricted view with no allowed sources sees nothing; with the
-	// sample source it sees the event.
+	if recs, _ := repo.Search(ctx, Filter{Limit: 5}); len(recs) != 0 {
+		t.Errorf("sample events remain: %+v", recs)
+	}
+	// A restricted view with no allowed sources sees nothing.
 	if recs, _ := repo.Search(ctx, Filter{Limit: 5, Restrict: true}); len(recs) != 0 {
 		t.Errorf("empty restriction returned %d events", len(recs))
-	}
-	if recs, _ := repo.Search(ctx, Filter{Limit: 5, Restrict: true, AllowedSources: []int64{sample.ID}}); len(recs) != 1 {
-		t.Errorf("restricted to sample returned %d events", len(recs))
 	}
 	if err := repo.UpdateUserAccess(ctx, users[0].ID, "standard", false, nil); err != ErrLastAdmin {
 		t.Errorf("demoting the last admin: %v", err)

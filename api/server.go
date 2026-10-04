@@ -26,7 +26,6 @@ import (
 	"siemlite/pkg/intel"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
-	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
@@ -50,7 +49,6 @@ type Deps struct {
 	Auth   *auth.Authenticator
 	Intel  *intel.Service  // optional
 	Syslog *syslogd.Server // optional
-	Sample *sample.Manager // optional
 	Router *sources.Router // per-source parsers (required)
 	AI     *ai.Client      // optional parser suggestions
 	// Backups, Started and Restart serve the System page (optional).
@@ -113,8 +111,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/events", a.Require(auth.PermIngest, http.HandlerFunc(s.handleIngest)))
 	mux.Handle("POST /api/v1/logs", a.Require(auth.PermIngest, http.HandlerFunc(s.handleLogs)))
 	mux.Handle("GET /api/v1/search", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSearch)))
-	mux.Handle("GET /api/v1/sample", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSampleStatus)))
-	mux.Handle("POST /api/v1/sample", a.Require(auth.PermAdmin, http.HandlerFunc(s.handleSampleSet)))
 	mux.Handle("GET /api/v1/stats", a.Require(auth.PermSearch, http.HandlerFunc(s.handleStats)))
 	mux.Handle("GET /api/v1/sources", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListSources)))
 	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.Require(auth.PermAdmin, h)) }
@@ -430,66 +426,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
-}
-
-func (s *Server) handleSampleStatus(w http.ResponseWriter, r *http.Request) {
-	if s.deps.Sample == nil {
-		writeError(w, http.StatusNotFound, "sample data is not available")
-		return
-	}
-	st, err := s.deps.Sample.Status(r.Context())
-	if err != nil {
-		s.deps.Logger.Error("sample status failed", "err", err)
-		writeError(w, http.StatusInternalServerError, "sample status unavailable")
-		return
-	}
-	writeJSON(w, http.StatusOK, st)
-}
-
-// handleSampleSet turns sample data on or off. Admin users only: API keys
-// can send logs but not change what is stored.
-func (s *Server) handleSampleSet(w http.ResponseWriter, r *http.Request) {
-	if p := auth.FromContext(r.Context()); p == nil || p.Kind != auth.KindUser {
-		writeError(w, http.StatusForbidden, "only a signed-in admin can change sample data")
-		return
-	}
-	if s.deps.Sample == nil {
-		writeError(w, http.StatusNotFound, "sample data is not available")
-		return
-	}
-	var req struct {
-		Enabled *bool `json:"enabled"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || req.Enabled == nil {
-		writeError(w, http.StatusBadRequest, `body must be {"enabled": true} or {"enabled": false}`)
-		return
-	}
-	var (
-		st  sample.Status
-		err error
-	)
-	if *req.Enabled {
-		st, err = s.deps.Sample.Enable(r.Context())
-	} else {
-		st, err = s.deps.Sample.Disable(r.Context())
-	}
-	if err != nil {
-		s.deps.Logger.Error("sample toggle failed", "err", err)
-		writeError(w, http.StatusInternalServerError, "could not change sample data")
-		return
-	}
-	s.deps.Logger.Info("sample data changed", "enabled", st.Enabled, "events", st.Events,
-		"by", auth.FromContext(r.Context()).Name)
-	if s.deps.Alerts != nil {
-		// Old sample alerts go with the sample; new ones are raised now.
-		_ = s.deps.Repo.DeleteSampleAlerts(r.Context())
-		if st.Enabled {
-			_, _ = s.deps.Alerts.Check(r.Context())
-		}
-	}
-	onOff := map[bool]string{true: "on", false: "off"}[st.Enabled]
-	s.audit(r, audit.Entry{Action: "sample." + onOff, Message: auth.FromContext(r.Context()).Name + " turned Sample data " + onOff})
-	writeJSON(w, http.StatusOK, st)
 }
 
 type loginRequest struct {

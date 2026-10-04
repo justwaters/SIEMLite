@@ -1,16 +1,13 @@
 package loadtest
 
 import (
-	"compress/gzip"
 	"context"
-	"database/sql"
+	"encoding/json"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -19,13 +16,16 @@ import (
 	"time"
 
 	"siemlite/pkg/auth"
+	"siemlite/pkg/backup"
+	"siemlite/pkg/loggen"
+	"siemlite/pkg/parser"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
 
 // TestStressEverythingAtOnce runs ingest over HTTPS and syslog, searches by
-// admins and limited users, retention, backups, the alert engine, sample
-// data and user changes all at the same time, then checks nothing was lost,
+// admins and limited users, retention, backups, the alert engine, the log
+// generator and user changes all at the same time, then checks nothing was lost,
 // leaked or corrupted. SIEMLITE_STRESS sets how long it runs (default 4s).
 func TestStressEverythingAtOnce(t *testing.T) {
 	dur := 4 * time.Second
@@ -67,7 +67,7 @@ func TestStressEverythingAtOnce(t *testing.T) {
 		accepted, sentTCP, failed  atomic.Int64
 		expired                    atomic.Int64
 		searches, leaks, backupsOK atomic.Int64
-		checks, toggles, churn     atomic.Int64
+		checks, generated, churn   atomic.Int64
 		mu                         sync.Mutex
 		errs                       []string
 	)
@@ -197,13 +197,29 @@ func TestStressEverythingAtOnce(t *testing.T) {
 		checks.Add(1)
 		time.Sleep(20 * time.Millisecond)
 	})
-	loop("sample", func(i int) {
-		code, err := s.call(admin, "POST", "/api/v1/sample", map[string]bool{"enabled": i%2 == 0}, nil, nil)
-		if err != nil || code != 200 {
-			fail("sample toggle = %d %v", code, err)
+	// The log generator, through its own parser and token, as on a new install.
+	genParser, _ := json.Marshal(parser.LogGenerator)
+	var p storage.StoredParser
+	s.must(admin, "POST", "/api/v1/parsers", json.RawMessage(genParser), &p, 201)
+	var gen struct {
+		Source storage.Source `json:"source"`
+		Token  string         `json:"token"`
+	}
+	s.must(admin, "POST", "/api/v1/sources", map[string]any{"name": "Log generator", "parser_id": p.ID}, &gen, 201)
+	gc, g := s.client(), loggen.New(1)
+	loop("loggen", func(i int) {
+		var b []byte
+		for j := 0; j < 100; j++ {
+			b = append(append(b, g.Next(time.Now())...), '\n')
 		}
-		toggles.Add(1)
-		time.Sleep(100 * time.Millisecond)
+		var res struct{ Accepted, Rejected int64 }
+		code, err := s.call(gc, "POST", "/api/v1/logs", string(b), &res, map[string]string{"Authorization": "Bearer " + gen.Token})
+		if err != nil || code != 202 || res.Rejected != 0 {
+			fail("loggen = %d %v (%d rejected)", code, err, res.Rejected)
+			return
+		}
+		generated.Add(res.Accepted)
+		time.Sleep(10 * time.Millisecond)
 	})
 	loop("users", func(i int) {
 		var u storage.User
@@ -250,7 +266,7 @@ func TestStressEverythingAtOnce(t *testing.T) {
 	})
 	t.Logf("queues drained after %s", time.Since(deadline.Add(-dur)).Round(time.Millisecond))
 	s.worker.Drain(ctx)
-	if got := s.count("raw_data LIKE '%stress s_' AND sample = 0"); got != accepted.Load() {
+	if got := s.count("raw_data LIKE '%stress s_'"); got != accepted.Load() {
 		t.Errorf("HTTPS events stored = %d, accepted = %d", got, accepted.Load())
 	}
 	if got := s.count("raw_data LIKE '%stress syslog%'"); got != sentTCP.Load() {
@@ -272,12 +288,15 @@ func TestStressEverythingAtOnce(t *testing.T) {
 		t.Errorf("SSH brute force alerts = %d, want one per sender (%d)", brute, senders)
 	}
 	s.healthy()
-	checkBackups(t, s.backups.Dir())
+	checkBackups(t, s.backups)
 	for _, e := range errs {
 		t.Error(e)
 	}
-	t.Logf("%s: %d HTTPS events, %d syslog, %d searches, %d backups, %d alert checks, %d sample toggles, %d users created and deleted",
-		dur, accepted.Load(), sentTCP.Load(), searches.Load(), backupsOK.Load(), checks.Load(), toggles.Load(), churn.Load())
+	if got := s.count("e.source_id = ?", gen.Source.ID); got != generated.Load() {
+		t.Errorf("generator events stored = %d, accepted = %d", got, generated.Load())
+	}
+	t.Logf("%s: %d HTTPS events, %d syslog, %d from the log generator, %d searches, %d backups, %d alert checks, %d users created and deleted",
+		dur, accepted.Load(), sentTCP.Load(), generated.Load(), searches.Load(), backupsOK.Load(), checks.Load(), churn.Load())
 	if accepted.Load() == 0 || searches.Load() == 0 || backupsOK.Load() == 0 {
 		t.Error("some workload never ran")
 	}
@@ -295,48 +314,16 @@ func waitFor(t *testing.T, limit time.Duration, ok func() bool) {
 	}
 }
 
-// checkBackups opens every backup and checks it's a sound database.
-func checkBackups(t *testing.T, dir string) {
+// checkBackups unpacks the newest backups and checks every database in them.
+func checkBackups(t *testing.T, m *backup.Manager) {
 	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(dir, "*.db.gz"))
-	if len(files) == 0 {
-		t.Error("no backups were written")
+	list, err := m.List()
+	if err != nil || len(list) == 0 {
+		t.Fatalf("no backups were written (%v)", err)
 	}
-	if len(files) > 5 {
-		files = files[len(files)-5:] // the newest few; names sort by time
-	}
-	for _, f := range files {
-		in, err := os.Open(f)
-		if err != nil {
-			t.Fatal(err)
+	for _, b := range list[:min(len(list), 5)] {
+		if err := m.Verify(context.Background(), b.Name); err != nil {
+			t.Errorf("%s: %v", b.Name, err)
 		}
-		zr, err := gzip.NewReader(in)
-		if err != nil {
-			t.Errorf("%s: %v", filepath.Base(f), err)
-			in.Close()
-			continue
-		}
-		out := filepath.Join(t.TempDir(), "check.db")
-		o, _ := os.Create(out)
-		_, err = io.Copy(o, zr)
-		o.Close()
-		in.Close()
-		if err != nil {
-			t.Errorf("%s: %v", filepath.Base(f), err)
-			continue
-		}
-		db, err := sql.Open("sqlite", "file:"+out+"?mode=ro")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var res string
-		var n int64
-		if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&res); err != nil || res != "ok" {
-			t.Errorf("%s: integrity_check = %q, %v", filepath.Base(f), res, err)
-		}
-		if err := db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n); err != nil {
-			t.Errorf("%s: %v", filepath.Base(f), err)
-		}
-		db.Close()
 	}
 }

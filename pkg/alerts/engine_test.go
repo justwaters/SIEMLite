@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"siemlite/pkg/ingest"
+	"siemlite/pkg/loggen"
 	"siemlite/pkg/ocsf"
-	"siemlite/pkg/sample"
+	"siemlite/pkg/parser"
 	"siemlite/pkg/storage"
 )
 
@@ -39,24 +41,44 @@ func alertsByRule(t *testing.T, repo *storage.Repository) map[string][]storage.A
 	return out
 }
 
-// The sample data's incident trips the built-in rules.
-func TestSampleDataRaisesAlerts(t *testing.T) {
+// The log generator's attacks trip the built-in rules, read through its
+// parser as SIEMLite reads them.
+func TestGeneratorAttacksRaiseAlerts(t *testing.T) {
 	repo, w, eng := setup(t)
 	ctx := context.Background()
-	if _, err := sample.NewManager(repo, w).Enable(ctx); err != nil {
+	p, err := parser.Compile(parser.LogGenerator)
+	if err != nil {
 		t.Fatal(err)
 	}
+	g := loggen.New(7)
+	start := time.Now().Add(-30 * time.Minute)
+	for i := 0; i < 5000; i++ {
+		at := start.Add(time.Duration(i) * 300 * time.Millisecond)
+		res, err := p.Parse(string(g.Next(at)), parser.Defaults{Now: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Submit(ctx, res.Event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Drain(ctx)
 	res, err := eng.Check(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := alertsByRule(t, repo)
 	brute := got["SSH brute force"]
-	if len(brute) != 1 || brute[0].GroupValue != "203.0.113.7" || brute[0].Count < 10 || !brute[0].Sample || brute[0].Status != "open" {
+	if len(brute) == 0 || brute[0].Count < 10 || brute[0].Status != "open" {
 		t.Errorf("brute force alerts = %+v", brute)
 	}
-	if len(got["Threat intel match"]) == 0 || len(got["Critical event"]) != 1 {
-		t.Errorf("threat %d, critical %d (result %+v)", len(got["Threat intel match"]), len(got["Critical event"]), res)
+	if len(got["Critical event"]) == 0 {
+		t.Errorf("no critical event alert (result %+v, alerts %v)", res, got)
+	}
+	for _, a := range brute {
+		if !strings.HasPrefix(a.GroupValue, "192.0.2.") && !strings.HasPrefix(a.GroupValue, "198.51.100.") && !strings.HasPrefix(a.GroupValue, "203.0.113.") {
+			t.Errorf("brute force from %s, which isn't one of the generator's attackers", a.GroupValue)
+		}
 	}
 	// Nothing new: nothing changes.
 	if res2, _ := eng.Check(ctx); res2.Opened+res2.Updated != 0 {
@@ -143,11 +165,11 @@ type flaky struct {
 	failing bool
 }
 
-func (f *flaky) NewMatches(ctx context.Context, ru storage.Rule, afterID, maxID int64) ([]storage.RuleGroup, error) {
+func (f *flaky) NewMatches(ctx context.Context, ru storage.Rule, afterSeq, maxSeq int64) ([]storage.RuleGroup, error) {
 	if f.failing && ru.Name == f.rule {
 		return nil, errors.New("database is locked")
 	}
-	return f.Repository.NewMatches(ctx, ru, afterID, maxID)
+	return f.Repository.NewMatches(ctx, ru, afterSeq, maxSeq)
 }
 
 // A rule that fails once looks at the same events again on the next check,
@@ -183,5 +205,59 @@ func TestFailedRuleRetriesItsEvents(t *testing.T) {
 	}
 	if c := got["Critical event"]; len(c) != 1 || c[0].Count != 12 {
 		t.Errorf("critical event counted again: %+v", c)
+	}
+}
+
+func failedPasswords(t *testing.T, repo *storage.Repository, ip string, times ...time.Time) {
+	t.Helper()
+	var recs []storage.Record
+	for _, at := range times {
+		recs = append(recs, storage.Record{Timestamp: at.UnixMilli(), CategoryUID: 3, ClassUID: 3002, SeverityID: 3,
+			SrcIP: ip, RawData: "sshd: Failed password for root from " + ip})
+	}
+	if err := repo.InsertBatch(context.Background(), recs); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A brute force that spans midnight is split across two day files; the
+// window counts both.
+func TestWindowAcrossMidnight(t *testing.T) {
+	repo, _, eng := setup(t)
+	ctx := context.Background()
+	midnight := time.Now().UTC().Truncate(24 * time.Hour)
+	var times []time.Time
+	for i := 0; i < 12; i++ {
+		times = append(times, midnight.Add(time.Duration(i-6)*10*time.Second)) // 23:59:00 to 00:00:50
+	}
+	failedPasswords(t, repo, "198.51.100.1", times...)
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b := alertsByRule(t, repo)["SSH brute force"]; len(b) != 1 || b[0].Count != 12 {
+		t.Errorf("brute force across midnight = %+v", b)
+	}
+}
+
+// Events that arrive late are filed in an older day; the engine still sees
+// them as new.
+func TestLateEventsInOldDay(t *testing.T) {
+	repo, _, eng := setup(t)
+	ctx := context.Background()
+	failedPasswords(t, repo, "198.51.100.2", time.Now())
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-3 * 24 * time.Hour)
+	var times []time.Time
+	for i := 0; i < 10; i++ {
+		times = append(times, old.Add(time.Duration(i)*time.Second))
+	}
+	failedPasswords(t, repo, "198.51.100.3", times...)
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b := alertsByRule(t, repo)["SSH brute force"]; len(b) != 1 || b[0].GroupValue != "198.51.100.3" || b[0].Count != 10 {
+		t.Errorf("late brute force = %+v", b)
 	}
 }

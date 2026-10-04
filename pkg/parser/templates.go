@@ -48,4 +48,28 @@ var Templates = []Definition{
 			`action=allow proto=udp src=10.0.0.12 spt=40000 dst=10.0.0.53 dpt=53 rule=dns`,
 		},
 	},
+	LogGenerator,
+}
+
+// LogGenerator reads the test logs made by loggen (cmd/loggen). SIEMLite sets
+// it up with its own source on first start, so there is something to explore
+// before real logs arrive.
+var LogGenerator = Definition{
+	Name:        "Log generator",
+	Description: "Test logs from loggen: a small company's firewall, web servers, SSH, VPN, DNS, database, mail and antivirus, with attacks mixed in.",
+	Format:      FormatPattern,
+	Pattern:     `{time}|{host}|{app}|{level}|{action}|{src_ip}|{src_port}|{dst_ip}|{dst_port}|{user}|{message}`,
+	Category:    4,
+	Severity: SeverityRule{From: "field", Field: "level", Rules: []SeverityCase{
+		{Match: `^critical$`, Severity: 5},
+		{Match: `^error$`, Severity: 4},
+		{Match: `^warning$`, Severity: 3},
+		{Match: `^notice$`, Severity: 2},
+		{Match: `.`, Severity: 1},
+	}},
+	Samples: []string{
+		`2026-10-04T13:42:07.123Z|bastion-01|sshd|warning|auth.failure|203.0.113.7|51234|10.0.4.12|22|root|Failed password for root from 203.0.113.7`,
+		`2026-10-04T13:42:08.004Z|web-01|nginx|info|http.request|198.51.100.23|40112|10.0.2.10|443|-|GET /cart 200 35058b 10ms "Mozilla/5.0"`,
+		`2026-10-04T13:42:09.871Z|ws-017|defender|critical|av.detection|-|-|-|-|erin|Threat detected: Ransom.Lockbit in C:\Users\erin\Downloads\invoice.pdf.exe; quarantine failed`,
+	},
 }

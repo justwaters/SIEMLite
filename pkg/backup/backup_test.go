@@ -1,7 +1,9 @@
 package backup
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"os"
@@ -73,7 +75,7 @@ func TestCreateRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Kind != Manual || b.Size == 0 || !strings.HasSuffix(b.Name, "-manual.db.gz") {
+	if b.Kind != Manual || b.Size == 0 || !strings.HasSuffix(b.Name, "-manual.tar.gz") {
 		t.Errorf("backup = %+v", b)
 	}
 	e.addEvent("after")
@@ -123,10 +125,10 @@ func TestUploadChecksFiles(t *testing.T) {
 		t.Errorf("upload gzip backup = %+v, %v", up, err)
 	}
 	// A plain .db file is accepted too.
-	plain := filepath.Join(e.dir, "plain.db")
-	if err := e.db.SnapshotTo(ctx, plain); err != nil {
+	if err := e.db.SnapshotTo(ctx, filepath.Join(e.dir, "snap")); err != nil {
 		t.Fatal(err)
 	}
+	plain := filepath.Join(e.dir, "snap", storage.MainFile)
 	raw, _ := os.ReadFile(plain)
 	e.now = e.now.Add(time.Second)
 	if _, err := e.m.Upload(ctx, bytes.NewReader(raw)); err != nil {
@@ -136,8 +138,8 @@ func TestUploadChecksFiles(t *testing.T) {
 		t.Error("junk accepted")
 	}
 	// A backup from a newer SIEMLite is refused.
-	newer := filepath.Join(e.dir, "newer.db")
-	_ = e.db.SnapshotTo(ctx, newer)
+	_ = e.db.SnapshotTo(ctx, filepath.Join(e.dir, "snap2"))
+	newer := filepath.Join(e.dir, "snap2", storage.MainFile)
 	nd, _ := sql.Open("sqlite", newer)
 	nd.Exec(`PRAGMA user_version = 999`)
 	nd.Close()
@@ -222,4 +224,83 @@ func readAll(f *os.File) ([]byte, error) {
 	var buf bytes.Buffer
 	_, err := buf.ReadFrom(f)
 	return buf.Bytes(), err
+}
+
+// A backup from before day files (one gzipped database with its events in
+// it) restores, and its events are moved into day files on start.
+func TestRestoreOldFormat(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addEvent("current")
+	// Make an old-style backup: the main database with an event in its own
+	// events table, gzipped and named .db.gz.
+	snap := filepath.Join(e.dir, "old")
+	if err := e.db.SnapshotTo(ctx, snap); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := sql.Open("sqlite", filepath.Join(snap, storage.MainFile))
+	if _, err := old.Exec(`INSERT INTO events (timestamp, category_uid, class_uid, severity_id, raw_data) VALUES (86400000 * 20000, 6, 6003, 1, 'from the old backup')`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	raw, _ := os.ReadFile(filepath.Join(snap, storage.MainFile))
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(raw)
+	zw.Close()
+	name := "siemlite-20261001-000000-manual.db.gz"
+	if err := os.WriteFile(filepath.Join(e.m.Dir(), name), gz.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.m.StageRestore(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	e.db.Close()
+	if _, err := ApplyPendingRestore(e.path, nil); err != nil {
+		t.Fatal(err)
+	}
+	e.open()
+	defer e.db.Close()
+	if !e.db.MovingEvents() {
+		t.Error("the old backup's events aren't waiting to be moved")
+	}
+	if got := e.events(); len(got) != 1 || got[0] != "from the old backup" {
+		t.Errorf("events before moving = %v", got)
+	}
+	if err := e.db.MoveLegacyEvents(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, days := e.events(), e.db.Days(); len(got) != 1 || got[0] != "from the old backup" || len(days) != 1 || days[0] != "2024-10-04" {
+		t.Errorf("events after moving = %v in days %v", got, days)
+	}
+}
+
+// An archive can only hold the expected files: nothing in it can be written
+// outside the folder it is unpacked into.
+func TestArchiveRejectsOtherNames(t *testing.T) {
+	e := newEnv(t)
+	defer e.db.Close()
+	ctx := context.Background()
+	if err := e.db.SnapshotTo(ctx, filepath.Join(e.dir, "s")); err != nil {
+		t.Fatal(err)
+	}
+	main, _ := os.ReadFile(filepath.Join(e.dir, "s", storage.MainFile))
+	for _, bad := range []string{"../escape.db", "events/../../escape.db", "/etc/x", "events/notaday.db", "other.txt"} {
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(zw)
+		for _, n := range []string{storage.MainFile, bad} {
+			tw.WriteHeader(&tar.Header{Name: n, Mode: 0o600, Size: int64(len(main)), Typeflag: tar.TypeReg})
+			tw.Write(main)
+		}
+		tw.Close()
+		zw.Close()
+		if _, err := e.m.Upload(ctx, &buf); err == nil || !strings.Contains(err.Error(), "unexpected") {
+			t.Errorf("archive with %q: %v", bad, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "escape.db")); err == nil {
+		t.Error("a file was written outside the backups folder")
+	}
 }

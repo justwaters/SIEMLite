@@ -43,7 +43,7 @@ func routes(t *testing.T) []route {
 		path := strings.NewReplacer("{id}", "999999", "{name}", "siemlite-20000101-000000-manual.db.gz").Replace(m[2])
 		out = append(out, route{m[1], path, perm})
 	}
-	if len(out) < 40 {
+	if len(out) < 35 {
 		t.Fatalf("found only %d routes in server.go; has the route table moved?", len(out))
 	}
 	return out

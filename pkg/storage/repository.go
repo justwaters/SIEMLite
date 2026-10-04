@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -30,7 +31,6 @@ type Record struct {
 	SrcASN     int    `json:"src_asn,omitempty"`
 	DstASN     int    `json:"dst_asn,omitempty"`
 	Threat     bool   `json:"threat,omitempty"` // matched a threat intel indicator
-	Sample     bool   `json:"sample,omitempty"` // demo data from the Sample data switch
 	SourceID   int64  `json:"source_id,omitempty"`
 	SourceName string `json:"source_name,omitempty"` // read-only: the source's current name
 	// Fields holds extra values a parser extracted, as a JSON object.
@@ -76,81 +76,114 @@ func (r *Repository) DB() *DB { return r.db }
 // NewRepository returns a Repository backed by db.
 func NewRepository(db *DB) *Repository { return &Repository{db: db} }
 
-const insertSQL = `INSERT INTO events
-	(timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, raw_data,
-	 source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, sample, source_id, fields)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-// InsertBatch writes all records in a single explicit transaction. The FTS
-// index is maintained by the AFTER INSERT trigger.
+// InsertBatch stores records, each in its day's file.
 func (r *Repository) InsertBatch(ctx context.Context, recs []Record) error {
-	if len(recs) == 0 {
-		return nil
-	}
-	tx, err := r.db.Write.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin batch: %w", err)
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.PrepareContext(ctx, insertSQL)
-	if err != nil {
-		return fmt.Errorf("prepare insert: %w", err)
-	}
-	defer stmt.Close()
-
-	for i := range recs {
-		rec := &recs[i]
-		if _, err := stmt.ExecContext(ctx,
-			rec.Timestamp, rec.CategoryUID, rec.ClassUID, rec.SeverityID,
-			nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
-			nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
-			nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)), rec.Sample,
-			nullableInt64(rec.SourceID), nullable(string(rec.Fields)),
-		); err != nil {
-			return fmt.Errorf("insert record %d: %w", i, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit batch: %w", err)
-	}
-	return nil
+	return r.db.days.insert(ctx, recs, false)
 }
 
-// Search runs the filter, newest events first.
+// hit is a matching event: its row in a shard and its time.
+type hit struct {
+	sh     *shard
+	id, ts int64
+}
+
+// newestFirst orders hits by time, then id, newest first.
+func newestFirst(a, b hit) int {
+	if a.ts != b.ts {
+		return cmp.Compare(b.ts, a.ts)
+	}
+	return cmp.Compare(b.sh.globalID(b.id), a.sh.globalID(a.id))
+}
+
+// Search runs the filter, newest events first. It reads the days newest
+// first and stops as soon as the page is full of events newer than anything
+// an older day can hold.
 func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
+	d := r.db.days
+	d.move.RLock()
+	defer d.move.RUnlock()
+	need := f.Offset + f.Limit
+	if f.Limit <= 0 {
+		return []Record{}, nil
+	}
 	if f.Match != "" {
-		// Sorting every match by time reads each matching event in full,
-		// which is slow beyond a few hundred. denseSearch avoids that, but
-		// walks the time index back as far as the page reaches, which is
-		// short only when matches are common. Count enough to tell.
-		need := max(denseMatches, denseFactor*(f.Offset+f.Limit))
-		var n int
-		if err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT rowid FROM events_fts WHERE events_fts MATCH ? LIMIT ?)`,
-			f.Match, need).Scan(&n); err != nil {
+		// Check the expression even when no day holds events yet, using the
+		// main database's (normally empty) search index.
+		if err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM events_fts WHERE events_fts MATCH ? LIMIT 1)`,
+			f.Match).Scan(new(int)); err != nil {
 			return nil, fmt.Errorf("search: %w", err)
 		}
-		if n >= need {
-			ids, err := r.denseSearch(ctx, f)
-			if err != nil {
-				return nil, fmt.Errorf("search: %w", err)
-			}
-			return r.records(ctx, ids)
+	}
+	var hits []hit
+	for _, s := range d.span(f.StartMs, f.EndMs) {
+		if s.day != 0 && len(hits) >= need && hits[need-1].ts >= dayEnd(s.day) {
+			break
 		}
+		hs, err := r.searchShard(ctx, s, f, need)
+		if err != nil {
+			return nil, fmt.Errorf("search: %w", err)
+		}
+		hits = append(hits, hs...)
+		slices.SortFunc(hits, newestFirst)
+		hits = hits[:min(len(hits), need)]
+	}
+	if f.Offset >= len(hits) {
+		return []Record{}, nil
+	}
+	return r.records(ctx, hits[f.Offset:])
+}
+
+// searchShard returns up to k of a shard's matching events, newest first.
+func (r *Repository) searchShard(ctx context.Context, s *shard, f Filter, k int) ([]hit, error) {
+	db, err := s.reader()
+	if err != nil {
+		return nil, err
 	}
 	where, args := filterWhere(f)
+	if lw, la := r.db.days.legacyWhere(s); lw != "" {
+		where, args = append(where, lw), append(args, la...)
+	}
 	from := "events e"
 	if f.Match != "" {
+		// Sorting every match by time reads each matching event, which is
+		// slow for a common word. denseHits avoids that, but walks the time
+		// index back as far as the page reaches, which is short only when
+		// matches are common. Count enough to tell.
+		need := max(denseMatches, denseFactor*k)
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT rowid FROM events_fts WHERE events_fts MATCH ? LIMIT ?)`,
+			f.Match, need).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n >= need {
+			return denseHits(ctx, db, s, f, where, args, k)
+		}
 		from = "events_fts JOIN events e ON e.id = events_fts.rowid"
 		where = append([]string{"events_fts MATCH ?"}, where...)
 		args = append([]any{f.Match}, args...)
 	}
-	q := `SELECT ` + recordCols + ` FROM ` + from + ` LEFT JOIN sources so ON so.id = e.source_id` + whereSQL(where) +
-		` ORDER BY e.timestamp DESC, e.id DESC LIMIT ? OFFSET ?`
-	return r.scanRecords(ctx, q, append(args, f.Limit, f.Offset)...)
+	return readHits(ctx, db, s, `SELECT e.id, e.timestamp FROM `+from+whereSQL(where)+
+		` ORDER BY e.timestamp DESC, e.id DESC LIMIT ?`, append(args, k)...)
 }
 
-// A search uses denseSearch when it has at least denseMatches matches and
+func readHits(ctx context.Context, db *sql.DB, s *shard, q string, args ...any) ([]hit, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []hit
+	for rows.Next() {
+		h := hit{sh: s}
+		if err := rows.Scan(&h.id, &h.ts); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// A shard search uses denseHits when it has at least denseMatches matches and
 // denseFactor times the events up to the end of the page; then the walk back
 // through time covers at most about 1/denseFactor of the events.
 var (
@@ -158,22 +191,20 @@ var (
 	denseFactor  = 20
 )
 
-// denseSearch returns the ids of a page of a search that matches many
-// events, without reading every match. Ids grow as events are stored, so
-// the newest ids are nearly the newest events:
+// denseHits returns the newest k matches of a search that matches many
+// events in a shard, without reading every match. Row ids grow as events are
+// stored, so the newest ids are nearly the newest events:
 //
 //  1. Read matches newest id first (the search index can do this lazily)
-//     until there are offset+limit that pass the filters: the candidates.
-//  2. An event belongs on the page instead of a candidate only if it is at
-//     least as new as the oldest candidate that would be on the page, yet has
-//     a smaller id than every candidate (a late arrival with an old
-//     timestamp, or a clock running ahead). Those are found by walking the
-//     time index back to that time, which is short.
+//     until there are k that pass the filters: the candidates.
+//  2. An event belongs among them instead of a candidate only if it is at
+//     least as new as the k-th newest candidate, yet has a smaller id than
+//     every candidate (a late arrival with an old timestamp, or a clock
+//     running ahead). Those are found by walking the time index back to that
+//     time, which is short.
 //
-// The page is exactly what sorting every match would give.
-func (r *Repository) denseSearch(ctx context.Context, f Filter) ([]int64, error) {
-	k := f.Offset + f.Limit
-	where, args := filterWhere(f)
+// The result is exactly what sorting every match would give.
+func denseHits(ctx context.Context, db *sql.DB, s *shard, f Filter, where []string, args []any, k int) ([]hit, error) {
 	bound := int64(math.MaxInt64)
 	if f.StartMs > 0 || f.EndMs > 0 {
 		// No event in the time range has a larger id than this.
@@ -182,7 +213,7 @@ func (r *Repository) denseSearch(ctx context.Context, f Filter) ([]int64, error)
 			end = math.MaxInt64
 		}
 		var maxID sql.NullInt64
-		if err := r.db.Read.QueryRowContext(ctx, `SELECT MAX(id) FROM events INDEXED BY idx_events_ts WHERE timestamp >= ? AND timestamp <= ?`,
+		if err := db.QueryRowContext(ctx, `SELECT MAX(id) FROM events INDEXED BY idx_events_ts WHERE timestamp >= ? AND timestamp <= ?`,
 			f.StartMs, end).Scan(&maxID); err != nil {
 			return nil, err
 		}
@@ -191,43 +222,20 @@ func (r *Repository) denseSearch(ctx context.Context, f Filter) ([]int64, error)
 		}
 		bound = maxID.Int64
 	}
-	type hit struct{ id, ts int64 }
-	read := func(q string, args ...any) ([]hit, error) {
-		rows, err := r.db.Read.QueryContext(ctx, q, args...)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		var out []hit
-		for rows.Next() {
-			var h hit
-			if err := rows.Scan(&h.id, &h.ts); err != nil {
-				return nil, err
-			}
-			out = append(out, h)
-		}
-		return out, rows.Err()
-	}
 	// CROSS JOIN keeps the search index as the outer loop, read newest id first.
-	cand, err := read(`SELECT e.id, e.timestamp FROM events_fts CROSS JOIN events e ON e.id = events_fts.rowid
+	cand, err := readHits(ctx, db, s, `SELECT e.id, e.timestamp FROM events_fts CROSS JOIN events e ON e.id = events_fts.rowid
 		WHERE events_fts MATCH ? AND events_fts.rowid <= ?`+andSQL(where)+` ORDER BY events_fts.rowid DESC LIMIT ?`,
 		append(append([]any{f.Match, bound}, args...), k)...)
 	if err != nil {
 		return nil, err
 	}
-	newest := func(a, b hit) int {
-		if a.ts != b.ts {
-			return cmp.Compare(b.ts, a.ts)
-		}
-		return cmp.Compare(b.id, a.id)
-	}
 	if len(cand) == k {
-		slices.SortFunc(cand, newest)
-		oldest, minID := cand[k-1].ts, cand[len(cand)-1].id
+		slices.SortFunc(cand, newestFirst)
+		oldest, minID := cand[k-1].ts, cand[0].id
 		for _, h := range cand {
 			minID = min(minID, h.id)
 		}
-		late, err := read(`SELECT e.id, e.timestamp FROM events e INDEXED BY idx_events_ts
+		late, err := readHits(ctx, db, s, `SELECT e.id, e.timestamp FROM events e INDEXED BY idx_events_ts
 			WHERE e.timestamp >= ? AND e.id < ?`+andSQL(where)+`
 			AND EXISTS (SELECT 1 FROM events_fts WHERE events_fts MATCH ? AND events_fts.rowid = e.id)`,
 			append(append([]any{oldest, minID}, args...), f.Match)...)
@@ -236,39 +244,78 @@ func (r *Repository) denseSearch(ctx context.Context, f Filter) ([]int64, error)
 		}
 		cand = append(cand, late...)
 	}
-	slices.SortFunc(cand, newest)
-	if f.Offset >= len(cand) {
-		return nil, nil
-	}
-	cand = cand[f.Offset:min(len(cand), k)]
-	ids := make([]int64, len(cand))
-	for i, h := range cand {
-		ids[i] = h.id
-	}
-	return ids, nil
+	slices.SortFunc(cand, newestFirst)
+	return cand[:min(len(cand), k)], nil
 }
 
-// records reads events by id, keeping the order of ids.
-func (r *Repository) records(ctx context.Context, ids []int64) ([]Record, error) {
-	if len(ids) == 0 {
-		return []Record{}, nil
+// records reads the events for hits, in the hits' order.
+func (r *Repository) records(ctx context.Context, hits []hit) ([]Record, error) {
+	names, err := r.sourceNames(ctx)
+	if err != nil {
+		return nil, err
 	}
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
+	byShard := map[*shard][]int64{}
+	for _, h := range hits {
+		byShard[h.sh] = append(byShard[h.sh], h.id)
 	}
-	q := `SELECT ` + recordCols + ` FROM events e LEFT JOIN sources so ON so.id = e.source_id WHERE e.id IN (` +
-		strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ") + `) ORDER BY e.timestamp DESC, e.id DESC`
-	return r.scanRecords(ctx, q, args...)
+	found := map[int64]Record{}
+	for s, ids := range byShard {
+		db, err := s.reader()
+		if err != nil {
+			return nil, err
+		}
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = id
+		}
+		recs, err := scanRecords(ctx, db, `SELECT `+recordCols+` FROM events e WHERE e.id IN (`+
+			strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ")+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range recs {
+			rec.ID = s.globalID(rec.ID)
+			rec.SourceName = names[rec.SourceID]
+			found[rec.ID] = rec
+		}
+	}
+	out := make([]Record, 0, len(hits))
+	for _, h := range hits {
+		if rec, ok := found[h.sh.globalID(h.id)]; ok { // gone if deleted meanwhile
+			out = append(out, rec)
+		}
+	}
+	return out, nil
 }
 
+// sourceNames maps source ids to names.
+func (r *Repository) sourceNames(ctx context.Context) (map[int64]string, error) {
+	rows, err := r.db.Read.QueryContext(ctx, `SELECT id, name FROM sources`)
+	if err != nil {
+		return nil, fmt.Errorf("source names: %w", err)
+	}
+	defer rows.Close()
+	out := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
+// recordCols are an event's columns, minus the source name (sources live in
+// the main database).
 const recordCols = `e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
 		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
-		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment, e.sample,
-		e.source_id, COALESCE(so.name, ''), e.fields`
+		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment,
+		e.source_id, e.fields`
 
-func (r *Repository) scanRecords(ctx context.Context, q string, args ...any) ([]Record, error) {
-	rows, err := r.db.Read.QueryContext(ctx, q, args...)
+func scanRecords(ctx context.Context, db *sql.DB, q string, args ...any) ([]Record, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
@@ -280,8 +327,8 @@ func (r *Repository) scanRecords(ctx context.Context, q string, args ...any) ([]
 		var srcASN, dstASN, sourceID sql.NullInt64
 		if err := rows.Scan(&rec.ID, &rec.Timestamp, &rec.CategoryUID, &rec.ClassUID,
 			&rec.SeverityID, &src, &dst, &user, &rec.RawData,
-			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment, &rec.Sample,
-			&sourceID, &rec.SourceName, &fields); err != nil {
+			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment,
+			&sourceID, &fields); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		rec.SrcIP, rec.DstIP, rec.UserName = src.String, dst.String, user.String
@@ -375,44 +422,75 @@ func filterWhere(f Filter) ([]string, []any) {
 	return where, args
 }
 
-// DeleteSample removes every sample event and returns how many there were.
-func (r *Repository) DeleteSample(ctx context.Context) (int64, error) {
-	res, err := r.db.Write.ExecContext(ctx, `DELETE FROM events WHERE sample = 1`)
-	if err != nil {
-		return 0, fmt.Errorf("delete sample events: %w", err)
-	}
-	return res.RowsAffected()
-}
-
-// CountSample returns the number of sample events.
-func (r *Repository) CountSample(ctx context.Context) (int64, error) {
-	var n int64
-	if err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE sample = 1`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count sample events: %w", err)
-	}
-	return n, nil
-}
-
-// DeleteOlderThan deletes up to limit events with timestamp < cutoffMs and
-// returns how many were removed. The AFTER DELETE trigger prunes the FTS
-// index. Callers loop until the result is below limit.
+// DeleteOlderThan deletes events with timestamp < cutoffMs and returns how
+// many were removed: whole days by deleting their files, then up to limit
+// from the day the cutoff falls in. Callers loop until the result is below
+// limit.
 func (r *Repository) DeleteOlderThan(ctx context.Context, cutoffMs int64, limit int) (int64, error) {
-	res, err := r.db.Write.ExecContext(ctx,
-		`DELETE FROM events WHERE id IN
-			(SELECT id FROM events WHERE timestamp < ? ORDER BY timestamp LIMIT ?)`,
-		cutoffMs, limit)
-	if err != nil {
-		return 0, fmt.Errorf("delete expired: %w", err)
+	d := r.db.days
+	cutDay := dayOf(cutoffMs)
+	var total int64
+	d.move.RLock()
+	all := d.span(0, 0)
+	d.move.RUnlock()
+	for _, s := range all {
+		if s.day == 0 || s.day >= cutDay {
+			continue
+		}
+		n, err := d.countShard(ctx, s)
+		if err != nil {
+			return total, err
+		}
+		// No search is reading the file and no batch is writing to it (the
+		// same order as moving events takes these locks).
+		d.move.Lock()
+		d.writeMu.Lock()
+		err = d.remove(s.day)
+		d.writeMu.Unlock()
+		d.move.Unlock()
+		if err != nil {
+			return total, fmt.Errorf("delete %s: %w", filepath.Base(s.path), err)
+		}
+		total += n
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("delete expired: %w", err)
+	if total > 0 {
+		return total, nil
 	}
-	return n, nil
+	del := func(db *sql.DB) (int64, error) {
+		res, err := db.ExecContext(ctx, `DELETE FROM events WHERE id IN
+			(SELECT id FROM events WHERE timestamp < ? ORDER BY timestamp LIMIT ?)`, cutoffMs, limit)
+		if err != nil {
+			return 0, fmt.Errorf("delete expired: %w", err)
+		}
+		return res.RowsAffected()
+	}
+	if s := d.shard(cutDay, false); s != nil && dayStart(cutDay) < cutoffMs {
+		w, err := s.writer(ctx)
+		if err != nil {
+			return 0, err
+		}
+		n, err := del(w)
+		if err != nil {
+			return 0, err
+		}
+		s.count.Store(-1)
+		total += n
+	}
+	d.move.RLock()
+	legacy := d.legacy != nil
+	d.move.RUnlock()
+	if legacy && total < int64(limit) {
+		n, err := del(r.db.Write)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
 }
 
-// IncrementalVacuum returns up to pages free pages to the OS (0 = all). It
-// has no effect unless the database uses auto_vacuum=INCREMENTAL.
+// IncrementalVacuum returns up to pages free pages of the main database to
+// the OS (0 = all). Day files don't need it: they are deleted whole.
 func (r *Repository) IncrementalVacuum(ctx context.Context, pages int) error {
 	// The pragma frees one page per step, so the result set must be drained
 	// for it to run to completion.
@@ -429,7 +507,7 @@ func (r *Repository) IncrementalVacuum(ctx context.Context, pages int) error {
 	return nil
 }
 
-// Checkpoint truncates the WAL file after a large delete.
+// Checkpoint truncates the main database's WAL file after a large delete.
 func (r *Repository) Checkpoint(ctx context.Context) error {
 	rows, err := r.db.Write.QueryContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 	if err != nil {
@@ -441,36 +519,49 @@ func (r *Repository) Checkpoint(ctx context.Context) error {
 	return rows.Err()
 }
 
-// Stats summarizes database size for health reporting.
+// Stats summarizes storage for health reporting.
 type Stats struct {
 	Events     int64 `json:"events"`
-	SizeBytes  int64 `json:"size_bytes"`
-	FreePages  int64 `json:"free_pages"`
+	SizeBytes  int64 `json:"size_bytes"` // the main database and every day file
+	Days       int   `json:"days"`       // day files
+	FreePages  int64 `json:"free_pages"` // of the main database
 	PageSize   int64 `json:"page_size"`
 	TotalPages int64 `json:"total_pages"`
 }
 
-// Stats reads row count and page statistics.
+// Stats counts events and adds up file sizes.
 func (r *Repository) Stats(ctx context.Context) (Stats, error) {
-	var s Stats
-	if err := r.db.Read.QueryRowContext(ctx, "SELECT COUNT(*) FROM events").Scan(&s.Events); err != nil {
-		return s, fmt.Errorf("count events: %w", err)
+	var st Stats
+	d := r.db.days
+	d.move.RLock()
+	for _, s := range d.span(0, 0) {
+		n, err := d.countShard(ctx, s)
+		if err != nil {
+			d.move.RUnlock()
+			return st, fmt.Errorf("count events: %w", err)
+		}
+		st.Events += n
+		if s.day != 0 {
+			st.Days++
+			st.SizeBytes += fileSize(s.path)
+		}
 	}
+	d.move.RUnlock()
 	pragmas := []struct {
 		name string
 		dst  *int64
 	}{
-		{"page_count", &s.TotalPages},
-		{"page_size", &s.PageSize},
-		{"freelist_count", &s.FreePages},
+		{"page_count", &st.TotalPages},
+		{"page_size", &st.PageSize},
+		{"freelist_count", &st.FreePages},
 	}
 	for _, p := range pragmas {
 		if err := r.db.Read.QueryRowContext(ctx, "PRAGMA "+p.name).Scan(p.dst); err != nil {
-			return s, fmt.Errorf("pragma %s: %w", p.name, err)
+			return st, fmt.Errorf("pragma %s: %w", p.name, err)
 		}
 	}
-	s.SizeBytes = s.TotalPages * s.PageSize
-	return s, nil
+	st.SizeBytes += st.TotalPages * st.PageSize
+	return st, nil
 }
 
 func nullable(s string) any {

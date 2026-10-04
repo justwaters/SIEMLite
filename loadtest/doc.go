@@ -5,9 +5,12 @@
 //
 //	SIEMLITE_LOAD=ci    go test ./loadtest -run Load -v   # ~2 minutes, every commit
 //	SIEMLITE_LOAD=small go test ./loadtest -run Load -v   # ~6 minutes
-//	SIEMLITE_LOAD=hard  go test ./loadtest -run Load -v -timeout 90m
+//	SIEMLITE_LOAD=hard SIEMLITE_LOAD_FOR=30m go test ./loadtest -run Load -v -timeout 3h
+//
+// The hard run is sized to take about SIEMLITE_LOAD_FOR: 5m, 30m or 2h
+// (millions of events: about 0.6, 3 and 20).
 //
 // Each load test reports its numbers and fails if they fall below a floor.
-// The hard run builds a 5 million event database: give it about 10 GB of
-// space in TMPDIR (a RAM-backed /tmp may be too small).
+// Give the hard run space in TMPDIR (a RAM-backed /tmp may be too small):
+// about 2 GB for 5m, 10 GB for 30m and 30 GB for 2h.
 package loadtest

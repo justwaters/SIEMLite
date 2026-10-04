@@ -8,3 +8,4 @@ siemlite.key
 .env
 /geoip/
 /dist/
+*-events/

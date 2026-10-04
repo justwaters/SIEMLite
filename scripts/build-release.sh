@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds SIEMLite for every supported platform into dist/, packaged with the
-# README and licence, plus SHA256SUMS. Used by the release workflow; run it
+# Builds SIEMLite (and loggen, its test log generator) for every supported
+# platform into dist/, packaged with the README and licence, plus SHA256SUMS. Used by the release workflow; run it
 # locally to check a release builds. The version comes from VERSION.
 set -eu
 cd "$(dirname "$0")/.."
@@ -10,12 +10,13 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
 	os=${target%/*}
 	arch=${target#*/}
 	name="siemlite-$version-$os-$arch"
-	exe=siemlite
-	[ "$os" = windows ] && exe=siemlite.exe
+	ext=
+	[ "$os" = windows ] && ext=.exe
 	stage="dist/$name"
 	mkdir -p "$stage"
 	echo "building $name"
-	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$stage/$exe" .
+	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$stage/siemlite$ext" .
+	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$stage/loggen$ext" ./cmd/loggen
 	cp README.md LICENSE "$stage/"
 	if [ "$os" = windows ]; then
 		(cd dist && zip -qr "$name.zip" "$name")

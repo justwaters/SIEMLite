@@ -40,7 +40,8 @@ func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{
 		"database": map[string]any{"path": absPath(s.deps.DB.Path()), "size_bytes": st.SizeBytes, "events": st.Events,
-			"schema_version": storage.SchemaVersion},
+			"schema_version": storage.SchemaVersion, "days": st.Days, "events_dir": absPath(storage.EventsDir(s.deps.DB.Path())),
+			"moving_events": s.deps.DB.MovingEvents()},
 		"started_at": s.deps.Started.UnixMilli(),
 		"version":    s.deps.Version,
 	}

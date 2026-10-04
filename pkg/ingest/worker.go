@@ -92,7 +92,6 @@ func New(sink Sink, cfg Config) *Worker {
 
 // SubmitOptions adjust how one event is stored.
 type SubmitOptions struct {
-	Sample   bool            // mark as sample data (never settable through the API)
 	Enricher enrich.Enricher // runs after the configured enricher
 	SourceID int64           // the source the event arrived through
 	// Fields are extra values a parser extracted; stored as a JSON object.
@@ -121,7 +120,6 @@ func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOpti
 		RawData:     ev.RawData,
 		Source:      ev.ProductName(),
 		Host:        ev.DeviceName(),
-		Sample:      opts.Sample,
 		SourceID:    opts.SourceID,
 	}
 	if len(opts.Fields) > 0 {

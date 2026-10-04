@@ -214,7 +214,6 @@
   .cc { margin-left: 6px; color: var(--ink-2); font-family: var(--sans); font-size: 12px; }
   .tag { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 4px; font-size: 12px; font-weight: 600; line-height: 19px; }
   .tag-threat { color: var(--sev-5); box-shadow: inset 0 0 0 1px var(--sev-5); }
-  .tag-sample { padding: 0; color: var(--ink-2); font-weight: 500; }
   .tag-plain { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--rule); font-weight: 500; }
   .empty td { white-space: normal; text-align: center; color: var(--ink-2); padding: 44px 20px; cursor: default; }
   tr.detail td { background: var(--raised); white-space: normal; padding: 4px 16px 18px; }
@@ -402,10 +401,6 @@
     </nav>
     <div class="side-foot">
       <div id="status" aria-live="polite"></div>
-      <label class="switch admin-only" id="sample-switch" title="Load a day of demo events. Turning it off deletes only those.">
-        Sample data <input type="checkbox" id="sample-toggle" role="switch"><span class="track"></span>
-      </label>
-      <p class="note" id="sample-note" hidden>Sample data is loaded.</p>
       <div class="theme" role="group" aria-label="Theme">
         <button type="button" data-theme-choice="system">System</button>
         <button type="button" data-theme-choice="light">Light</button>
@@ -896,7 +891,7 @@
 const $ = (id) => document.getElementById(id);
 const SEV = { 0: "Unknown", 1: "Informational", 2: "Low", 3: "Medium", 4: "High", 5: "Critical", 6: "Fatal", 99: "Other" };
 const CAT = { 1: "System activity", 2: "Findings", 3: "Identity and access", 4: "Network activity", 5: "Discovery", 6: "Application activity", 7: "Remediation", 8: "Unmanaged devices" };
-const KIND = { token: "Access token", syslog: "Syslog listener", upload: "Pasted or uploaded", sample: "Sample data switch" };
+const KIND = { token: "Access token", syslog: "Syslog listener", upload: "Pasted or uploaded", internal: "SIEMLite's audit log" };
 const FIELD = { "src_endpoint.ip": "the source IP", "dst_endpoint.ip": "the destination IP", "raw_data": "the log text" };
 const TARGETS = { time: "Time", src_ip: "Source IP", src_port: "Source port", dst_ip: "Destination IP", dst_port: "Destination port",
                   user: "User", host: "Host", app: "Program", message: "Message", severity: "Severity" };
@@ -910,7 +905,7 @@ const ALIASES = { time: "time", timestamp: "time", ts: "time", "@timestamp": "ti
   app: "app", program: "app", process: "app", service: "app", message: "message", msg: "message",
   severity: "severity", level: "severity", lvl: "severity", priority: "severity" };
 
-let me = null, isAdmin = false, sampleOn = false, totalEvents = null, sourcesCache = [];
+let me = null, isAdmin = false, totalEvents = null, sourcesCache = [];
 
 function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
@@ -1055,7 +1050,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// --- Sidebar status and sample data ---
+// --- Sidebar status ---
 async function refreshHealth() {
   const box = $("status");
   try {
@@ -1080,31 +1075,6 @@ async function refreshHealth() {
     box.replaceChildren(el("div", { className: "status-line" }, el("i", { className: "dot bad" }), "Can't reach the server"));
   }
 }
-function showSample(st) {
-  sampleOn = !!st.enabled;
-  $("sample-toggle").checked = sampleOn;
-  $("sample-note").hidden = isAdmin || !sampleOn;
-}
-async function refreshSample() {
-  const res = await api("/api/v1/sample");
-  if (res.ok) showSample(await res.json());
-}
-$("sample-toggle").onchange = async (e) => {
-  const want = e.target.checked;
-  const sw = $("sample-switch");
-  sw.classList.add("busy");
-  try {
-    showSample(await apiJSON("/api/v1/sample", { method: "POST", json: { enabled: want } }));
-    refreshHealth();
-    refreshAlertCount();
-    route();
-  } catch (err) {
-    e.target.checked = !want;
-    alert("Sample data wasn't changed: " + err.message);
-  } finally {
-    sw.classList.remove("busy");
-  }
-};
 async function loadSources() {
   try { sourcesCache = await apiJSON("/api/v1/sources"); } catch { sourcesCache = []; }
   return sourcesCache;
@@ -1150,7 +1120,7 @@ function renderStats(s) {
   $("fig-high").textContent = compact(high);
   $("fig-high-sub").textContent = o.by_severity[5] || o.by_severity[6] ? `${nf.format((o.by_severity[5] || 0) + (o.by_severity[6] || 0))} critical` : "";
   $("dash-hint").textContent = o.total === 0 && totalEvents === 0
-    ? (isAdmin ? "No events yet. Add a source, or turn on Sample data in the sidebar to look around." : "No events yet.")
+    ? (isAdmin ? "No events yet. Add a source, or send test logs by running loggen -eps 10 on the server." : "No events yet.")
     : "Press Enter to open the results in the Database.";
   const showAlerts = s.open_alerts !== undefined;
   $("fig-alerts-box").hidden = !showAlerts;
@@ -1387,8 +1357,8 @@ async function runSearch() {
   $("next").disabled = data.count < data.limit;
   const body = $("results");
   if (!data.events.length) {
-    const msg = totalEvents === 0 && isAdmin && !sampleOn
-      ? "No events yet. Add a source, or turn on Sample data in the sidebar to look around."
+    const msg = totalEvents === 0 && isAdmin
+      ? "No events yet. Add a source, or send test logs by running loggen -eps 10 on the server."
       : "No events match. Widen the dates or remove a filter.";
     body.replaceChildren(el("tr", { className: "empty" }, el("td", { colSpan: 7, textContent: msg })));
     return;
@@ -1419,7 +1389,6 @@ function renderRow(ev) {
   const text = eventText(ev);
   const msg = el("td", { title: text });
   if (ev.threat) msg.append(el("span", { className: "tag tag-threat", textContent: "Threat intel" }));
-  if (ev.sample) msg.append(el("span", { className: "tag tag-sample", textContent: "Sample", title: "Demo event from Sample data" }));
   msg.append(text);
   const when = new Date(ev.timestamp);
   const row = el("tr", { className: "ev" + (ev.threat ? " threat" : ""), tabIndex: 0 },
@@ -1596,7 +1565,7 @@ async function openSources() {
     await Promise.all([loadSources(), loadParsers()]);
     $("sources-body").replaceChildren(...sourcesCache.map((s) => {
       const parserSel = el("select", { className: "select", "aria-label": `Parser for ${s.name}` }, ...parserOptions(s.parser_id));
-      parserSel.disabled = s.kind === "sample" || !!s.revoked_at;
+      parserSel.disabled = s.kind === "internal" || !!s.revoked_at;
       parserSel.onchange = async () => {
         try {
           await apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: { parser_id: parserSel.value ? Number(parserSel.value) : null } });
@@ -1607,7 +1576,7 @@ async function openSources() {
       return el("tr", { className: s.revoked_at ? "revoked" : "" },
         el("td", {}, el("b", { textContent: s.name })),
         el("td", { className: "kind", textContent: KIND[s.kind] + (s.revoked_at ? ", revoked" : "") }),
-        el("td", {}, s.kind === "sample" ? el("span", { className: "muted", textContent: "Built in" }) : parserSel),
+        el("td", {}, s.kind === "internal" ? el("span", { className: "muted", textContent: "Built in" }) : parserSel),
         el("td", {}, el("span", { className: "pill" + (fresh ? " on" : ""), textContent: ago(s.last_used_at), title: s.last_used_at ? new Date(s.last_used_at).toString() : "" })),
         el("td", { className: "muted", textContent: shortDate(s.created_at) }),
         el("td", { className: "actions" }, el("div", { className: "row-actions" },
@@ -1980,7 +1949,6 @@ async function loadAlertsView() {
 function alertRow(a) {
   const sev = el("span", { className: "sev" }, el("i"), SEV[a.severity]); sev.style.setProperty("--c", `var(--sev-${a.severity})`);
   const what = el("td", { className: "what" });
-  if (a.sample) what.append(el("span", { className: "tag tag-sample", textContent: "Sample" }));
   what.append(el("b", { textContent: a.rule_name }));
   if (a.group_value) what.append(el("span", { className: "grp", textContent: a.group_value }));
   else if (a.group_by) what.append(el("span", { className: "grp none", textContent: `no ${GROUP_LABEL[a.group_by]}` }));
@@ -2092,7 +2060,10 @@ async function openSystem() {
   try {
     const sys = await apiJSON("/api/v1/system");
     $("sys-size").textContent = bytes(sys.database.size_bytes);
-    $("sys-events").textContent = `${nf.format(sys.database.events)} events, database version ${sys.database.schema_version}`;
+    const d = sys.database;
+    $("sys-events").textContent = `${nf.format(d.events)} events in ${nf.format(d.days)} ${d.days === 1 ? "day file" : "day files"}` +
+      (d.moving_events ? ", moving older events into day files" : "") + `, database version ${d.schema_version}`;
+    $("sys-events").title = d.events_dir;
     $("sys-up").textContent = since(sys.started_at);
     $("sys-started").textContent = `SIEMLite ${sys.version || ""}, started ${new Date(sys.started_at).toLocaleString()}`;
     if (sys.backups) {
@@ -2188,7 +2159,6 @@ async function restoreBackup(b) {
 let healthTimer;
 function start() {
   setTheme(document.documentElement.dataset.theme || "system");
-  refreshSample();
   refreshHealth();
   clearInterval(healthTimer);
   healthTimer = setInterval(() => { refreshHealth(); refreshAlertCount(); }, 5000);
