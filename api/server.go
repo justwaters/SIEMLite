@@ -78,11 +78,13 @@ type Server struct {
 	signinCount   int
 	signinDropped int
 	signinBlocked map[string]time.Time // address -> when its block was last recorded
+	signinPruned  time.Time
 }
 
 const (
 	signinAuditsPerMinute = 600
 	signinBlockedEvery    = 15 * time.Minute // the lockout window in pkg/auth
+	signinBlockedMax      = 50000            // addresses remembered at once
 )
 
 // NewServer builds a server listening on addr once Start is called.
@@ -601,32 +603,33 @@ func (s *Server) firstBlock(addr string) bool {
 	s.signinMu.Lock()
 	defer s.signinMu.Unlock()
 	now := time.Now()
-	if s.signinBlocked == nil || len(s.signinBlocked) > 10000 {
+	if s.signinBlocked == nil {
+		s.signinBlocked = map[string]time.Time{}
+	}
+	if now.Sub(s.signinPruned) >= time.Minute { // at most once a minute, so it stays cheap
 		for a, t := range s.signinBlocked {
 			if now.Sub(t) >= signinBlockedEvery {
 				delete(s.signinBlocked, a)
 			}
 		}
-		if s.signinBlocked == nil {
-			s.signinBlocked = map[string]time.Time{}
-		}
+		s.signinPruned = now
 	}
 	if t, ok := s.signinBlocked[addr]; ok && now.Sub(t) < signinBlockedEvery {
 		return false
 	}
-	s.signinBlocked[addr] = now
+	if len(s.signinBlocked) < signinBlockedMax { // beyond it, every block is recorded (within the cap)
+		s.signinBlocked[addr] = now
+	}
 	return true
 }
 
 // auditSignin records a failed or blocked sign-in, at most
-// signinAuditsPerMinute a minute; the rest are summed into one event when the
-// next minute starts.
+// signinAuditsPerMinute a minute; the rest are counted in one event when the
+// minute ends.
 func (s *Server) auditSignin(r *http.Request, e audit.Entry) {
 	s.signinMu.Lock()
 	now := time.Now()
-	dropped := 0
 	if now.Sub(s.signinWindow) >= time.Minute {
-		dropped, s.signinDropped = s.signinDropped, 0
 		s.signinWindow, s.signinCount = now, 0
 	}
 	record := s.signinCount < signinAuditsPerMinute
@@ -634,16 +637,31 @@ func (s *Server) auditSignin(r *http.Request, e audit.Entry) {
 		s.signinCount++
 	} else {
 		s.signinDropped++
+		if s.signinDropped == 1 {
+			// Write the count when this minute ends, even if the flood stops.
+			time.AfterFunc(time.Until(s.signinWindow.Add(time.Minute)), s.flushSignin)
+		}
 	}
 	s.signinMu.Unlock()
-	if dropped > 0 && s.deps.Audit != nil { // from many addresses, so none is named
-		s.deps.Audit.Record(r.Context(), audit.Entry{Action: "signin.failed.more", Actor: "SIEMLite", Class: audit.Authentication, Severity: 5, // Critical: raises an alert
-			Message: fmt.Sprintf("%d more failed or blocked sign-ins in the last minute weren't recorded one by one", dropped),
-			Fields:  map[string]string{"count": strconv.Itoa(dropped)}})
-	}
 	if record {
 		s.audit(r, e)
 	}
+}
+
+// flushSignin records how many failed or blocked sign-ins went unrecorded.
+func (s *Server) flushSignin() {
+	s.signinMu.Lock()
+	dropped := s.signinDropped
+	s.signinDropped = 0
+	s.signinMu.Unlock()
+	if dropped == 0 || s.deps.Audit == nil {
+		return
+	}
+	// From many addresses, so none is named. Critical, so it raises an alert.
+	s.deps.Audit.Record(context.Background(), audit.Entry{Action: "signin.failed.more", Actor: "SIEMLite",
+		Class: audit.Authentication, Severity: 5,
+		Message: fmt.Sprintf("%d more failed or blocked sign-ins in a minute weren't recorded one by one", dropped),
+		Fields:  map[string]string{"count": strconv.Itoa(dropped)}})
 }
 
 // audit records an action from a request, filling in who and where from.
