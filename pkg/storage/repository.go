@@ -5,11 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Record is one row of the events table.
@@ -114,16 +116,34 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
 			return nil, fmt.Errorf("search: %w", err)
 		}
 	}
+	// Days are searched newest first in waves: the first alone (the newest
+	// page is usually all in it), then several at a time, so a search for
+	// something rare doesn't wait on each day in turn. Before each wave, stop
+	// if the page is already full of events newer than that wave can hold.
 	var hits []hit
-	for _, s := range d.span(f.StartMs, f.EndMs) {
-		if s.day != 0 && len(hits) >= need && hits[need-1].ts >= dayEnd(s.day) {
+	shards := d.span(f.StartMs, f.EndMs)
+	for i, wave := 0, 1; i < len(shards); i, wave = i+wave, searchWave {
+		if s := shards[i]; s.day != 0 && len(hits) >= need && hits[need-1].ts >= dayEnd(s.day) {
 			break
 		}
-		hs, err := r.searchShard(ctx, s, f, need)
-		if err != nil {
+		group := shards[i:min(i+wave, len(shards))]
+		found := make([][]hit, len(group))
+		errs := make([]error, len(group))
+		var wg sync.WaitGroup
+		for j, s := range group {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				found[j], errs[j] = r.searchShard(ctx, s, f, need)
+			}()
+		}
+		wg.Wait()
+		if err := errors.Join(errs...); err != nil {
 			return nil, fmt.Errorf("search: %w", err)
 		}
-		hits = append(hits, hs...)
+		for _, hs := range found {
+			hits = append(hits, hs...)
+		}
 		slices.SortFunc(hits, newestFirst)
 		hits = hits[:min(len(hits), need)]
 	}
@@ -154,6 +174,9 @@ func (r *Repository) searchShard(ctx context.Context, s *shard, f Filter, k int)
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT rowid FROM events_fts WHERE events_fts MATCH ? LIMIT ?)`,
 			f.Match, need).Scan(&n); err != nil {
 			return nil, err
+		}
+		if n == 0 {
+			return nil, nil // nothing in this day matches the words
 		}
 		if n >= need {
 			return denseHits(ctx, db, s, f, where, args, k)
@@ -306,6 +329,9 @@ func (r *Repository) sourceNames(ctx context.Context) (map[int64]string, error) 
 	}
 	return out, rows.Err()
 }
+
+// searchWave is how many days a search reads at once after the newest.
+const searchWave = 4
 
 // recordCols are an event's columns, minus the source name (sources live in
 // the main database).
