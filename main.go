@@ -185,10 +185,14 @@ func run() error {
 			}
 		}()
 	}
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		cleaner.Run(bgCtx)
+	}()
+	go func() {
+		defer wg.Done()
+		cleaner.RunRaw(bgCtx)
 	}()
 	go func() {
 		defer wg.Done()

@@ -1403,7 +1403,7 @@ function renderRow(ev) {
   let detail = null;
   const toggle = () => {
     if (!detail) {
-      detail = el("tr", { className: "detail" }, el("td", { colSpan: 7 }, details(ev), el("pre", { className: "raw", textContent: prettyRaw(ev.raw_data) })));
+      detail = el("tr", { className: "detail" }, el("td", { colSpan: 7 }, details(ev), rawLine(ev)));
       row.after(detail);
     } else detail.hidden = !detail.hidden;
     const open = !detail.hidden;
@@ -1448,8 +1448,14 @@ function details(ev) {
 }
 const SYSLOG_HEADER = /^<\d{1,3}>(?:\d \S+ \S+ \S+ \S+ \S+ (?:-|\[.*?\])\s?|[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ [^\s:]+: ?)/;
 function eventText(ev) {
+  if (ev.message) return ev.message;
   try { const o = JSON.parse(ev.raw_data); if (o && o.message) return o.message; } catch {}
-  return ev.raw_data.replace(SYSLOG_HEADER, "");
+  return (ev.raw_data || "").replace(SYSLOG_HEADER, "");
+}
+// The original line is kept for a day after the event arrives; after that only the parsed event is left.
+function rawLine(ev) {
+  if (!ev.raw_data) return el("p", { className: "muted", textContent: "The original line is removed 24 hours after it arrives." });
+  return el("pre", { className: "raw", textContent: prettyRaw(ev.raw_data) });
 }
 function prettyRaw(raw) { try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; } }
 

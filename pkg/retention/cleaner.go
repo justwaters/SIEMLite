@@ -13,12 +13,14 @@ type Store interface {
 	DeleteOlderThan(ctx context.Context, cutoffMs int64, limit int) (int64, error)
 	IncrementalVacuum(ctx context.Context, pages int) error
 	Checkpoint(ctx context.Context) error
+	PurgeRawLines(ctx context.Context, now time.Time) (int64, error)
 }
 
 // Config tunes the cleaner. Zero values select defaults.
 type Config struct {
 	RetentionDays int           // default 30
 	Interval      time.Duration // default 24h
+	RawInterval   time.Duration // how often original lines are removed (default 1h)
 	BatchSize     int           // rows deleted per transaction (default 5000)
 	VacuumPages   int           // pages reclaimed after each batch (default 2000)
 	Logger        *slog.Logger
@@ -38,6 +40,9 @@ func New(store Store, cfg Config) *Cleaner {
 	}
 	if cfg.Interval <= 0 {
 		cfg.Interval = 24 * time.Hour
+	}
+	if cfg.RawInterval <= 0 {
+		cfg.RawInterval = time.Hour
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 5000
@@ -106,4 +111,27 @@ func (c *Cleaner) RunOnce(ctx context.Context) (int64, error) {
 		}
 	}
 	return total, nil
+}
+
+// RunRaw removes expired original lines (see storage.RawKeep) now, then
+// every RawInterval, until ctx is cancelled. The events themselves are kept
+// for the retention window; only the line as it arrived goes.
+func (c *Cleaner) RunRaw(ctx context.Context) {
+	ticker := time.NewTicker(c.cfg.RawInterval)
+	defer ticker.Stop()
+	for {
+		if n, err := c.store.PurgeRawLines(ctx, c.cfg.Now()); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			c.cfg.Logger.Error("removing original lines failed", "err", err)
+		} else if n > 0 {
+			c.cfg.Logger.Info("removed original lines", "events", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -85,7 +86,8 @@ var daySchema = []string{
 		src_ip       TEXT,
 		dst_ip       TEXT,
 		user_name    TEXT,
-		raw_data     TEXT NOT NULL,
+		message      TEXT NOT NULL DEFAULT '', -- the parsed message, kept for the whole retention period
+		raw_data     TEXT,                     -- the original line; '' once removed (see PurgeRawLines)
 		source       TEXT,
 		host         TEXT,
 		src_country  TEXT,
@@ -107,15 +109,85 @@ var daySchema = []string{
 	`CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip, timestamp DESC) WHERE dst_ip IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_name, timestamp DESC) WHERE user_name IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_events_host ON events(host, timestamp DESC) WHERE host IS NOT NULL`,
-	`CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(raw_data, content='events', content_rowid='id')`,
+	ftsTable,
 	// Text is indexed once per batch (see insertDay), not row by row: with
 	// multi-row inserts and large transactions that stores events several
-	// times faster. Version 1 day files had a per-row trigger.
-	`DROP TRIGGER IF EXISTS events_ai`,
-	`CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
-		INSERT INTO events_fts(events_fts, rowid, raw_data) VALUES ('delete', old.id, old.raw_data);
-	END`,
-	`PRAGMA user_version = 2`,
+	// times faster.
+	ftsDeleteTrigger,
+	`PRAGMA user_version = 3`,
+}
+
+// dayVersion is the day file format. Version 3 stores the parsed message and
+// indexes the parsed event instead of the original line, which is removed
+// after a day (versions 1 and 2 indexed the original line).
+const dayVersion = 3
+
+// ftsCols are the columns of events the search index covers: what the parser
+// made of the line, so searching still works after the original is removed.
+// The delete trigger must pass exactly these values.
+const ftsCols = `message, source, host, user_name, src_ip, dst_ip, fields`
+
+const (
+	ftsTable = `CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(` + ftsCols + `, content='events', content_rowid='id')`
+
+	ftsDeleteTrigger = `CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
+		INSERT INTO events_fts(events_fts, rowid, ` + ftsCols + `) VALUES ('delete', old.id, old.message, old.source, old.host, old.user_name, old.src_ip, old.dst_ip, old.fields);
+	END`
+)
+
+// migrateDay brings a day file from version 1 or 2 up to the current one:
+// every event's message becomes its original line (all that was kept), and
+// the search index is rebuilt over the parsed columns. It runs in one write
+// transaction that checks the version again once it holds the lock, so two
+// processes opening the same files migrate it once.
+func migrateDay(ctx context.Context, path string) error {
+	db, err := sql.Open("sqlite", dayDSN(path, false))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	var v int
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v >= dayVersion {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil) // takes the write lock
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := tx.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v >= dayVersion {
+		return nil // another process got there first
+	}
+	var hasMessage int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'message'`).Scan(&hasMessage); err != nil {
+		return err
+	}
+	stmts := []string{
+		`DROP TRIGGER IF EXISTS events_ai`, // version 1 indexed row by row
+		`DROP TRIGGER IF EXISTS events_ad`,
+		`DROP TABLE IF EXISTS events_fts`,
+	}
+	if hasMessage == 0 {
+		stmts = append(stmts, `ALTER TABLE events ADD COLUMN message TEXT NOT NULL DEFAULT ''`)
+	}
+	stmts = append(stmts, `UPDATE events SET message = raw_data WHERE message = ''`)
+	stmts = append(stmts, ftsTable, ftsDeleteTrigger, `INSERT INTO events_fts(events_fts) VALUES ('rebuild')`)
+	for _, stmt := range stmts {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("upgrade day file %s: %.40s: %w", filepath.Base(path), stmt, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, dayVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // shard is one place events are kept: a day file, or (day 0) the main
@@ -253,6 +325,9 @@ func openDays(ctx context.Context, main *DB) (*days, error) {
 	}
 	for _, e := range entries {
 		if day, ok := parseDayFile(e.Name()); ok && !e.IsDir() {
+			if err := migrateDay(ctx, filepath.Join(d.dir, e.Name())); err != nil {
+				return nil, err
+			}
 			d.shards[day] = d.newShard(day)
 		}
 	}
@@ -350,7 +425,7 @@ func (d *days) allocate(ctx context.Context, n int) (int64, error) {
 	return last - int64(n) + 1, nil
 }
 
-const insertCols = `seq, legacy_id, timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, raw_data,
+const insertCols = `seq, legacy_id, timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, message, raw_data,
 	source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, source_id, fields`
 
 // insert stores records in their days' files, one transaction per day.
@@ -398,7 +473,7 @@ func (d *days) insert(ctx context.Context, recs []Record, legacy bool) error {
 	return nil
 }
 
-// rowsPerInsert is how many events go in one INSERT statement (each has 20
+// rowsPerInsert is how many events go in one INSERT statement (each has 21
 // values; SQLite allows 32766).
 const rowsPerInsert = 200
 
@@ -422,8 +497,8 @@ func insertDay(ctx context.Context, w *sql.DB, recs []Record, idx []int, verb st
 			st.Close()
 		}
 	}()
-	row := "(" + strings.TrimSuffix(strings.Repeat("?, ", 20), ", ") + ")"
-	args := make([]any, 0, rowsPerInsert*20)
+	row := "(" + strings.TrimSuffix(strings.Repeat("?, ", 21), ", ") + ")"
+	args := make([]any, 0, rowsPerInsert*21)
 	for start := 0; start < len(idx); start += rowsPerInsert {
 		chunk := idx[start:min(start+rowsPerInsert, len(idx))]
 		stmt, ok := stmts[len(chunk)]
@@ -443,7 +518,7 @@ func insertDay(ctx context.Context, w *sql.DB, recs []Record, idx []int, verb st
 			}
 			args = append(args, seq, legacyID,
 				rec.Timestamp, rec.CategoryUID, rec.ClassUID, rec.SeverityID,
-				nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
+				nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), cmp.Or(rec.Message, rec.RawData), rec.RawData,
 				nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
 				nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)),
 				nullableInt64(rec.SourceID), nullable(string(rec.Fields)))
@@ -452,7 +527,7 @@ func insertDay(ctx context.Context, w *sql.DB, recs []Record, idx []int, verb st
 			return fmt.Errorf("insert records %d-%d: %w", chunk[0], chunk[len(chunk)-1], err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO events_fts (rowid, raw_data) SELECT id, raw_data FROM events WHERE id > ?`, top); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events_fts (rowid, `+ftsCols+`) SELECT id, `+ftsCols+` FROM events WHERE id > ?`, top); err != nil {
 		return fmt.Errorf("index batch: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
