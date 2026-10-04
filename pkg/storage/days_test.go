@@ -439,3 +439,85 @@ func TestRetentionWhileStoring(t *testing.T) {
 		t.Errorf("current events stored = %d, want 400", n)
 	}
 }
+
+// TestSearchIndexStaysExact: with text indexed once per batch, every stored
+// event is indexed exactly once, through new batches, copies of moved events
+// made twice, deletes, and a day file from before (which had a per-row
+// trigger).
+func TestSearchIndexStaysExact(t *testing.T) {
+	ctx := context.Background()
+	db, repo := openTemp(t)
+	day := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC).UnixMilli()
+
+	// A version 1 day file, with its trigger and an event in it.
+	old, err := sql.Open("sqlite", dayDSN(filepath.Join(EventsDir(db.Path()), "2026-10-03.db"), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range daySchema[:len(daySchema)-2] {
+		if _, err := old.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := old.Exec(`CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
+		INSERT INTO events_fts(rowid, raw_data) VALUES (new.id, new.raw_data); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`INSERT INTO events (seq, timestamp, category_uid, class_uid, severity_id, raw_data)
+		VALUES (1, ?, 1, 1001, 1, 'older word')`, day-dayMs/2); err != nil {
+		t.Fatal(err)
+	}
+	old.Exec(`PRAGMA user_version = 1`)
+	old.Close()
+	db.Close()
+	db, err = Open(ctx, Options{Path: db.Path()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo = NewRepository(db)
+
+	var recs []Record
+	for i := 0; i < 1234; i++ {
+		recs = append(recs, Record{Timestamp: day - dayMs/2 + int64(i)*60_000, CategoryUID: 1, ClassUID: 1001, SeverityID: 1,
+			RawData: fmt.Sprintf("word%d common", i%10)})
+	}
+	for i := 0; i < len(recs); i += 400 {
+		if err := repo.InsertBatch(ctx, recs[i:min(i+400, len(recs))]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Moved events copied twice (a move resumed after a crash).
+	moved := []Record{{ID: 9001, Timestamp: day + 1000, CategoryUID: 1, ClassUID: 1001, SeverityID: 1, RawData: "moved common"}}
+	for range 2 {
+		if err := db.days.insert(ctx, moved, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo.DeleteOlderThan(ctx, day-dayMs/2+100*60_000, 50)
+
+	total, _ := db.CountEvents(ctx, "1")
+	common, _ := db.CountEvents(ctx, "e.raw_data LIKE '%common%'")
+	if found, _ := repo.Search(ctx, Filter{Match: "common", Limit: 1000, Offset: 0}); len(found) != int(min(common, 1000)) {
+		t.Errorf("search for common found %d, want %d", len(found), min(common, 1000))
+	}
+	var indexed int64
+	for _, day := range db.Days() {
+		f, _ := sql.Open("sqlite", "file:"+filepath.Join(EventsDir(db.Path()), day+".db"))
+		if _, err := f.Exec(`INSERT INTO events_fts(events_fts) VALUES ('integrity-check')`); err != nil {
+			t.Errorf("%s: search index: %v", day, err)
+		}
+		var n int64
+		f.QueryRow(`SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH 'common OR older'`).Scan(&n)
+		indexed += n
+		var trig int
+		f.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'events_ai'`).Scan(&trig)
+		if trig != 0 {
+			t.Errorf("%s still has the per-row trigger", day)
+		}
+		f.Close()
+	}
+	if indexed != total {
+		t.Errorf("%d events indexed, %d stored", indexed, total)
+	}
+}

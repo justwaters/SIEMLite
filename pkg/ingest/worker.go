@@ -27,7 +27,7 @@ type Sink interface {
 // Config tunes the pipeline. Zero values select defaults.
 type Config struct {
 	QueueSize     int             // channel buffer (default 10000)
-	BatchSize     int             // flush at this many records (default 500)
+	BatchSize     int             // flush at this many records (default 5000; storing larger batches is much faster)
 	FlushInterval time.Duration   // flush partial batches this often (default 500ms)
 	FlushTimeout  time.Duration   // per-flush deadline (default 30s)
 	Workers       int             // consumer goroutines (default 2)
@@ -46,7 +46,7 @@ func (c *Config) applyDefaults() {
 		c.QueueSize = 10000
 	}
 	if c.BatchSize <= 0 {
-		c.BatchSize = 500
+		c.BatchSize = 5000
 	}
 	if c.FlushInterval <= 0 {
 		c.FlushInterval = 500 * time.Millisecond

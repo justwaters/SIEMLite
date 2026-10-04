@@ -108,13 +108,14 @@ var daySchema = []string{
 	`CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_name, timestamp DESC) WHERE user_name IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_events_host ON events(host, timestamp DESC) WHERE host IS NOT NULL`,
 	`CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(raw_data, content='events', content_rowid='id')`,
-	`CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
-		INSERT INTO events_fts(rowid, raw_data) VALUES (new.id, new.raw_data);
-	END`,
+	// Text is indexed once per batch (see insertDay), not row by row: with
+	// multi-row inserts and large transactions that stores events several
+	// times faster. Version 1 day files had a per-row trigger.
+	`DROP TRIGGER IF EXISTS events_ai`,
 	`CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
 		INSERT INTO events_fts(events_fts, rowid, raw_data) VALUES ('delete', old.id, old.raw_data);
 	END`,
-	`PRAGMA user_version = 1`,
+	`PRAGMA user_version = 2`,
 }
 
 // shard is one place events are kept: a day file, or (day 0) the main
@@ -142,6 +143,9 @@ func dayDSN(path string, readOnly bool) string {
 		q.Add("_pragma", "journal_mode(WAL)")
 		q.Add("_pragma", "synchronous(NORMAL)")
 		q.Add("_pragma", "cache_size(-16384)")
+		// Checkpoint the write-ahead log every 40 MB rather than 4: storing
+		// is much faster, and the log is truncated when the day is closed.
+		q.Add("_pragma", "wal_autocheckpoint(10000)")
 	}
 	return "file:" + path + "?" + q.Encode()
 }
@@ -383,41 +387,76 @@ func (d *days) insert(ctx context.Context, recs []Record, legacy bool) error {
 		if err != nil {
 			return err
 		}
-		tx, err := w.BeginTx(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("begin batch: %w", err)
-		}
-		stmt, err := tx.PrepareContext(ctx, verb+` INTO events (`+insertCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("prepare insert: %w", err)
-		}
-		for _, i := range idx {
-			rec := &recs[i]
-			seq, legacyID := first+int64(i), any(nil)
-			if legacy {
-				seq, legacyID = rec.ID, rec.ID
-			}
-			if _, err := stmt.ExecContext(ctx, seq, legacyID,
-				rec.Timestamp, rec.CategoryUID, rec.ClassUID, rec.SeverityID,
-				nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
-				nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
-				nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)),
-				nullableInt64(rec.SourceID), nullable(string(rec.Fields)),
-			); err != nil {
-				stmt.Close()
-				tx.Rollback()
-				return fmt.Errorf("insert record %d: %w", i, err)
-			}
-		}
-		stmt.Close()
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit batch: %w", err)
+		if err := insertDay(ctx, w, recs, idx, verb, first, legacy); err != nil {
+			return err
 		}
 		s.count.Store(-1)
 	}
 	if !legacy {
 		d.seq.Store(first + int64(len(recs)) - 1)
+	}
+	return nil
+}
+
+// rowsPerInsert is how many events go in one INSERT statement (each has 20
+// values; SQLite allows 32766).
+const rowsPerInsert = 200
+
+// insertDay stores one day's share of a batch in a single transaction:
+// multi-row INSERTs, then the batch's text indexed with one statement.
+func insertDay(ctx context.Context, w *sql.DB, recs []Record, idx []int, verb string, first int64, legacy bool) error {
+	tx, err := w.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin batch: %w", err)
+	}
+	defer tx.Rollback()
+	// Row ids only grow (AUTOINCREMENT), and the write lock is held from the
+	// start, so this batch's rows are exactly those above the current top.
+	var top int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&top); err != nil {
+		return fmt.Errorf("begin batch: %w", err)
+	}
+	stmts := map[int]*sql.Stmt{}
+	defer func() {
+		for _, st := range stmts {
+			st.Close()
+		}
+	}()
+	row := "(" + strings.TrimSuffix(strings.Repeat("?, ", 20), ", ") + ")"
+	args := make([]any, 0, rowsPerInsert*20)
+	for start := 0; start < len(idx); start += rowsPerInsert {
+		chunk := idx[start:min(start+rowsPerInsert, len(idx))]
+		stmt, ok := stmts[len(chunk)]
+		if !ok {
+			if stmt, err = tx.PrepareContext(ctx, verb+` INTO events (`+insertCols+`) VALUES `+
+				strings.TrimSuffix(strings.Repeat(row+", ", len(chunk)), ", ")); err != nil {
+				return fmt.Errorf("prepare insert: %w", err)
+			}
+			stmts[len(chunk)] = stmt
+		}
+		args = args[:0]
+		for _, i := range chunk {
+			rec := &recs[i]
+			seq, legacyID := first+int64(i), any(nil)
+			if legacy {
+				seq, legacyID = rec.ID, rec.ID
+			}
+			args = append(args, seq, legacyID,
+				rec.Timestamp, rec.CategoryUID, rec.ClassUID, rec.SeverityID,
+				nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), rec.RawData,
+				nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
+				nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)),
+				nullableInt64(rec.SourceID), nullable(string(rec.Fields)))
+		}
+		if _, err := stmt.ExecContext(ctx, args...); err != nil {
+			return fmt.Errorf("insert records %d-%d: %w", chunk[0], chunk[len(chunk)-1], err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events_fts (rowid, raw_data) SELECT id, raw_data FROM events WHERE id > ?`, top); err != nil {
+		return fmt.Errorf("index batch: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit batch: %w", err)
 	}
 	return nil
 }
