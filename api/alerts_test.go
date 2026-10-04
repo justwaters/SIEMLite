@@ -174,8 +174,8 @@ func TestRuleValidation(t *testing.T) {
 }
 
 // A failed sign-in names the account only if it exists (people type
-// passwords into the username field), and strangers can't fill the database
-// with failed sign-ins.
+// passwords into the username field), and a locked-out address can't fill the
+// database by trying again and again.
 func TestFailedSignInAuditIsSafe(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -196,7 +196,9 @@ func TestFailedSignInAuditIsSafe(t *testing.T) {
 	if n := count("Tr0ub4dor*"); n != 0 {
 		t.Errorf("the text typed as a username was recorded %d times", n)
 	}
-	if n := count(`"unknown username"`); n == 0 || n > 30 {
-		t.Errorf("failed and blocked sign-ins recorded = %d, want 1-30 a minute", n)
+	// Every failure until the lockout, then the lockout once, however many
+	// more tries there are.
+	if n := count(`"unknown username"`); n != 11 {
+		t.Errorf("failed and blocked sign-ins recorded = %d, want 10 failures and 1 block", n)
 	}
 }

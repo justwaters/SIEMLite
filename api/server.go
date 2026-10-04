@@ -69,15 +69,21 @@ type Server struct {
 	http *http.Server
 
 	// Failed and blocked sign-ins are recorded before anyone has signed in,
-	// so they are capped to keep strangers from filling the database.
+	// so strangers mustn't be able to fill the database with them. Each
+	// address is already locked out after a few failures; a blocked address
+	// is recorded once per lockout, and a cap well above what one attacker's
+	// addresses produce stops a flood from many.
 	signinMu      sync.Mutex
 	signinWindow  time.Time
 	signinCount   int
 	signinDropped int
+	signinBlocked map[string]time.Time // address -> when its block was last recorded
 }
 
-// signinAuditsPerMinute caps audit events for failed and blocked sign-ins.
-const signinAuditsPerMinute = 30
+const (
+	signinAuditsPerMinute = 600
+	signinBlockedEvery    = 15 * time.Minute // the lockout window in pkg/auth
+)
 
 // NewServer builds a server listening on addr once Start is called.
 func NewServer(addr string, deps Deps) *Server {
@@ -531,6 +537,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, auth.ErrTooManyAttempts):
 		who := s.attemptedUser(r, req.Username)
+		if !s.firstBlock(clientIP(r)) {
+			w.Header().Set("Retry-After", "900")
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
 		s.auditSignin(r, audit.Entry{Action: "signin.blocked", Actor: who, Class: audit.Authentication, Severity: 4,
 			Message: "Sign-in blocked for " + who + " after too many failed attempts from this address"})
 		w.Header().Set("Retry-After", "900")
@@ -584,6 +595,29 @@ func (s *Server) attemptedUser(r *http.Request, username string) string {
 	return "an unknown username"
 }
 
+// firstBlock reports whether a blocked sign-in from addr is the first since
+// its lockout began, so a locked-out address is recorded once, not per try.
+func (s *Server) firstBlock(addr string) bool {
+	s.signinMu.Lock()
+	defer s.signinMu.Unlock()
+	now := time.Now()
+	if s.signinBlocked == nil || len(s.signinBlocked) > 10000 {
+		for a, t := range s.signinBlocked {
+			if now.Sub(t) >= signinBlockedEvery {
+				delete(s.signinBlocked, a)
+			}
+		}
+		if s.signinBlocked == nil {
+			s.signinBlocked = map[string]time.Time{}
+		}
+	}
+	if t, ok := s.signinBlocked[addr]; ok && now.Sub(t) < signinBlockedEvery {
+		return false
+	}
+	s.signinBlocked[addr] = now
+	return true
+}
+
 // auditSignin records a failed or blocked sign-in, at most
 // signinAuditsPerMinute a minute; the rest are summed into one event when the
 // next minute starts.
@@ -603,7 +637,7 @@ func (s *Server) auditSignin(r *http.Request, e audit.Entry) {
 	}
 	s.signinMu.Unlock()
 	if dropped > 0 && s.deps.Audit != nil { // from many addresses, so none is named
-		s.deps.Audit.Record(r.Context(), audit.Entry{Action: "signin.failed.more", Actor: "SIEMLite", Class: audit.Authentication, Severity: 4,
+		s.deps.Audit.Record(r.Context(), audit.Entry{Action: "signin.failed.more", Actor: "SIEMLite", Class: audit.Authentication, Severity: 5, // Critical: raises an alert
 			Message: fmt.Sprintf("%d more failed or blocked sign-ins in the last minute weren't recorded one by one", dropped),
 			Fields:  map[string]string{"count": strconv.Itoa(dropped)}})
 	}

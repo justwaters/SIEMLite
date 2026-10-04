@@ -321,8 +321,9 @@ off, and backups created, downloaded, uploaded, restored or deleted. Command-lin
 They are kept, and removed by retention, like any other events.
 
 A failed sign-in names the account only if it exists; otherwise it says "an unknown username", so a password typed
-into the username field is never stored. Failed and blocked sign-ins are recorded at most 30 a minute, with one event
-counting the rest, so nobody can fill the database by guessing. Every analyst who isn't limited to some sources can
+into the username field is never stored. Every failed sign-in is recorded until the address is locked out; the lockout is
+recorded once, not each retry. Beyond 600 failed sign-ins a minute (a flood from many addresses) the rest are counted
+in one Critical event, which raises an alert. Every analyst who isn't limited to some sources can
 read the audit log and acknowledge or close alerts.
 
 ## Backups
