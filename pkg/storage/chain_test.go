@@ -161,7 +161,8 @@ func TestUpgradeChainFromEveryVersion(t *testing.T) {
 				check(`SELECT COUNT(*) FROM events`, 0) // the main database's old table is empty
 				check(`SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH 'chain'`, 0)
 				count(`e.raw_data LIKE 'chain%'`, 50)
-				count(`e.seq = e.legacy_id`, 50) // moved events keep their id as their arrival number
+				count(`e.message = e.raw_data AND e.message LIKE 'chain%'`, 50) // a moved event's message is its line
+				count(`e.seq = e.legacy_id`, 50)                                // moved events keep their id as their arrival number
 				if n := search(`"failed password" AND chain`); n != 50 {
 					t.Errorf("search after moving found %d, want 50", n)
 				}

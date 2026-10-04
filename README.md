@@ -6,12 +6,12 @@ A lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS,
 [OCSF](https://schema.ocsf.io/) event model, stores them in SQLite, one file per day, and gives you full-text search through
 a built-in web UI and a small JSON API.
 
-- **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the original line is kept verbatim.
+- **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the parsed event is stored, and the original line is kept for 24 hours after it arrives.
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
 - **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
 - **A quiet web UI**: one search field to start, light and dark themes (or follow the system), and fonts bundled
   in the binary, so the UI never contacts a font service.
-- **Full-text search**: SQLite FTS5 combined with time, severity, category, IP, user, source, country, ASN and threat filters.
+- **Full-text search**: SQLite FTS5 over the message, program, host, user, addresses and parsed fields, combined with time, severity, category, IP, user, source, country, ASN and threat filters.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
 - **Sources and parsers**: each application gets an access token that can only send logs, with a "last used" time and
   a parser of your choice. Build parsers in the UI from sample lines, upload them, or let a local AI model suggest one.
@@ -158,13 +158,19 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 `q` uses [FTS5 query syntax](https://www.sqlite.org/fts5.html#full_text_query_syntax): `failed AND ssh`,
 `"invalid user"`, `admin*`.
 
+Full-text search covers the parsed event: its message, program, host, user, source and destination addresses and the
+extra fields a parser picked out. The original line is kept for 24 hours after it arrives (shown in an event's details),
+then removed; the parsed event stays for the whole retention period and is what the Database page shows. Searching works
+the same before and after the original goes, so search for what the parser understood rather than for a stray piece of
+the raw text.
+
 ## API
 
 | Endpoint | Who | Purpose |
 |---|---|---|
 | `POST /api/v1/logs` | access token, or admin | Raw log text, one entry per line, read with the source's parser. Optional `source` (program name) and `severity` query params. |
 | `POST /api/v1/events` | access token, or admin | JSON array of OCSF events (up to 10,000 per request). |
-| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its `source_name`, extra parsed `fields` and `enrichment`. |
+| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, 24 hours after the event arrived). |
 | `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
 | `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id"}`), rename or set the parser (`"parser_id": null` for automatic), revoke. |
@@ -411,6 +417,11 @@ kept. From the command line:
 Tokens look like `slk_...`. Only a SHA-256 hash is stored, so a token is shown once at creation. The `keys` and `users`
 commands work while the server is running. Pass `-db` if your database is not `./siemlite.db`.
 
+**Upgrading from v0.8:** each day file is upgraded once, when the server (or a command) first opens it: the stored line
+becomes the event's message and the search index is rebuilt over the parsed event, which can take a little while on a
+large history. Original lines from before the upgrade are removed about 24 hours later, like any other. Backups made
+before the upgrade can still be restored; backups made after it can't be restored by 0.8.
+
 **Upgrading from v0.7 or earlier:** Sample data is gone: its events, alerts and source are deleted, and the [log
 generator](#test-logs) takes its place. Events move from `siemlite.db` into one file per day in the background after the
 first start (the log shows progress, and a restart resumes where it stopped). Search, the dashboard and alerts work
@@ -475,7 +486,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
   one file per UTC day by when they happened (`siemlite-events/2026-10-04.db`); everything else is in `siemlite.db`.
   A search reads the days newest first and stops as soon as the page is full; within a day, a search with many matches
   reads them newest first instead of sorting them all. Each day's `events_fts` is an external-content FTS5 table kept
-  in sync by triggers, so log text is not stored twice. Event ids carry their day, and an arrival number lets the alert
+  in sync by a trigger and one bulk update per batch, so log text is not stored twice. It indexes the parsed message, program, host, user, addresses and fields, not the original line, which an hourly job clears 24 hours after the event arrived (by arrival, tracked with arrival-number watermarks, so late events keep theirs for a day too). Event ids carry their day, and an arrival number lets the alert
   engine find late events filed in older days.
 - **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.
 - **`pkg/syslogd`**: UDP, TCP and TLS syslog listeners with a sender allowlist.

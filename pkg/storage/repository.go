@@ -24,7 +24,10 @@ type Record struct {
 	SrcIP       string `json:"src_ip,omitempty"`
 	DstIP       string `json:"dst_ip,omitempty"`
 	UserName    string `json:"user_name,omitempty"`
-	RawData     string `json:"raw_data"`
+	// Message is the parsed message; RawData the original line, which is
+	// removed (left empty) a day after the event arrives.
+	Message string `json:"message"`
+	RawData string `json:"raw_data"`
 
 	Source     string `json:"source,omitempty"` // producing product, e.g. "sshd"
 	Host       string `json:"host,omitempty"`   // reporting device
@@ -291,7 +294,7 @@ func (r *Repository) records(ctx context.Context, hits []hit) ([]Record, error) 
 		for i, id := range ids {
 			args[i] = id
 		}
-		recs, err := scanRecords(ctx, db, `SELECT `+recordCols+` FROM events e WHERE e.id IN (`+
+		recs, err := scanRecords(ctx, db, `SELECT `+s.cols()+` FROM events e WHERE e.id IN (`+
 			strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ")+`)`, args...)
 		if err != nil {
 			return nil, err
@@ -336,9 +339,21 @@ const searchWave = 4
 // recordCols are an event's columns, minus the source name (sources live in
 // the main database).
 const recordCols = `e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
-		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
+		e.src_ip, e.dst_ip, e.user_name, e.message, e.raw_data,
 		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment,
 		e.source_id, e.fields`
+
+// legacyRecordCols reads the main database's old events table, which has no
+// message: the original line is the message.
+var legacyRecordCols = strings.Replace(recordCols, "e.message", "e.raw_data", 1)
+
+// cols is the columns to read from this shard's events.
+func (s *shard) cols() string {
+	if s.day == 0 {
+		return legacyRecordCols
+	}
+	return recordCols
+}
 
 func scanRecords(ctx context.Context, db *sql.DB, q string, args ...any) ([]Record, error) {
 	rows, err := db.QueryContext(ctx, q, args...)
@@ -351,12 +366,14 @@ func scanRecords(ctx context.Context, db *sql.DB, q string, args ...any) ([]Reco
 		var rec Record
 		var src, dst, user, source, host, srcCC, dstCC, enrichment, fields sql.NullString
 		var srcASN, dstASN, sourceID sql.NullInt64
+		var raw sql.NullString
 		if err := rows.Scan(&rec.ID, &rec.Timestamp, &rec.CategoryUID, &rec.ClassUID,
-			&rec.SeverityID, &src, &dst, &user, &rec.RawData,
+			&rec.SeverityID, &src, &dst, &user, &rec.Message, &raw,
 			&source, &host, &srcCC, &dstCC, &srcASN, &dstASN, &rec.Threat, &enrichment,
 			&sourceID, &fields); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
+		rec.RawData = raw.String
 		rec.SrcIP, rec.DstIP, rec.UserName = src.String, dst.String, user.String
 		rec.Source, rec.Host, rec.SrcCountry, rec.DstCountry = source.String, host.String, srcCC.String, dstCC.String
 		rec.SrcASN, rec.DstASN = int(srcASN.Int64), int(dstASN.Int64)

@@ -124,6 +124,10 @@ def main(binary, loggen):
             page.goto(url + "#/database?q=" + "%22failed%20password%22")
             page.wait_for_selector("tr.ev")
             check(page.locator("tr.ev").count() > 0, "full-text search finds events")
+            # The Event column shows the parsed message (the last field of a
+            # generator line), not the pipe-separated line it came in as.
+            event_text = page.locator("tr.ev").first.locator("td:last-child").inner_text()
+            check("|" not in event_text and "ailed password" in event_text, f"the Event column shows the parsed message ({event_text!r})")
             page.goto(url + "#/database?q=" + "%22sign-in%20failed%22")
             try:  # the previous results stay until the new ones arrive
                 page.wait_for_selector('tr.ev:has-text("Sign-in failed")', timeout=10000)

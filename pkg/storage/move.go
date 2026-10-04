@@ -42,7 +42,7 @@ func (d *DB) MoveLegacyEvents(ctx context.Context, progress func(moved, left int
 		dd.move.RLock()
 		from := dd.movedThrough
 		dd.move.RUnlock()
-		recs, err := scanRecords(ctx, d.Read, `SELECT `+recordCols+` FROM events e WHERE e.id > ? ORDER BY e.id LIMIT ?`, from, moveBatch)
+		recs, err := scanRecords(ctx, d.Read, `SELECT `+legacyRecordCols+` FROM events e WHERE e.id > ? ORDER BY e.id LIMIT ?`, from, moveBatch)
 		if err != nil {
 			return fmt.Errorf("read events to move: %w", err)
 		}

@@ -1,10 +1,12 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -26,8 +28,9 @@ func newOracle(t *testing.T) *oracle {
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	for _, s := range []string{
-		`CREATE TABLE events (id INTEGER PRIMARY KEY, timestamp INTEGER, severity_id INTEGER, host TEXT, raw_data TEXT, source_id INTEGER)`,
-		`CREATE VIRTUAL TABLE events_fts USING fts5(raw_data, content='events', content_rowid='id')`,
+		`CREATE TABLE events (id INTEGER PRIMARY KEY, timestamp INTEGER, severity_id INTEGER, message TEXT, source TEXT, host TEXT,
+			user_name TEXT, src_ip TEXT, dst_ip TEXT, fields TEXT, raw_data TEXT, source_id INTEGER)`,
+		`CREATE VIRTUAL TABLE events_fts USING fts5(` + ftsCols + `, content='events', content_rowid='id')`,
 	} {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatal(err)
@@ -39,13 +42,17 @@ func newOracle(t *testing.T) *oracle {
 func (o *oracle) add(t *testing.T, recs []Record) {
 	t.Helper()
 	for _, r := range recs {
-		res, err := o.db.Exec(`INSERT INTO events (timestamp, severity_id, host, raw_data, source_id) VALUES (?, ?, ?, ?, ?)`,
-			r.Timestamp, r.SeverityID, r.Host, r.RawData, r.SourceID)
+		res, err := o.db.Exec(`INSERT INTO events (timestamp, severity_id, message, source, host, user_name, src_ip, dst_ip, fields, raw_data, source_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.Timestamp, r.SeverityID, cmp.Or(r.Message, r.RawData), nullable(r.Source), nullable(r.Host), nullable(r.UserName),
+			nullable(r.SrcIP), nullable(r.DstIP), nullable(string(r.Fields)), r.RawData, r.SourceID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		id, _ := res.LastInsertId()
-		o.db.Exec(`INSERT INTO events_fts (rowid, raw_data) VALUES (?, ?)`, id, r.RawData)
+		if _, err := o.db.Exec(`INSERT INTO events_fts (rowid, `+ftsCols+`) SELECT id, `+ftsCols+` FROM events WHERE id = ?`, id); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -450,15 +457,7 @@ func TestSearchIndexStaysExact(t *testing.T) {
 	day := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC).UnixMilli()
 
 	// A version 1 day file, with its trigger and an event in it.
-	old, err := sql.Open("sqlite", dayDSN(filepath.Join(EventsDir(db.Path()), "2026-10-03.db"), false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range daySchema[:len(daySchema)-2] {
-		if _, err := old.Exec(s); err != nil {
-			t.Fatal(err)
-		}
-	}
+	old := buildOldDay(t, filepath.Join(EventsDir(db.Path()), "2026-10-03.db"), 1)
 	if _, err := old.Exec(`CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
 		INSERT INTO events_fts(rowid, raw_data) VALUES (new.id, new.raw_data); END`); err != nil {
 		t.Fatal(err)
@@ -467,10 +466,9 @@ func TestSearchIndexStaysExact(t *testing.T) {
 		VALUES (1, ?, 1, 1001, 1, 'older word')`, day-dayMs/2); err != nil {
 		t.Fatal(err)
 	}
-	old.Exec(`PRAGMA user_version = 1`)
 	old.Close()
 	db.Close()
-	db, err = Open(ctx, Options{Path: db.Path()})
+	db, err := Open(ctx, Options{Path: db.Path()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,5 +517,138 @@ func TestSearchIndexStaysExact(t *testing.T) {
 	}
 	if indexed != total {
 		t.Errorf("%d events indexed, %d stored", indexed, total)
+	}
+}
+
+// buildOldDay creates a day file as versions 1 and 2 made it: the original
+// line in raw_data (required), a search index over it, and no message. The
+// caller adds events and closes it.
+func buildOldDay(t *testing.T, path string, version int) *sql.DB {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", dayDSN(path, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	stmts := []string{`CREATE TABLE events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL, legacy_id INTEGER, timestamp INTEGER NOT NULL,
+		category_uid INTEGER NOT NULL, class_uid INTEGER NOT NULL, severity_id INTEGER NOT NULL,
+		src_ip TEXT, dst_ip TEXT, user_name TEXT, raw_data TEXT NOT NULL, source TEXT, host TEXT,
+		src_country TEXT, dst_country TEXT, src_asn INTEGER, dst_asn INTEGER, threat INTEGER NOT NULL DEFAULT 0,
+		enrichment TEXT, source_id INTEGER, fields TEXT)`}
+	for _, s := range daySchema { // the indexes have not changed
+		if strings.Contains(s, "INDEX") {
+			stmts = append(stmts, s)
+		}
+	}
+	stmts = append(stmts,
+		`CREATE VIRTUAL TABLE events_fts USING fts5(raw_data, content='events', content_rowid='id')`,
+		`CREATE TRIGGER events_ad AFTER DELETE ON events BEGIN
+			INSERT INTO events_fts(events_fts, rowid, raw_data) VALUES ('delete', old.id, old.raw_data); END`)
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
+
+// finishOldDay indexes what was added to a day made by buildOldDay and gives
+// it its version, as the previous release left it.
+func finishOldDay(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+	for _, s := range []string{
+		`INSERT INTO events_fts (rowid, raw_data) SELECT id, raw_data FROM events`,
+		fmt.Sprintf(`PRAGMA user_version = %d`, version),
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+}
+
+// checkIndex fails the test unless every day file's search index is
+// consistent with its events.
+func checkIndex(t *testing.T, db *DB) {
+	t.Helper()
+	for _, day := range db.Days() {
+		f, err := sql.Open("sqlite", "file:"+filepath.Join(EventsDir(db.Path()), day+".db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Exec(`INSERT INTO events_fts(events_fts) VALUES ('integrity-check')`); err != nil {
+			t.Errorf("%s: search index: %v", day, err)
+		}
+		f.Close()
+	}
+}
+
+// TestOldDayFilesAreUpgraded: day files from versions 1 and 2 (the original
+// line only, indexed) open as version 3: the message is the line, the index
+// covers the parsed columns, and nothing is lost.
+func TestOldDayFilesAreUpgraded(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTemp(t)
+	path := db.Path()
+	db.Close()
+	dir := EventsDir(path)
+	day := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC).UnixMilli()
+	for i, version := range []int{1, 2} {
+		name := dayName(dayOf(day) - i)
+		old := buildOldDay(t, filepath.Join(dir, name+".db"), version)
+		for n := range 20 {
+			if _, err := old.Exec(`INSERT INTO events (seq, timestamp, category_uid, class_uid, severity_id, raw_data, host)
+				VALUES (?, ?, 1, 1001, 1, ?, 'web-1')`, i*20+n+1, day-int64(i)*dayMs+int64(n)*1000, fmt.Sprintf("<34>sshd: version%d line%d", version, n)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		finishOldDay(t, old, version)
+	}
+	db, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewRepository(db)
+	for _, c := range []struct {
+		match string
+		want  int
+	}{{"version1", 20}, {"version2", 20}, {"line7", 2}, {"web", 40}, {`"web-1"`, 40}} {
+		recs, err := repo.Search(ctx, Filter{Match: c.match, Limit: 100})
+		if err != nil {
+			t.Fatalf("%s: %v", c.match, err)
+		}
+		if len(recs) != c.want {
+			t.Errorf("search %q found %d events, want %d", c.match, len(recs), c.want)
+		}
+	}
+	recs, _ := repo.Search(ctx, Filter{Match: "line3 AND version2", Limit: 10})
+	if len(recs) != 1 || recs[0].Message != "<34>sshd: version2 line3" || recs[0].RawData != recs[0].Message {
+		t.Errorf("upgraded event = %+v", recs)
+	}
+	checkIndex(t, db)
+	for _, d := range db.Days() {
+		f, _ := sql.Open("sqlite", "file:"+filepath.Join(dir, d+".db"))
+		var v int
+		f.QueryRow(`PRAGMA user_version`).Scan(&v)
+		var trig int
+		f.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'events_ai'`).Scan(&trig)
+		f.Close()
+		if v != dayVersion || trig != 0 {
+			t.Errorf("%s: version %d (want %d), per-row trigger %d", d, v, dayVersion, trig)
+		}
+	}
+	// New events go in beside the old ones, and deleting keeps the index exact.
+	if err := repo.InsertBatch(ctx, []Record{{Timestamp: day + 5000, CategoryUID: 1, ClassUID: 1001, SeverityID: 1, Message: "fresh message", Host: "web-9"}}); err != nil {
+		t.Fatal(err)
+	}
+	repo.DeleteOlderThan(ctx, day-dayMs/2, 1000)
+	checkIndex(t, db)
+	if recs, _ := repo.Search(ctx, Filter{Match: "fresh", Limit: 10}); len(recs) != 1 {
+		t.Errorf("fresh event not found: %v", recs)
 	}
 }

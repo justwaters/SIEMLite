@@ -2,6 +2,7 @@
 package ingest
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -134,6 +135,7 @@ func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOpti
 		SrcIP:       ev.SrcIP(),
 		DstIP:       ev.DstIP(),
 		UserName:    ev.UserName(),
+		Message:     cmp.Or(ev.Message, ev.RawData),
 		RawData:     ev.RawData,
 		Source:      ev.ProductName(),
 		Host:        ev.DeviceName(),
