@@ -50,8 +50,8 @@ var scales = map[string]scale{
 		udpMessages: 20000, udpRate: 5000, udpFloor: 0.90, tcpLines: 50000, tcpFloor: 1500,
 		bigEvents: 100_000, searchP95: time.Second, statsP95: 2 * time.Second, backupFloor: 20_000, alertFloor: 20_000,
 		searchClients: 4, searchesEachRun: 6},
-	"small": {name: "small", ingestClients: 8, ingestFor: 10 * time.Second, ingestFloor: 3000,
-		udpMessages: 100_000, udpRate: 4000, udpFloor: 0.99, tcpLines: 200000, tcpFloor: 3000,
+	"small": {name: "small", ingestClients: 8, ingestFor: 10 * time.Second, ingestFloor: 8000,
+		udpMessages: 100_000, udpRate: 4000, udpFloor: 0.99, tcpLines: 200000, tcpFloor: 8000,
 		bigEvents: 500_000, searchP95: time.Second, statsP95: 2 * time.Second, backupFloor: 50_000, alertFloor: 20_000,
 		searchClients: 8, searchesEachRun: 10},
 }

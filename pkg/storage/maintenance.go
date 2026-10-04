@@ -86,7 +86,7 @@ func CheckDayFile(ctx context.Context, path string) error {
 	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
-	if v > 1 {
+	if v > 2 {
 		return fmt.Errorf("%s is from a newer SIEMLite", filepath.Base(path))
 	}
 	return nil
