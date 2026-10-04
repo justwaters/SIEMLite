@@ -154,7 +154,8 @@ func run() error {
 	}
 	enrichers = append(enrichers, intelSvc.Matcher)
 
-	worker := ingest.New(repo, ingest.Config{BatchSize: 500, FlushInterval: 500 * time.Millisecond, Enricher: enrichers})
+	worker := ingest.New(repo, ingest.Config{BatchSize: 500, FlushInterval: 500 * time.Millisecond, Enricher: enrichers,
+		MaxAge: time.Duration(max(*retentionDays, 0)) * 24 * time.Hour})
 	engine := search.NewEngine(repo)
 
 	cleaner := retention.New(repo, retention.Config{RetentionDays: *retentionDays, Interval: 24 * time.Hour})

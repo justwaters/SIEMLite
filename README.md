@@ -183,6 +183,9 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 Applications authenticate with `Authorization: Bearer <token>`. A missing or revoked token returns `401`; a token used
 for anything but sending logs returns `403`.
 
+Events must be dated within the retention period and no more than a day ahead (a sender's clock can run a little fast).
+Others are refused and counted as rejected, with the reason, since each day's events are kept in their own file.
+
 ### Log parsing
 
 `/api/v1/logs` converts each line into an OCSF event: syslog (RFC 3164 and 5424) headers give the time and hostname,
