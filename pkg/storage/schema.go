@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 10
+const schemaVersion = 11
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -244,6 +244,24 @@ var upgrades = map[int][]string{
 		`CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip, timestamp DESC) WHERE dst_ip IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_name, timestamp DESC) WHERE user_name IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_events_host ON events(host, timestamp DESC) WHERE host IS NOT NULL`,
+	},
+	// v11: events move to one file per day (see days.go). event_seq numbers
+	// events as they arrive, continuing from the ids here so the alert
+	// engine's checkpoints stay valid; events moved from this database keep
+	// their id as their number. legacy_moved_through records how far the move
+	// has got, so it resumes after a restart.
+	10: {
+		`INSERT OR IGNORE INTO settings (key, value) SELECT 'event_seq',
+			MAX(COALESCE((SELECT MAX(id) FROM events), 0), COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0))`,
+		`INSERT OR IGNORE INTO settings (key, value) VALUES ('legacy_moved_through', '0')`,
+		// Sample data is replaced by the log generator (cmd/loggen): its
+		// events, alerts and source go, before any events move.
+		`DELETE FROM events WHERE sample = 1`,
+		`DELETE FROM alerts WHERE sample = 1`,
+		`DELETE FROM user_sources WHERE source_id IN (SELECT id FROM sources WHERE kind = 'sample')`,
+		`UPDATE alert_rules SET source_id = NULL WHERE source_id IN (SELECT id FROM sources WHERE kind = 'sample')`,
+		`UPDATE events SET source_id = NULL WHERE source_id IN (SELECT id FROM sources WHERE kind = 'sample')`,
+		`DELETE FROM sources WHERE kind = 'sample'`,
 	},
 }
 

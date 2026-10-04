@@ -12,7 +12,6 @@ const (
 	SourceToken    = "token"    // an access token an application sends logs with
 	SourceSyslog   = "syslog"   // the syslog listeners
 	SourceUpload   = "upload"   // logs pasted or uploaded in the web UI
-	SourceSample   = "sample"   // the Sample data switch
 	SourceInternal = "internal" // SIEMLite's own audit log
 )
 
@@ -90,7 +89,7 @@ func (r *Repository) GetSource(ctx context.Context, id int64) (*Source, error) {
 	return s, nil
 }
 
-// BuiltinSource returns the syslog, upload or sample source.
+// BuiltinSource returns the syslog, upload or INTERNAL source.
 func (r *Repository) BuiltinSource(ctx context.Context, kind string) (*Source, error) {
 	s, err := scanSource(r.db.Read.QueryRowContext(ctx, `SELECT `+sourceCols+` WHERE s.kind = ?`, kind))
 	if errors.Is(err, sql.ErrNoRows) {

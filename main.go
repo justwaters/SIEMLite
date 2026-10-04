@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,7 +36,6 @@ import (
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
 	"siemlite/pkg/retention"
-	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
@@ -88,7 +88,6 @@ func run() error {
 	keyFile := flag.String("tls-key", "", "TLS private key PEM (default: <db dir>/siemlite.key)")
 	tlsHosts := flag.String("tls-hosts", "", "extra comma-separated DNS names/IPs for a generated certificate")
 	retentionDays := flag.Int("retention-days", 30, "delete events older than this many days")
-	loadSample := flag.Bool("sample", false, "load sample data at startup if it is not loaded (same as the UI's Sample data switch)")
 	geoCity := flag.String("geoip-city", "", "MaxMind/DB-IP City or Country .mmdb for IP geolocation")
 	geoASN := flag.String("geoip-asn", "", "MaxMind/DB-IP ASN .mmdb for IP autonomous system lookup")
 	var feeds feedFlag
@@ -155,7 +154,8 @@ func run() error {
 	}
 	enrichers = append(enrichers, intelSvc.Matcher)
 
-	worker := ingest.New(repo, ingest.Config{BatchSize: 500, FlushInterval: 500 * time.Millisecond, Enricher: enrichers})
+	worker := ingest.New(repo, ingest.Config{BatchSize: 500, FlushInterval: 500 * time.Millisecond, Enricher: enrichers,
+		MaxAge: time.Duration(max(*retentionDays, 0)) * 24 * time.Hour})
 	engine := search.NewEngine(repo)
 
 	cleaner := retention.New(repo, retention.Config{RetentionDays: *retentionDays, Interval: 24 * time.Hour})
@@ -163,6 +163,28 @@ func run() error {
 	bgCtx, cancelBackground := context.WithCancel(ctx)
 	defer cancelBackground() // early-return paths; the normal path cancels explicitly below
 	defer worker.Close()     // idempotent
+	if db.MovingEvents() {
+		// Upgrading from before day files: move the events in the background.
+		// Search and alerts work meanwhile; a restart resumes where it stopped.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slog.Info("moving events into one file per day", "folder", storage.EventsDir(*dbPath))
+			last := time.Now()
+			err := db.MoveLegacyEvents(bgCtx, func(moved, left int64) {
+				if time.Since(last) >= 10*time.Second {
+					last = time.Now()
+					slog.Info("moving events into day files", "moved", moved, "left", left)
+				}
+			})
+			switch {
+			case err == nil:
+				slog.Info("events moved into day files")
+			case bgCtx.Err() == nil:
+				slog.Error("moving events into day files stopped; it resumes at the next start", "err", err)
+			}
+		}()
+	}
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -218,19 +240,10 @@ func run() error {
 	}()
 	restartCh := make(chan struct{}, 1)
 
-	samples := sample.NewManager(repo, worker)
-	if *loadSample {
-		if st, err := samples.Status(ctx); err == nil && !st.Enabled {
-			if st, err = samples.Enable(ctx); err != nil {
-				slog.Warn("loading sample data failed", "err", err)
-			} else {
-				slog.Info("sample data loaded", "events", st.Events)
-				_, _ = alertEngine.Check(ctx)
-			}
-		}
-	}
-
 	if err := bootstrapAdminUser(ctx, repo); err != nil {
+		return err
+	}
+	if err := bootstrapLogGenerator(ctx, repo, *dbPath); err != nil {
 		return err
 	}
 
@@ -290,7 +303,7 @@ func run() error {
 
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine,
-		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Sample: samples, Router: router, AI: aiClient,
+		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiClient,
 		Backups: backups, Started: started, Version: version(), Audit: auditLog, Alerts: alertEngine,
 		Restart: func() {
 			select {
@@ -351,6 +364,56 @@ func bootstrapAdminUser(ctx context.Context, repo *storage.Repository) error {
 		"  username: admin\n  password: %s\n\n"+
 		"Add people with: siemlite users create -username alice -role standard\n"+
 		"Create an API key for an app that sends logs with: siemlite keys create -name myapp\n\n", password)
+	return nil
+}
+
+// LoggenTokenPath is where SIEMLite keeps the log generator's token: next to
+// the database, e.g. siemlite-loggen.token.
+func LoggenTokenPath(dbPath string) string {
+	return strings.TrimSuffix(dbPath, filepath.Ext(dbPath)) + "-loggen.token"
+}
+
+// bootstrapLogGenerator sets up, once per database, a "Log generator" parser
+// and an access token source that uses it, and saves the token where loggen
+// finds it, so a new install has test data one command away. The token can
+// only send logs; revoke the source to turn it off. Deleting the source or
+// parser doesn't bring them back.
+func bootstrapLogGenerator(ctx context.Context, repo *storage.Repository, dbPath string) error {
+	if done, err := repo.Setting(ctx, "loggen_setup", ""); err != nil || done != "" {
+		return err
+	}
+	def, err := json.Marshal(parser.LogGenerator)
+	if err != nil {
+		return err
+	}
+	pid, err := repo.CreateParser(ctx, parser.LogGenerator.Name, string(def), time.Now().UnixMilli())
+	if errors.Is(err, storage.ErrParserExists) {
+		list, lerr := repo.ListParsers(ctx)
+		if lerr != nil {
+			return lerr
+		}
+		for _, p := range list {
+			if strings.EqualFold(p.Name, parser.LogGenerator.Name) {
+				pid, err = p.ID, nil
+			}
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("log generator parser: %w", err)
+	}
+	_, token, err := auth.CreateKey(ctx, repo, "Log generator", &pid)
+	if err != nil {
+		return fmt.Errorf("log generator source: %w", err)
+	}
+	path := LoggenTokenPath(dbPath)
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		return fmt.Errorf("save the log generator's token: %w", err)
+	}
+	if err := repo.SetSetting(ctx, "loggen_setup", "1"); err != nil {
+		return err
+	}
+	fmt.Printf("Created a Log generator source for test data; its token is in %s.\n"+
+		"Send test logs with: loggen -eps 10   (in Docker: docker compose exec siemlite loggen -eps 10)\n\n", path)
 	return nil
 }
 

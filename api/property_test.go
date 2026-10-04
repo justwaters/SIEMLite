@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"siemlite/pkg/auth"
 	"siemlite/pkg/search"
@@ -38,8 +39,10 @@ func TestRestrictedVisibilityProperty(t *testing.T) {
 		ids = append(ids, src.Source.ID)
 		var lines []string
 		for j := 0; j < 30; j++ {
-			lines = append(lines, fmt.Sprintf("Oct  3 10:%02d:%02d web%d sshd[1]: Failed password for user%d from 10.0.%d.%d port 22 tag%d shared",
-				j, i, j%3, j%4, j%5, j%7, i))
+			// Within the dashboard's last 24 hours, whenever the test runs.
+			at := time.Now().Add(-time.Duration(j*30+i) * time.Minute).Format(time.Stamp) // syslog times are local
+			lines = append(lines, fmt.Sprintf("%s web%d sshd[1]: Failed password for user%d from 10.0.%d.%d port 22 tag%d shared",
+				at, j%3, j%4, j%5, j%7, i))
 		}
 		expect(t, "send", e.do(e.client(), "POST", "/api/v1/logs", strings.Join(lines, "\n"),
 			map[string]string{"Authorization": "Bearer " + src.Token}), 202)

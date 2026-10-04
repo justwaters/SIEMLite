@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,12 @@ type Config struct {
 	Workers       int             // consumer goroutines (default 2)
 	Enricher      enrich.Enricher // optional GeoIP/ASN/threat intel enrichment
 	Logger        *slog.Logger
+	// Events are stored in one file per day of their time, which senders
+	// choose, so times far from now are refused: otherwise one token could
+	// create a file for every day there is. MaxAge (0 = no limit; set it to
+	// the retention period) is how old an event may be, MaxAhead (default a
+	// day) how far in the future.
+	MaxAge, MaxAhead time.Duration
 }
 
 func (c *Config) applyDefaults() {
@@ -52,6 +59,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
+	}
+	if c.MaxAhead <= 0 {
+		c.MaxAhead = 24 * time.Hour
 	}
 }
 
@@ -92,7 +102,6 @@ func New(sink Sink, cfg Config) *Worker {
 
 // SubmitOptions adjust how one event is stored.
 type SubmitOptions struct {
-	Sample   bool            // mark as sample data (never settable through the API)
 	Enricher enrich.Enricher // runs after the configured enricher
 	SourceID int64           // the source the event arrived through
 	// Fields are extra values a parser extracted; stored as a JSON object.
@@ -110,6 +119,13 @@ func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOpti
 	if err := ev.Prepare(); err != nil {
 		return err
 	}
+	now := time.Now()
+	switch t := time.UnixMilli(ev.Time); {
+	case t.After(now.Add(w.cfg.MaxAhead)):
+		return &ocsf.ValidationError{Field: "time", Reason: fmt.Sprintf("is more than %s in the future (check the sender's clock)", w.cfg.MaxAhead)}
+	case w.cfg.MaxAge > 0 && t.Before(now.Add(-w.cfg.MaxAge)):
+		return &ocsf.ValidationError{Field: "time", Reason: fmt.Sprintf("is older than the %d days events are kept", int(w.cfg.MaxAge.Hours()/24))}
+	}
 	rec := storage.Record{
 		Timestamp:   ev.Time,
 		CategoryUID: ev.CategoryUID,
@@ -121,7 +137,6 @@ func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOpti
 		RawData:     ev.RawData,
 		Source:      ev.ProductName(),
 		Host:        ev.DeviceName(),
-		Sample:      opts.Sample,
 		SourceID:    opts.SourceID,
 	}
 	if len(opts.Fields) > 0 {

@@ -3,6 +3,7 @@ package loadtest
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,7 +26,6 @@ import (
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
-	"siemlite/pkg/sample"
 	"siemlite/pkg/search"
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
@@ -93,7 +93,7 @@ func newStack(t testing.TB, withSyslog bool) *stack {
 	}
 	s.srv = httptest.NewUnstartedServer(api.NewServer("", api.Deps{
 		DB: s.db, Repo: s.repo, Ingest: s.worker, Search: search.NewEngine(s.repo), Auth: authn, Router: router,
-		Sample: sample.NewManager(s.repo, s.worker), Backups: s.backups, Started: time.Now(), Version: "load",
+		Backups: s.backups, Started: time.Now(), Version: "load",
 		Audit: audit.New(s.worker, router, quiet), Alerts: s.alerts, Syslog: s.syslog, Logger: errLog,
 	}).Handler())
 	s.srv.EnableHTTP2 = true
@@ -182,8 +182,8 @@ func (s *stack) token(admin *http.Client, name string) (int64, string) {
 
 func (s *stack) count(where string, args ...any) int64 {
 	s.t.Helper()
-	var n int64
-	if err := s.db.Write.QueryRow("SELECT COUNT(*) FROM events WHERE "+where, args...).Scan(&n); err != nil {
+	n, err := s.db.CountEvents(context.Background(), where, args...)
+	if err != nil {
 		s.t.Fatal(err)
 	}
 	return n
@@ -192,11 +192,22 @@ func (s *stack) count(where string, args ...any) int64 {
 // healthy checks the database and search index are intact.
 func (s *stack) healthy() {
 	s.t.Helper()
-	var res string
-	if err := s.db.Write.QueryRow(`PRAGMA integrity_check`).Scan(&res); err != nil || res != "ok" {
-		s.t.Errorf("integrity_check = %q, %v", res, err)
+	files := []string{s.db.Path()}
+	for _, day := range s.db.Days() {
+		files = append(files, filepath.Join(storage.EventsDir(s.db.Path()), day+".db"))
 	}
-	if _, err := s.db.Write.Exec(`INSERT INTO events_fts(events_fts) VALUES ('integrity-check')`); err != nil {
-		s.t.Errorf("search index: %v", err)
+	for _, f := range files {
+		db, err := sql.Open("sqlite", "file:"+f)
+		if err != nil {
+			s.t.Fatal(err)
+		}
+		var res string
+		if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&res); err != nil || res != "ok" {
+			s.t.Errorf("%s: integrity_check = %q, %v", filepath.Base(f), res, err)
+		}
+		if _, err := db.Exec(`INSERT INTO events_fts(events_fts) VALUES ('integrity-check')`); err != nil {
+			s.t.Errorf("%s: search index: %v", filepath.Base(f), err)
+		}
+		db.Close()
 	}
 }

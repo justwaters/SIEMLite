@@ -1,6 +1,6 @@
-"""Browser test of the web UI against a real SIEMLite with sample data.
+"""Browser test of the web UI against a real SIEMLite fed by the log generator.
 
-    go build -o siemlite . && python3 e2e/ui_test.py ./siemlite
+    go build -o siemlite . && go build -o loggen ./cmd/loggen && python3 e2e/ui_test.py ./siemlite ./loggen
 
 Needs Playwright for Python (pip install playwright && playwright install chromium).
 Exits non-zero, listing every failure, if a check fails.
@@ -36,7 +36,7 @@ def free_port():
 def start(binary, workdir):
     port = free_port()
     log = open(os.path.join(workdir, "server.log"), "w+")
-    proc = subprocess.Popen([binary, "-addr", f"127.0.0.1:{port}", "-db", os.path.join(workdir, "siemlite.db"), "-sample"],
+    proc = subprocess.Popen([binary, "-addr", f"127.0.0.1:{port}", "-db", os.path.join(workdir, "siemlite.db")],
                             stdout=log, stderr=subprocess.STDOUT)
     password = None
     for _ in range(300):
@@ -55,11 +55,17 @@ def start(binary, workdir):
     return proc, f"https://127.0.0.1:{port}/", password
 
 
-def main(binary):
+def main(binary, loggen):
     version = Path("VERSION").read_text().strip()
     workdir = tempfile.mkdtemp(prefix="siemlite-e2e-")
     proc, url, password = start(binary, workdir)
     try:
+        # Test data from the log generator, with the source and token SIEMLite
+        # made for it on first start.
+        gen = subprocess.run([loggen, "-eps", "200", "-for", "20s", "-seed", "7", "-to", url.rstrip("/"),
+                              "-token-file", os.path.join(workdir, "siemlite-loggen.token"),
+                              "-cacert", os.path.join(workdir, "siemlite.crt")], capture_output=True, text=True)
+        check(gen.returncode == 0 and "sent" in gen.stderr, "the log generator sends to the source made for it: " + gen.stderr.strip().splitlines()[-1])
         with sync_playwright() as p:
             browser = p.chromium.launch()
             errors = []
@@ -92,11 +98,23 @@ def main(binary):
                 page.wait_for_timeout(400)
                 check(page.is_visible(f"#view-{name}"), f"{name} page opens")
 
-            # Sample data raises alerts, and an alert links to its events.
-            page.goto(url + "#/alerts")
-            page.wait_for_selector("#alerts-body tr")
+            # The generator's attacks raise alerts (the engine checks every 10s),
+            # and an alert links to its events.
+            page.goto(url + "#/sources")
+            row = page.locator("#view-sources tbody tr").filter(
+                has=page.locator("td:first-child", has_text=re.compile(r"^\s*Log generator\s*$"))).first
+            row.wait_for()
+            sel = row.locator("select")
+            chosen = sel.evaluate("s => s.options[s.selectedIndex].text") if sel.count() else ""
+            check("Access token" in row.inner_text() and chosen == "Log generator",
+                  f"the Log generator source is set up with its parser (parser: {chosen!r})")
+            for _ in range(15):
+                page.goto(url + "#/alerts")
+                page.wait_for_timeout(1500)
+                if "SSH brute force" in page.inner_text("#alerts-body"):
+                    break
             body = page.inner_text("#alerts-body")
-            check("SSH brute force" in body, "sample data raised an SSH brute force alert")
+            check("SSH brute force" in body, "the generator's attack raised an SSH brute force alert")
             check(page.inner_text("#nav-alerts").strip() not in ("", "0"), "the sidebar counts open alerts")
             page.locator("#alerts-body tr", has_text="SSH brute force").get_by_role("link", name=re.compile("View events")).first.click()
             page.wait_for_selector("tr.ev")
@@ -107,7 +125,10 @@ def main(binary):
             page.wait_for_selector("tr.ev")
             check(page.locator("tr.ev").count() > 0, "full-text search finds events")
             page.goto(url + "#/database?q=" + "%22sign-in%20failed%22")
-            page.wait_for_selector("tr.ev")
+            try:  # the previous results stay until the new ones arrive
+                page.wait_for_selector('tr.ev:has-text("Sign-in failed")', timeout=10000)
+            except Exception:
+                pass
             rows = " ".join(page.locator("tr.ev").all_inner_texts())
             check("INTERNAL" in rows and "Sign-in failed" in rows, "a failed sign-in is in the audit log from INTERNAL")
 
@@ -141,4 +162,4 @@ def main(binary):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "./siemlite")
+    main(sys.argv[1] if len(sys.argv) > 1 else "./siemlite", sys.argv[2] if len(sys.argv) > 2 else "./loggen")

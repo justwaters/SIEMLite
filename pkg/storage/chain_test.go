@@ -117,37 +117,72 @@ func TestUpgradeChainFromEveryVersion(t *testing.T) {
 				check(`PRAGMA integrity_check`, "ok")
 				check(`PRAGMA foreign_keys`, 1)
 				check(`SELECT COUNT(*) FROM pragma_foreign_key_check`, 0)
-				check(`SELECT COUNT(*) FROM events WHERE raw_data LIKE 'chain%'`, 50)
-				check(`SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH '"failed password" AND chain'`, 50)
 				check(`SELECT role FROM users WHERE username = 'ann'`, "standard")
 				check(`SELECT COUNT(*) FROM indicators`, 1)
-				check(`SELECT COUNT(*) FROM sources WHERE kind <> 'token'`, 4)
+				check(`SELECT group_concat(kind, ' ') FROM (SELECT kind FROM sources WHERE kind <> 'token' ORDER BY kind)`, "internal syslog upload")
 				check(`SELECT COUNT(*) FROM alert_rules WHERE builtin = 1`, 4)
 				check(`SELECT kind || ' ' || COALESCE(revoked_at, 'live') FROM sources WHERE id = 7`, "token live")
 				if k >= 6 {
 					check(`SELECT limited FROM users WHERE id = 2`, 1)
 					check(`SELECT COUNT(*) FROM user_sources WHERE user_id = 2 AND source_id = 7`, 1)
-					check(`SELECT COUNT(*) FROM events WHERE source_id = 7`, 25+open)
 				}
 				if k >= 8 {
-					check(`SELECT COUNT(*) FROM settings`, 1)
+					check(`SELECT COUNT(*) FROM settings WHERE key = 'backup_schedule'`, 1)
 				}
-				if _, err := db.Write.Exec(`INSERT INTO events_fts(events_fts) VALUES ('integrity-check')`); err != nil {
-					t.Errorf("search index: %v", err)
+				count := func(where string, want int64) {
+					t.Helper()
+					if n, err := db.CountEvents(ctx, where); err != nil || n != want {
+						t.Errorf("events where %s = %d, %v; want %d", where, n, err, want)
+					}
 				}
-				// The upgraded database works: new events are searchable, and
-				// deleting an old one keeps the index consistent.
 				repo := NewRepository(db)
+				search := func(match string) int {
+					t.Helper()
+					recs, err := repo.Search(ctx, Filter{Match: match, Limit: 1000})
+					if err != nil {
+						t.Fatal(err)
+					}
+					return len(recs)
+				}
+
+				if open == 0 {
+					// Before the move, the events are searched where they are.
+					if !db.MovingEvents() || search(`"failed password" AND chain`) != 50 {
+						t.Errorf("before moving: moving %v, found %d", db.MovingEvents(), search(`"failed password" AND chain`))
+					}
+					check(`SELECT value FROM settings WHERE key = 'event_seq'`, 50)
+					if err := db.MoveLegacyEvents(ctx, nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if db.MovingEvents() {
+					t.Error("events left to move after moving them")
+				}
+				check(`SELECT COUNT(*) FROM events`, 0) // the main database's old table is empty
+				check(`SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH 'chain'`, 0)
+				count(`e.raw_data LIKE 'chain%'`, 50)
+				count(`e.seq = e.legacy_id`, 50) // moved events keep their id as their arrival number
+				if n := search(`"failed password" AND chain`); n != 50 {
+					t.Errorf("search after moving found %d, want 50", n)
+				}
+				if k >= 6 {
+					count(`e.source_id = 7`, int64(25+open))
+				}
+				for _, day := range db.Days() {
+					if err := CheckDayFile(ctx, filepath.Join(EventsDir(path), day+".db")); err != nil {
+						t.Error(err)
+					}
+				}
+				// The upgraded database works: new events are numbered after
+				// the moved ones and are searchable.
 				if err := repo.InsertBatch(ctx, []Record{{Timestamp: 5000, CategoryUID: 6, ClassUID: 6003, SeverityID: 1,
 					RawData: fmt.Sprintf("after upgrade %d", open), SourceID: 7}}); err != nil {
 					t.Fatal(err)
 				}
-				db.Write.Exec(`DELETE FROM events WHERE id = 1`)
-				check(`SELECT COUNT(*) FROM events_fts WHERE events_fts MATCH 'upgrade'`, open+1)
-				if _, err := db.Write.Exec(`INSERT INTO events_fts(events_fts) VALUES ('integrity-check')`); err != nil {
-					t.Errorf("search index after writes: %v", err)
+				check(`SELECT value FROM settings WHERE key = 'event_seq'`, 51+open)
+				if n := search("upgrade"); n != open+1 {
+					t.Errorf("new events found = %d, want %d", n, open+1)
 				}
-				db.Write.Exec(`INSERT INTO events (timestamp, category_uid, class_uid, severity_id, raw_data) VALUES (1, 3, 3002, 1, 'chain refill failed password')`)
 				db.Close()
 			}
 		})

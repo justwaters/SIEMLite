@@ -28,6 +28,7 @@ type DB struct {
 	Write *sql.DB
 	Read  *sql.DB
 	path  string
+	days  *days // the events, one file per day
 }
 
 // Open opens (creating if needed) the database and applies the schema.
@@ -58,7 +59,13 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		read.Close()
 		return nil, fmt.Errorf("storage: ping reader: %w", err)
 	}
-	return &DB{Write: write, Read: read, path: opts.Path}, nil
+	d := &DB{Write: write, Read: read, path: opts.Path}
+	if d.days, err = openDays(ctx, d); err != nil {
+		write.Close()
+		read.Close()
+		return nil, err
+	}
+	return d, nil
 }
 
 // dsn builds a modernc.org/sqlite DSN. _pragma values run in order on every
@@ -129,6 +136,7 @@ func (d *DB) Ping(ctx context.Context) error {
 
 // Close checkpoints the WAL and closes both pools.
 func (d *DB) Close() error {
+	d.days.close()
 	var errs []error
 	if err := d.Read.Close(); err != nil {
 		errs = append(errs, err)

@@ -45,7 +45,7 @@ func (r *Router) Invalidate() {
 	r.mu.Unlock()
 }
 
-// Builtin returns the id of the syslog, upload or sample source.
+// Builtin returns the id of the syslog, upload or INTERNAL source.
 func (r *Router) Builtin(ctx context.Context, kind string) (int64, error) {
 	r.mu.Lock()
 	id, ok := r.builtin[kind]

@@ -11,7 +11,9 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/siemlite . && mkdir -p /out/data
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/siemlite . && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/loggen ./cmd/loggen && \
+    mkdir -p /out/data
 
 # Minimal runtime: no shell or package manager, runs as an unprivileged user.
 FROM gcr.io/distroless/static-debian12:nonroot
@@ -19,6 +21,8 @@ LABEL org.opencontainers.image.source="https://github.com/justwaters/SIEMLite" \
       org.opencontainers.image.description="A SIEM in a single Go binary" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /out/siemlite /usr/local/bin/siemlite
+# Test logs: docker compose exec siemlite loggen -eps 10
+COPY --from=build /out/loggen /usr/local/bin/loggen
 # A new named volume copies this directory's ownership, so nonroot can write it.
 COPY --from=build --chown=nonroot:nonroot /out/data /data
 # The database and TLS certificate live here; management commands such as

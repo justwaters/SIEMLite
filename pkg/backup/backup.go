@@ -1,16 +1,16 @@
 // Package backup creates, lists, prunes and restores compressed copies of
-// the SIEMLite database.
+// the SIEMLite database and its day files.
 //
-// A backup is a VACUUM INTO snapshot, gzipped, named
-// siemlite-YYYYMMDD-HHMMSS-<kind>.db.gz (UTC). Restoring never touches the
+// A backup is VACUUM INTO snapshots of every file, packed into a gzipped tar
+// named siemlite-YYYYMMDD-HHMMSS-<kind>.tar.gz (UTC); see archive.go. Backups
+// from before day files (.db.gz) still restore. Restoring never touches the
 // open database: the chosen backup is checked and unpacked next to the
-// database as <db>.restore, a backup of the current database is made first,
-// and the swap happens on the next start (ApplyPendingRestore), after which
-// the normal upgrade brings an older backup up to date.
+// database into the folder <db>.restore, a backup of the current state is
+// made first, and the swap happens on the next start (ApplyPendingRestore),
+// after which the normal upgrade brings an older backup up to date.
 package backup
 
 import (
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,7 +43,7 @@ const (
 	keyKeep     = "backup_keep"
 )
 
-var nameRe = regexp.MustCompile(`^siemlite-(\d{8}-\d{6})(?:-(\d+))?-(manual|auto|before-restore|uploaded)\.db\.gz$`)
+var nameRe = regexp.MustCompile(`^siemlite-(\d{8}-\d{6})(?:-(\d+))?-(manual|auto|before-restore|uploaded)\.(?:tar|db)\.gz$`)
 
 // Backup describes one backup file.
 type Backup struct {
@@ -74,9 +74,9 @@ type Store interface {
 	SetSetting(ctx context.Context, key, value string) error
 }
 
-// Snapshotter copies the live database to a file.
+// Snapshotter copies the live database and its day files into a folder.
 type Snapshotter interface {
-	SnapshotTo(ctx context.Context, dest string) error
+	SnapshotTo(ctx context.Context, dir string) error
 	Path() string
 }
 
@@ -164,9 +164,9 @@ func parse(name string) (Backup, bool) {
 // newName picks an unused file name for a backup of kind made now.
 func (m *Manager) newName(kind string) string {
 	stamp := m.now().UTC().Format("20060102-150405")
-	name := fmt.Sprintf("siemlite-%s-%s.db.gz", stamp, kind)
+	name := fmt.Sprintf("siemlite-%s-%s.tar.gz", stamp, kind)
 	for i := 2; fileExists(filepath.Join(m.dir, name)); i++ {
-		name = fmt.Sprintf("siemlite-%s-%d-%s.db.gz", stamp, i, kind)
+		name = fmt.Sprintf("siemlite-%s-%d-%s.tar.gz", stamp, i, kind)
 	}
 	return name
 }
@@ -213,11 +213,11 @@ func (m *Manager) create(ctx context.Context, kind string) (Backup, error) {
 	began := m.now()
 	name := m.newName(kind)
 	snap := filepath.Join(m.dir, "."+name+".snapshot")
-	defer os.Remove(snap)
+	defer os.RemoveAll(snap)
 	if err := m.db.SnapshotTo(ctx, snap); err != nil {
 		return Backup{}, err
 	}
-	if err := gzipFile(snap, filepath.Join(m.dir, name)); err != nil {
+	if err := writeArchive(snap, filepath.Join(m.dir, name)); err != nil {
 		return Backup{}, err
 	}
 	b, _ := parse(name)
@@ -229,61 +229,6 @@ func (m *Manager) create(ctx context.Context, kind string) (Backup, error) {
 		m.prune(ctx)
 	}
 	return b, nil
-}
-
-// gzipFile compresses src into dst, writing to a temporary name first so a
-// half-written backup never appears in the list.
-func gzipFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	tmp := dst + ".partial"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	zw, _ := gzip.NewWriterLevel(out, gzip.BestSpeed)
-	if _, err = io.Copy(zw, in); err == nil {
-		err = zw.Close()
-	}
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("compress backup: %w", err)
-	}
-	return os.Rename(tmp, dst)
-}
-
-// gunzipFile unpacks a backup into dst.
-func gunzipFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	zr, err := gzip.NewReader(in)
-	if err != nil {
-		return fmt.Errorf("the backup isn't a gzip file: %w", err)
-	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err = io.Copy(out, zr); err == nil {
-		err = zr.Close()
-	}
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(dst)
-		return fmt.Errorf("unpack backup: %w", err)
-	}
-	return nil
 }
 
 // path returns the file for a backup name, refusing anything that isn't
@@ -317,8 +262,9 @@ func (m *Manager) Open(name string) (*os.File, error) {
 	return os.Open(p)
 }
 
-// Upload stores a backup made elsewhere (gzipped or a plain .db file) after
-// checking it is a sound SIEMLite database.
+// Upload stores a backup made elsewhere (a backup of either format, or a
+// plain .db file) after checking every database in it. It is kept in the
+// current format.
 func (m *Manager) Upload(ctx context.Context, r io.Reader) (Backup, error) {
 	name := m.newName(Uploaded)
 	raw := filepath.Join(m.dir, "."+name+".upload")
@@ -334,18 +280,12 @@ func (m *Manager) Upload(ctx context.Context, r io.Reader) (Backup, error) {
 	if err != nil {
 		return Backup{}, fmt.Errorf("receive upload: %w", err)
 	}
-	plain := raw
-	if isGzip(raw) {
-		plain = raw + ".db"
-		defer os.Remove(plain)
-		if err := gunzipFile(raw, plain); err != nil {
-			return Backup{}, err
-		}
-	}
-	if _, err := storage.CheckFile(ctx, plain); err != nil {
+	snap := raw + ".snapshot"
+	defer os.RemoveAll(snap)
+	if err := unpack(ctx, raw, snap); err != nil {
 		return Backup{}, err
 	}
-	if err := gzipFile(plain, filepath.Join(m.dir, name)); err != nil {
+	if err := writeArchive(snap, filepath.Join(m.dir, name)); err != nil {
 		return Backup{}, err
 	}
 	b, _ := parse(name)
@@ -367,7 +307,22 @@ func isGzip(p string) bool {
 	return err == nil && magic[0] == 0x1f && magic[1] == 0x8b
 }
 
-// PendingPath is where a restore waits for the next start.
+// Verify unpacks a backup into a temporary folder and checks every
+// database in it.
+func (m *Manager) Verify(ctx context.Context, name string) error {
+	src, err := m.path(name)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp(m.dir, ".verify-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	return unpack(ctx, src, filepath.Join(tmp, "x"))
+}
+
+// PendingPath is the folder where a restore waits for the next start.
 func PendingPath(dbPath string) string { return dbPath + ".restore" }
 
 // StageRestore checks a backup, backs up the current database, and leaves
@@ -383,17 +338,16 @@ func (m *Manager) StageRestore(ctx context.Context, name string) (Backup, error)
 	defer m.jobMu.Unlock()
 	pending := PendingPath(m.db.Path())
 	tmp := pending + ".partial"
-	defer os.Remove(tmp)
-	if err := gunzipFile(src, tmp); err != nil {
-		return Backup{}, err
-	}
-	if _, err := storage.CheckFile(ctx, tmp); err != nil {
+	os.RemoveAll(tmp)
+	defer os.RemoveAll(tmp)
+	if err := unpack(ctx, src, tmp); err != nil {
 		return Backup{}, err
 	}
 	safety, err := m.create(ctx, BeforeRestore)
 	if err != nil {
 		return Backup{}, fmt.Errorf("couldn't back up the current database first, so nothing was changed: %w", err)
 	}
+	os.RemoveAll(pending) // an earlier restore that was never applied
 	if err := os.Rename(tmp, pending); err != nil {
 		return Backup{}, err
 	}
@@ -410,11 +364,13 @@ type RestoreInfo struct {
 	SavedAs string `json:"saved_as"` // the database before it, as a backup
 }
 
-// ApplyPendingRestore swaps a staged restore into place. Call it before
-// opening the database. It returns what was restored, or nil if nothing.
+// ApplyPendingRestore swaps a staged restore into place: the main database
+// and all the day files. Call it before opening the database. It returns what
+// was restored, or nil if nothing.
 func ApplyPendingRestore(dbPath string, log *slog.Logger) (*RestoreInfo, error) {
 	pending := PendingPath(dbPath)
-	if !fileExists(pending) {
+	fi, err := os.Stat(pending)
+	if err != nil {
 		return nil, nil
 	}
 	info := &RestoreInfo{}
@@ -425,21 +381,47 @@ func ApplyPendingRestore(dbPath string, log *slog.Logger) (*RestoreInfo, error) 
 	if log == nil {
 		log = slog.Default()
 	}
-	if _, err := storage.CheckFile(context.Background(), pending); err != nil {
-		bad := pending + ".rejected"
-		_ = os.Rename(pending, bad)
-		return nil, fmt.Errorf("the staged restore failed its check and was set aside as %s: %w", bad, err)
+	main, events := filepath.Join(pending, storage.MainFile), filepath.Join(pending, storage.EventsFolder)
+	if !fi.IsDir() { // staged by a version before day files: the database alone
+		main, events = pending, ""
+	}
+	if fi.IsDir() {
+		err = check(context.Background(), pending)
+	} else {
+		_, err = storage.CheckFile(context.Background(), main)
+	}
+	if err != nil {
+		return nil, setAside(pending, err)
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 	}
-	if err := os.Rename(pending, dbPath); err != nil {
+	// The backup's days replace all of today's; a backup from before day
+	// files has none (its events are in its main database, and move on start).
+	daysDir := storage.EventsDir(dbPath)
+	if err := os.RemoveAll(daysDir); err != nil {
 		return nil, fmt.Errorf("apply restore: %w", err)
 	}
+	if events != "" {
+		if err := os.Rename(events, daysDir); err != nil {
+			return nil, fmt.Errorf("apply restore: %w", err)
+		}
+	}
+	if err := os.Rename(main, dbPath); err != nil {
+		return nil, fmt.Errorf("apply restore: %w", err)
+	}
+	os.RemoveAll(pending)
 	log.Warn("restored the database from a backup", "db", dbPath, "backup", info.Backup)
 	return info, nil
+}
+
+func setAside(pending string, err error) error {
+	bad := pending + ".rejected"
+	os.RemoveAll(bad)
+	_ = os.Rename(pending, bad)
+	return fmt.Errorf("the staged restore failed its check and was set aside as %s: %w", bad, err)
 }
 
 // Settings returns the schedule.

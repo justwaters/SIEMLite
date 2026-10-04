@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 // SchemaVersion is the database format this build reads and writes.
@@ -13,20 +15,79 @@ const SchemaVersion = schemaVersion
 // Path is the database file.
 func (d *DB) Path() string { return d.path }
 
-// SnapshotTo writes a consistent, compacted copy of the database to dest
-// (which must not exist) with VACUUM INTO. It uses its own read-only
-// connection, so the shared writer is never held up; WAL lets ingest continue
-// meanwhile. (A connection that sets auto_vacuum, as the writer's does, makes
-// VACUUM INTO wait for the write lock, which a busy server never frees.)
-func (d *DB) SnapshotTo(ctx context.Context, dest string) error {
-	conn, err := sql.Open("sqlite", "file:"+d.path+"?mode=ro&_pragma=busy_timeout(5000)")
-	if err != nil {
+// A snapshot (and a backup) is a folder holding the main database as
+// MainFile and each day as EventsFolder/YYYY-MM-DD.db.
+const (
+	MainFile     = "siemlite.db"
+	EventsFolder = "events"
+)
+
+// SnapshotTo writes a compacted copy of the main database and every day file
+// into dir with VACUUM INTO. Each copy uses its own read-only connection, so
+// storing events carries on meanwhile. (A connection that sets auto_vacuum,
+// as the writer's does, makes VACUUM INTO wait for the write lock, which a
+// busy server never frees.) Days are copied before the main database, so its
+// arrival counter covers every event in them, and no events are moved
+// between files until it finishes.
+func (d *DB) SnapshotTo(ctx context.Context, dir string) error {
+	dd := d.days
+	dd.move.RLock()
+	defer dd.move.RUnlock()
+	if err := os.MkdirAll(filepath.Join(dir, EventsFolder), 0o700); err != nil {
 		return fmt.Errorf("snapshot: %w", err)
+	}
+	for _, s := range dd.span(0, 0) {
+		if s.day == 0 {
+			continue
+		}
+		if err := vacuumInto(ctx, s.path, filepath.Join(dir, EventsFolder, dayName(s.day)+".db")); err != nil {
+			return fmt.Errorf("snapshot %s: %w", dayName(s.day), err)
+		}
+	}
+	if err := vacuumInto(ctx, d.path, filepath.Join(dir, MainFile)); err != nil {
+		return fmt.Errorf("snapshot: %w", err)
+	}
+	return nil
+}
+
+func vacuumInto(ctx context.Context, src, dest string) error {
+	conn, err := sql.Open("sqlite", "file:"+src+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
 	}
 	defer conn.Close()
 	conn.SetMaxOpenConns(1)
-	if _, err := conn.ExecContext(ctx, `VACUUM INTO ?`, dest); err != nil {
-		return fmt.Errorf("snapshot: %w", err)
+	_, err = conn.ExecContext(ctx, `VACUUM INTO ?`, dest)
+	return err
+}
+
+// CheckDayFile checks that a file is a sound SIEMLite day file.
+func CheckDayFile(ctx context.Context, path string) error {
+	if _, ok := parseDayFile(filepath.Base(path)); !ok {
+		return fmt.Errorf("%s isn't named like a day (YYYY-MM-DD.db)", filepath.Base(path))
+	}
+	conn, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=query_only(1)")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	var check string
+	if err := conn.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&check); err != nil {
+		return fmt.Errorf("%s isn't a readable SQLite database: %w", filepath.Base(path), err)
+	}
+	if check != "ok" {
+		return fmt.Errorf("%s is damaged: %s", filepath.Base(path), check)
+	}
+	var n int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'seq'`).Scan(&n); err != nil || n == 0 {
+		return fmt.Errorf("%s isn't a SIEMLite day file", filepath.Base(path))
+	}
+	var v int
+	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v > 1 {
+		return fmt.Errorf("%s is from a newer SIEMLite", filepath.Base(path))
 	}
 	return nil
 }

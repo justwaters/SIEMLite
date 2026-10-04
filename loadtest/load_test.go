@@ -54,9 +54,22 @@ var scales = map[string]scale{
 		udpMessages: 100_000, udpRate: 4000, udpFloor: 0.99, tcpLines: 200000, tcpFloor: 3000,
 		bigEvents: 500_000, searchP95: time.Second, statsP95: 2 * time.Second, backupFloor: 50_000, alertFloor: 20_000,
 		searchClients: 8, searchesEachRun: 10},
-	"hard": {name: "hard", ingestClients: 32, ingestFor: 60 * time.Second, ingestFloor: 3000,
+}
+
+// hard is sized to run in about the time SIEMLITE_LOAD_FOR allows; most of
+// it goes on filling and measuring the big database.
+var hard = map[string]scale{
+	"5m": {name: "hard 5m", ingestClients: 32, ingestFor: 30 * time.Second, ingestFloor: 3000,
+		udpMessages: 120_000, udpRate: 4000, udpFloor: 0.99, tcpLines: 200_000, tcpFloor: 4000,
+		bigEvents: 600_000, searchP95: time.Second, statsP95: 2 * time.Second, backupFloor: 50_000, alertFloor: 20_000,
+		searchClients: 16, searchesEachRun: 10},
+	"30m": {name: "hard 30m", ingestClients: 32, ingestFor: 60 * time.Second, ingestFloor: 3000,
 		udpMessages: 300_000, udpRate: 4000, udpFloor: 0.99, tcpLines: 1_000_000, tcpFloor: 4000,
-		bigEvents: 5_000_000, searchP95: 2 * time.Second, statsP95: 5 * time.Second, backupFloor: 50_000, alertFloor: 20_000,
+		bigEvents: 3_000_000, searchP95: 2 * time.Second, statsP95: 5 * time.Second, backupFloor: 50_000, alertFloor: 20_000,
+		searchClients: 16, searchesEachRun: 20},
+	"2h": {name: "hard 2h", ingestClients: 32, ingestFor: 5 * time.Minute, ingestFloor: 3000,
+		udpMessages: 1_200_000, udpRate: 4000, udpFloor: 0.99, tcpLines: 3_000_000, tcpFloor: 4000,
+		bigEvents: 20_000_000, searchP95: 3 * time.Second, statsP95: 10 * time.Second, backupFloor: 50_000, alertFloor: 20_000,
 		searchClients: 16, searchesEachRun: 20},
 }
 
@@ -66,6 +79,12 @@ func loadScale(t *testing.T) scale {
 		t.Skip("set SIEMLITE_LOAD=ci, small or hard to run load tests")
 	}
 	sc, ok := scales[v]
+	if v == "hard" {
+		d := os.Getenv("SIEMLITE_LOAD_FOR")
+		if sc, ok = hard[d]; !ok {
+			t.Fatalf("with SIEMLITE_LOAD=hard, set SIEMLITE_LOAD_FOR to 5m, 30m or 2h (not %q)", d)
+		}
+	}
 	if !ok {
 		t.Fatalf("SIEMLITE_LOAD must be ci, small or hard, not %q", v)
 	}
@@ -183,7 +202,9 @@ func TestLoadIngestHTTPS(t *testing.T) {
 		sc.ingestClients, sc.ingestFor, accepted.Load(), sent.Round(time.Millisecond), total.Round(time.Millisecond), busy.Load())
 	report(t, "HTTPS ingest, accepted", float64(accepted.Load())/sent.Seconds(), sc.ingestFloor, "events/s", true)
 	report(t, "HTTPS ingest, stored and searchable", float64(accepted.Load())/total.Seconds(), sc.ingestFloor, "events/s", true)
-	report(t, "HTTPS ingest, p95 per 500-line request", float64(percentile(lat, 0.95).Milliseconds()), 5000, "ms", false)
+	// Saturating senders queue behind each other, so the floor grows with them.
+	report(t, "HTTPS ingest, p95 per 500-line request", float64(percentile(lat, 0.95).Milliseconds()),
+		float64(max(5000, 300*sc.ingestClients)), "ms", false)
 	s.healthy()
 }
 
@@ -324,9 +345,9 @@ func TestLoadBigDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	fill := time.Since(start)
-	fi, _ := os.Stat(filepath.Join(s.dir, "siemlite.db"))
-	t.Logf("filled %d events in %s (%.0f/s); database %d MB", sc.bigEvents, fill.Round(time.Millisecond),
-		float64(sc.bigEvents)/fill.Seconds(), fi.Size()>>20)
+	st, _ := s.repo.Stats(ctx)
+	t.Logf("filled %d events in %s (%.0f/s); %d MB on disk", sc.bigEvents, fill.Round(time.Millisecond),
+		float64(sc.bigEvents)/fill.Seconds(), st.SizeBytes>>20)
 
 	t.Run("search", func(t *testing.T) {
 		queries := []struct{ name, q string }{
@@ -440,7 +461,7 @@ func TestLoadBigDatabase(t *testing.T) {
 		}
 		defer rdb.Close()
 		var n int64
-		rdb.Read.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n)
+		n, _ = rdb.CountEvents(ctx, "1")
 		report(t, "restore and reopen", float64(sc.bigEvents)/time.Since(t0).Seconds(), sc.backupFloor, "events/s", true)
 		if n != s.count("1=1") {
 			t.Errorf("restored %d events, want %d", n, s.count("1=1"))

@@ -1,7 +1,7 @@
 // Package alerts evaluates alert rules against newly stored events.
 //
 // Each check looks only at events stored since the last one (tracked by
-// event id, so backfilled events with old timestamps still count). For each
+// arrival number, so backfilled events with old timestamps still count). For each
 // enabled rule it finds the groups (an IP, user or host) with new matching
 // events; a group that already has an open or acknowledged alert gets it
 // updated, otherwise the group's matches within the rule's window are
@@ -23,11 +23,11 @@ const checkpointKey = "alert_checkpoint"
 // Store is the storage the engine needs.
 type Store interface {
 	ListRules(ctx context.Context) ([]storage.Rule, error)
-	MaxEventID(ctx context.Context) (int64, error)
-	NewMatches(ctx context.Context, ru storage.Rule, afterID, maxID int64) ([]storage.RuleGroup, error)
-	WindowCounts(ctx context.Context, ru storage.Rule, groups []storage.RuleGroup, window, maxID int64) (map[string]storage.WindowStat, error)
+	MaxEventSeq(ctx context.Context) (int64, error)
+	NewMatches(ctx context.Context, ru storage.Rule, afterSeq, maxSeq int64) ([]storage.RuleGroup, error)
+	WindowCounts(ctx context.Context, ru storage.Rule, groups []storage.RuleGroup, window, maxSeq int64) (map[string]storage.WindowStat, error)
 	ActiveAlertGroups(ctx context.Context, ruleID int64) (map[string]bool, error)
-	RaiseAlert(ctx context.Context, ru storage.Rule, value string, newCount, windowCount, first, last int64, sample bool, nowMs int64) (bool, error)
+	RaiseAlert(ctx context.Context, ru storage.Rule, value string, newCount, windowCount, first, last int64, nowMs int64) (bool, error)
 	Setting(ctx context.Context, key, def string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
 }
@@ -65,11 +65,11 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 		return res, err
 	}
 	cp, _ := strconv.ParseInt(cpStr, 10, 64)
-	maxID, err := e.store.MaxEventID(ctx)
+	maxID, err := e.store.MaxEventSeq(ctx)
 	if err != nil {
 		return res, err
 	}
-	cp = min(cp, maxID) // events were deleted (retention, a restore)
+	cp = min(cp, maxID) // a restore went back in time
 	rules, err := e.store.ListRules(ctx)
 	if err != nil {
 		return res, err
@@ -108,7 +108,7 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 	return res, e.store.SetSetting(ctx, checkpointKey, strconv.FormatInt(maxID, 10))
 }
 
-// checkRule runs one rule over the events with ids in (from, maxID].
+// checkRule runs one rule over the events with arrival numbers in (from, maxID].
 func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, now int64, res *Result) error {
 	groups, err := e.store.NewMatches(ctx, ru, from, maxID)
 	if err != nil {
@@ -128,7 +128,7 @@ func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, no
 		if st.Count == 0 || (!active[g.Value] && st.Count < int64(ru.Threshold)) {
 			continue
 		}
-		opened, err := e.store.RaiseAlert(ctx, ru, g.Value, g.New, st.Count, st.First, st.Last, st.Sample, now)
+		opened, err := e.store.RaiseAlert(ctx, ru, g.Value, g.New, st.Count, st.First, st.Last, now)
 		if err != nil {
 			return err
 		}

@@ -70,14 +70,16 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build
-        run: CGO_ENABLED=0 go build -o siemlite .
+        run: |
+          CGO_ENABLED=0 go build -o siemlite .
+          CGO_ENABLED=0 go build -o loggen ./cmd/loggen
       - name: Install Playwright
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --quiet playwright==1.63.0
           .venv/bin/python -m playwright install --with-deps chromium
       - name: Click through the UI
-        run: .venv/bin/python e2e/ui_test.py ./siemlite
+        run: .venv/bin/python e2e/ui_test.py ./siemlite ./loggen
 
   vulncheck:
     name: Known vulnerabilities
