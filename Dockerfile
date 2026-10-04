@@ -1,16 +1,23 @@
 # syntax=docker/dockerfile:1
 
-# Build a static binary (SQLite is pure Go, so no CGO is needed).
-FROM golang:1.27-alpine AS build
+# Build a static binary (SQLite is pure Go, so no CGO is needed). The build
+# stage runs on the build machine's platform and cross-compiles, so
+# multi-architecture images build without emulation.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/siemlite . && mkdir -p /out/data
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/siemlite . && mkdir -p /out/data
 
 # Minimal runtime: no shell or package manager, runs as an unprivileged user.
 FROM gcr.io/distroless/static-debian12:nonroot
+LABEL org.opencontainers.image.source="https://github.com/justwaters/SIEMLite" \
+      org.opencontainers.image.description="A SIEM in a single Go binary" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /out/siemlite /usr/local/bin/siemlite
 # A new named volume copies this directory's ownership, so nonroot can write it.
 COPY --from=build --chown=nonroot:nonroot /out/data /data

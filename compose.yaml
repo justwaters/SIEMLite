@@ -3,7 +3,9 @@
 services:
   siemlite:
     build: .
-    image: siemlite:local
+    # Set SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:<version> in .env to run a
+    # prebuilt release (docker compose pull && docker compose up -d) instead.
+    image: ${SIEMLITE_IMAGE:-siemlite:local}
     restart: unless-stopped
     command:
       - -addr=0.0.0.0:8443

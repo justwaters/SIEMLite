@@ -15,6 +15,10 @@ a built-in web UI and a small JSON API.
 - **HTTPS only**: no plain-HTTP listener. Self-signed certificate generated on first start, or bring your own.
 - **Sources and parsers**: each application gets an access token that can only send logs, with a "last used" time and
   a parser of your choice. Build parsers in the UI from sample lines, upload them, or let a local AI model suggest one.
+- **Alerts**: rules that watch for patterns, like 10 failed SSH passwords from one address in 5 minutes, with four
+  built in. Acknowledge and close alerts on the Alerts page.
+- **Audit log**: sign-ins, changes to users, sources, parsers and rules, backups and restores are recorded as events
+  from the **INTERNAL** source, searchable like any other log.
 - **People and permissions**: Admins manage everything; Standard users search, optionally limited to chosen sources.
 - **Automatic retention**: old events are deleted in batches and disk space is reclaimed.
 - **Pure Go, no CGO**: uses [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite).
@@ -23,7 +27,9 @@ a built-in web UI and a small JSON API.
 
 ## Quick start
 
-Requires Go.
+Download a prebuilt binary for Linux, macOS or Windows (x86-64 or ARM64) from the
+[latest release](https://github.com/justwaters/SIEMLite/releases/latest), check it against `SHA256SUMS`, unpack it and run
+`./siemlite`. Or build it yourself (requires Go):
 
 ```sh
 git clone https://github.com/justwaters/SIEMLite.git
@@ -41,7 +47,9 @@ events. See [Sample data](#sample-data).
 
 ### Run with Docker
 
-The web UI is built into the binary, so this is a single container. Deploy and upgrade with one command:
+The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.7` in `.env` and run `docker compose pull && docker compose up -d`.
+Or build from the checkout, and deploy and upgrade with one command:
 
 ```sh
 git clone https://github.com/justwaters/SIEMLite.git && cd SIEMLite
@@ -80,10 +88,13 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
 - **Database**: every event, newest first, with full-text search, a **From mm/dd/yy to mm/dd/yy** date range and filters
   for source, severity, category, IPs, user, program, country and threat matches. Open an event for its details.
   The address bar keeps the search, so it can be bookmarked or shared.
+- **Alerts**: alerts raised by the rules, by severity, with how many events and when. Open the events behind an alert,
+  acknowledge it while you look into it, then close it. The **Rules** tab lists the rules; admins add, edit and switch them off.
+  Users limited to some sources don't see alerts, since a rule looks at every source.
 - **Users** (admins): add people, set their role, limit what they can see, change passwords.
 - **Sources** (admins): create access tokens, see when each source last sent logs, choose its parser, add logs by hand.
 - **Parsers** (admins): build, upload, export and edit parsers.
-- **System** (admins): database size and uptime, and backups: create, schedule, download, upload, restore and delete.
+- **System** (admins): the version, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 
 ### Send logs from an app
 
@@ -155,6 +166,9 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 | `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id"}`), rename or set the parser (`"parser_id": null` for automatic), revoke. |
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates` | admin | Manage parsers. |
+| `GET /api/v1/alerts?status=open` | any signed-in user not limited to some sources | Alerts (`open`, `acknowledged`, `closed` or `all`) and the count in each state. |
+| `PATCH /api/v1/alerts/{id}` | same | Acknowledge, close or reopen: `{"status": "acknowledged"}`. |
+| `GET /api/v1/rules`, `POST /api/v1/rules`, `PUT`/`DELETE /api/v1/rules/{id}` | any signed-in user (list), admin | Alert rules: `{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes"}`. |
 | `GET /api/v1/system` | admin | Database size and version, uptime, backups folder and free space. |
 | `GET`/`POST /api/v1/backups`, `PUT /api/v1/backups/settings`, `POST /api/v1/backups/upload` | admin | List backups and the job status, start a backup, set the schedule (`{"interval_hours": 0/6/24/168, "keep"}`), upload a backup file. |
 | `GET`/`DELETE /api/v1/backups/{name}`, `POST /api/v1/backups/{name}/restore` | admin | Download or delete a backup; restore it (SIEMLite restarts). |
@@ -279,6 +293,33 @@ The **Sample data** switch in the sidebar (admins only) loads about 380 demo eve
 - `POST /api/v1/sample` with `{"enabled": true}` or `false` does the same (signed-in admins only);
   `GET /api/v1/sample` reports the state.
 
+## Alerts
+
+A rule counts matching events and raises an alert when there are enough of them within a time window. Matching events
+can be narrowed by a search (the same syntax as the Database), a minimum severity, threat intel matches and a source,
+and counted separately for each source address, destination address, user or host. The alert engine checks new events
+every 10 seconds.
+
+| Built-in rule | Raises an alert for |
+|---|---|
+| SSH brute force | 10 `"failed password"` events from one address within 5 minutes |
+| Threat intel match | any event involving an address, domain or hash on a threat list |
+| Critical event | any event rated Critical or Fatal, per host |
+| Failed sign-ins to SIEMLite | 5 failed sign-ins to SIEMLite itself from one address within 15 minutes |
+
+While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
+the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. Sample data raises sample
+alerts, which go away when sample data is turned off.
+
+## Audit log
+
+SIEMLite records what people do in it as events from the built-in **INTERNAL** source: sign-ins, failed and blocked
+sign-ins, sign-outs, changes to users, sources, parsers and rules, alerts acknowledged or closed, sample data switched on or
+off, and backups created, downloaded, uploaded, restored or deleted. Command-line changes are recorded too, as "command line
+(user)". Each event names who did it and from which address, and has an `action` field such as `signin.failed` or
+`user.delete`. Search for them in the Database by choosing the INTERNAL source, or with a search like `"sign-in failed"`.
+They are kept, and removed by retention, like any other events.
+
 ## Backups
 
 On the **System** page, choose **Create backup now**, or set automatic backups to run every 6 hours, every day or every
@@ -375,6 +416,8 @@ by spaces.
 | `-ai-model` | `qwen2.5-coder:3b` | Model for AI parser help; downloaded on first start if missing |
 | `-backup-dir` | `<db dir>/backups` | Folder for database backups |
 
+`siemlite version` prints the version.
+
 ## How it works
 
 ```
@@ -391,7 +434,8 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 - **`pkg/sources`**: applies each source's parser to its lines.
 - **`pkg/ai`**: parser suggestions from a local model via Ollama.
 - **`pkg/backup`**: backups (`VACUUM INTO`, gzipped), the schedule, uploads, and restores applied at startup.
-- **`pkg/storage`**: SQLite setup (WAL, `synchronous=NORMAL`, `busy_timeout=5000`), schema, queries. `events_fts` is an
+- **`pkg/storage`**: SQLite setup (WAL, `synchronous=NORMAL`, `busy_timeout=5000`), schema, queries. A search with
+  many matches reads them newest first and stops at the page, instead of sorting them all. `events_fts` is an
   external-content FTS5 table kept in sync by triggers, so log text is not stored twice.
 - **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.
 - **`pkg/syslogd`**: UDP, TCP and TLS syslog listeners with a sender allowlist.
@@ -399,18 +443,74 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 - **`pkg/intel`**: feed parsing, the in-memory indicator matcher and feed refresh.
 - **`pkg/search`**: combines time window, OCSF filters and FTS5.
 - **`pkg/retention`**: deletes expired events in batches, then runs `PRAGMA incremental_vacuum`.
+- **`pkg/alerts`**: the alert engine: runs each rule over the events since its last check.
+- **`pkg/audit`**: writes the audit log as INTERNAL events.
 - **`pkg/auth`**: access tokens, users, roles, source limits, sessions and permission checks.
 - **`api`**: HTTPS server and endpoints. **`web`**: the embedded UI.
+
+## Performance
+
+Measured with the load tests in [`loadtest`](loadtest/doc.go) (`SIEMLITE_LOAD=hard`) on one small machine: an AMD Ryzen
+Embedded R2544 (4 cores, 8 threads), 14 GB of memory and an SSD, with the database on that SSD. Each figure is the 95th
+percentile with many clients working at once.
+
+| Workload | Result |
+|---|---|
+| Logs over HTTPS, 32 apps sending 500-line batches at once | 4,600 events/s accepted, 3,700/s stored and searchable (about 320 million a day) |
+| Syslog over UDP at 4,000 messages/s for 75 s | 300,000 of 300,000 stored |
+| Syslog over TCP, 4 senders as fast as they can | 4,100 lines/s stored, none lost |
+| Search 5 million events (2.4 GB), 16 people at once: newest page, a common word, an address, a user | 4-27 ms |
+| ... a phrase, three words with AND, a host and severity | 28-80 ms |
+| ... a word within one day, results 5,001-5,100 | 190-200 ms (a user limited to some sources: up to 530 ms) |
+| Dashboard over 5 million events | 1.4 s |
+| Alert rules, first check of all 5 million events | 7 s |
+| Backup of 5 million events (684 MB compressed) / restore | 33 s / 21 s |
+
+When senders outpace storage, SIEMLite answers `503` with `Retry-After` and how many lines it kept, so nothing is
+lost silently; UDP syslog has no way to push back, so keep its rate under what storage sustains.
+
+Version 0.7 made search much faster on large databases. On 500,000 events with 8 people searching at once:
+
+| Search | v0.6 | v0.7 |
+|---|---|---|
+| A common word | 2,330 ms | 20 ms |
+| Results 5,001-5,100 for a common word | 3,131 ms | 78 ms |
+| An address | 299 ms | 1 ms |
+| A host and severity, by a user limited to some sources | 960 ms | 41 ms |
 
 ## Development
 
 ```sh
-go test -race ./...
+go test -race ./...                                   # everything below except load and fuzzing
+SIEMLITE_LOAD=small go test ./loadtest -run Load -v   # load tests: ci (~1 min), small (~6 min) or hard (~40 min)
+go test ./pkg/parser -run '^$' -fuzz FuzzDraftPattern # one fuzzer; see .github/workflows/ci.yml for all of them
+python3 e2e/ui_test.py ./siemlite                     # browser test (needs Playwright for Python)
 ```
 
-Every pull request and every commit on `main` runs the same checks on GitHub (`.github/workflows/ci.yml`): formatting, `go vet`, the
-tests with the race detector, a build, a syntax check of the web UI's script, `govulncheck` for known
-vulnerabilities in code SIEMLite actually calls, and a build of the Docker image.
+The tests go beyond examples:
+
+- **Every route, every caller**: the API's route table is read from the source, and each route is called with no
+  credentials, a forged cookie, a bad token, a valid access token, a standard user and an admin, and cross-site. A new
+  route can't ship without a permission.
+- **Limited users never see other sources**: random users get random sets of sources and run random searches, filters
+  and pages; their results must equal an admin's results less the sources they weren't given.
+- **Upgrades from every version**: a populated database from every schema version SIEMLite has shipped is upgraded and
+  must end up identical to a new one, with every row, reference and search index intact.
+- **Fuzzing**: log lines, parser patterns, the pattern builder, syslog framing, backup names and threat intel feeds get
+  millions of generated inputs. This found and fixed four ways the pattern builder could draft a pattern that didn't
+  match its own sample lines.
+- **Everything at once**: ingest over HTTPS and syslog, searches by admins and limited users, retention, backups, the alert
+  engine, sample data and user changes run together, under the race detector too. Nothing may be lost, leaked or
+  corrupted, and every backup must open. This found backups failing with "database is locked" on a busy server; fixed.
+- **Load**: ingest over HTTPS, syslog floods and searches on millions of events, each with a floor it must reach;
+  see [Performance](#performance). Running these found and fixed slow searches for common words and deep pages, and an
+  alert engine that would have needed minutes for a large database.
+- **In a browser**: a real SIEMLite with sample data is clicked through page by page, at desktop and phone sizes.
+
+Every pull request and every commit on `main` runs these on GitHub (`.github/workflows/ci.yml`): formatting, `go vet`,
+the tests with the race detector, the `ci` load tests, 20 seconds of each fuzzer, the browser test, a build, a syntax
+check of the web UI's script, `govulncheck` for known vulnerabilities in code SIEMLite actually calls, and a build of the
+Docker image for x86-64 and ARM64.
 
 ## License
 

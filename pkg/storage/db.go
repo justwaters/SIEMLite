@@ -61,19 +61,28 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	return &DB{Write: write, Read: read, path: opts.Path}, nil
 }
 
-// dsn builds a modernc.org/sqlite DSN. _pragma values run on every new
-// connection. auto_vacuum comes first: it only takes effect on a database
-// that has no tables yet, and incremental_vacuum needs it set to 2.
+// dsn builds a modernc.org/sqlite DSN. _pragma values run in order on every
+// new connection. busy_timeout comes first so the others wait for a lock
+// instead of failing with SQLITE_BUSY while another connection writes or
+// checkpoints. auto_vacuum comes before journal_mode: it only takes effect
+// on a database that has no tables yet, and incremental_vacuum needs it set
+// to 2.
+//
+// Readers only set a busy timeout: the WAL mode is stored in the file, and
+// the other pragmas can need a lock (so a new reader could be refused while
+// the writer is busy).
 func dsn(path string, readOnly bool) string {
 	q := url.Values{}
+	q.Add("_pragma", "busy_timeout(5000)")
+	if readOnly {
+		q.Add("_pragma", "query_only(1)")
+		return "file:" + path + "?" + q.Encode()
+	}
 	q.Add("_pragma", "auto_vacuum(2)")
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
-	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", "cache_size(-65536)") // 64 MB: index pages stay cached as the database grows
 	q.Add("_pragma", "foreign_keys(1)")
-	if readOnly {
-		q.Add("_pragma", "query_only(1)")
-	}
 	// url.Values.Encode sorts keys but preserves per-key order.
 	return "file:" + path + "?" + q.Encode()
 }

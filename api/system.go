@@ -2,10 +2,12 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"time"
 
+	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/storage"
@@ -40,6 +42,7 @@ func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 		"database": map[string]any{"path": absPath(s.deps.DB.Path()), "size_bytes": st.SizeBytes, "events": st.Events,
 			"schema_version": storage.SchemaVersion},
 		"started_at": s.deps.Started.UnixMilli(),
+		"version":    s.deps.Version,
 	}
 	if s.deps.Backups != nil {
 		out["backups"] = map[string]any{"dir": s.deps.Backups.Dir(), "free_bytes": s.deps.Backups.Free()}
@@ -78,6 +81,7 @@ func (s *Server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("backup started", "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "backup.create", Message: auth.FromContext(r.Context()).Name + " started a backup"})
 	writeJSON(w, http.StatusAccepted, s.deps.Backups.Status())
 }
 
@@ -94,6 +98,8 @@ func (s *Server) handleBackupSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("backup schedule changed", "every_hours", set.IntervalHours, "keep", set.Keep, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "backup.schedule", Message: fmt.Sprintf("%s set automatic backups to every %d hours, keeping %d (0 hours means off)",
+		auth.FromContext(r.Context()).Name, set.IntervalHours, set.Keep)})
 	writeJSON(w, http.StatusOK, set)
 }
 
@@ -120,6 +126,8 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+info.Name()+`"`)
 	s.deps.Logger.Info("backup downloaded", "name", info.Name(), "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "backup.download", Severity: 2, Message: auth.FromContext(r.Context()).Name + " downloaded the backup " + info.Name(),
+		Fields: map[string]string{"target": info.Name()}})
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
@@ -138,6 +146,8 @@ func (s *Server) handleUploadBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("backup uploaded", "name", b.Name, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "backup.upload", Message: auth.FromContext(r.Context()).Name + " uploaded the backup " + b.Name,
+		Fields: map[string]string{"target": b.Name}})
 	writeJSON(w, http.StatusCreated, b)
 }
 
@@ -154,6 +164,8 @@ func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("backup deleted", "name", name, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "backup.delete", Severity: 2, Message: auth.FromContext(r.Context()).Name + " deleted the backup " + name,
+		Fields: map[string]string{"target": name}})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -182,6 +194,11 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Warn("restore requested", "backup", name, "saved_current_as", safety.Name, "by", auth.FromContext(r.Context()).Name)
+	// Recorded before the restart. It's in the database that was just saved
+	// as safety, and the restored database won't contain it, so the restart
+	// records the restore again once it's back (see main).
+	s.audit(r, audit.Entry{Action: "backup.restore", Severity: 4, Message: auth.FromContext(r.Context()).Name + " restored the backup " + name +
+		"; the database before it was saved as " + safety.Name, Fields: map[string]string{"target": name, "saved_as": safety.Name}})
 	writeJSON(w, http.StatusAccepted, map[string]any{"restarting": true, "saved_current_as": safety.Name})
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()

@@ -1,10 +1,13 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 )
 
@@ -114,17 +117,163 @@ func (r *Repository) InsertBatch(ctx context.Context, recs []Record) error {
 	return nil
 }
 
-// Search runs the filter, newest events first. When f.Match is set the query
-// joins events_fts to events on rowid.
+// Search runs the filter, newest events first.
 func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
-	query, args := buildSearch(f)
-	rows, err := r.db.Read.QueryContext(ctx, query, args...)
+	if f.Match != "" {
+		// Sorting every match by time reads each matching event in full,
+		// which is slow beyond a few hundred. denseSearch avoids that, but
+		// walks the time index back as far as the page reaches, which is
+		// short only when matches are common. Count enough to tell.
+		need := max(denseMatches, denseFactor*(f.Offset+f.Limit))
+		var n int
+		if err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT rowid FROM events_fts WHERE events_fts MATCH ? LIMIT ?)`,
+			f.Match, need).Scan(&n); err != nil {
+			return nil, fmt.Errorf("search: %w", err)
+		}
+		if n >= need {
+			ids, err := r.denseSearch(ctx, f)
+			if err != nil {
+				return nil, fmt.Errorf("search: %w", err)
+			}
+			return r.records(ctx, ids)
+		}
+	}
+	where, args := filterWhere(f)
+	from := "events e"
+	if f.Match != "" {
+		from = "events_fts JOIN events e ON e.id = events_fts.rowid"
+		where = append([]string{"events_fts MATCH ?"}, where...)
+		args = append([]any{f.Match}, args...)
+	}
+	q := `SELECT ` + recordCols + ` FROM ` + from + ` LEFT JOIN sources so ON so.id = e.source_id` + whereSQL(where) +
+		` ORDER BY e.timestamp DESC, e.id DESC LIMIT ? OFFSET ?`
+	return r.scanRecords(ctx, q, append(args, f.Limit, f.Offset)...)
+}
+
+// A search uses denseSearch when it has at least denseMatches matches and
+// denseFactor times the events up to the end of the page; then the walk back
+// through time covers at most about 1/denseFactor of the events.
+var (
+	denseMatches = 2000 // variables so tests can change them
+	denseFactor  = 20
+)
+
+// denseSearch returns the ids of a page of a search that matches many
+// events, without reading every match. Ids grow as events are stored, so
+// the newest ids are nearly the newest events:
+//
+//  1. Read matches newest id first (the search index can do this lazily)
+//     until there are offset+limit that pass the filters: the candidates.
+//  2. An event belongs on the page instead of a candidate only if it is at
+//     least as new as the oldest candidate that would be on the page, yet has
+//     a smaller id than every candidate (a late arrival with an old
+//     timestamp, or a clock running ahead). Those are found by walking the
+//     time index back to that time, which is short.
+//
+// The page is exactly what sorting every match would give.
+func (r *Repository) denseSearch(ctx context.Context, f Filter) ([]int64, error) {
+	k := f.Offset + f.Limit
+	where, args := filterWhere(f)
+	bound := int64(math.MaxInt64)
+	if f.StartMs > 0 || f.EndMs > 0 {
+		// No event in the time range has a larger id than this.
+		end := f.EndMs
+		if end <= 0 {
+			end = math.MaxInt64
+		}
+		var maxID sql.NullInt64
+		if err := r.db.Read.QueryRowContext(ctx, `SELECT MAX(id) FROM events INDEXED BY idx_events_ts WHERE timestamp >= ? AND timestamp <= ?`,
+			f.StartMs, end).Scan(&maxID); err != nil {
+			return nil, err
+		}
+		if !maxID.Valid {
+			return nil, nil
+		}
+		bound = maxID.Int64
+	}
+	type hit struct{ id, ts int64 }
+	read := func(q string, args ...any) ([]hit, error) {
+		rows, err := r.db.Read.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []hit
+		for rows.Next() {
+			var h hit
+			if err := rows.Scan(&h.id, &h.ts); err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+		}
+		return out, rows.Err()
+	}
+	// CROSS JOIN keeps the search index as the outer loop, read newest id first.
+	cand, err := read(`SELECT e.id, e.timestamp FROM events_fts CROSS JOIN events e ON e.id = events_fts.rowid
+		WHERE events_fts MATCH ? AND events_fts.rowid <= ?`+andSQL(where)+` ORDER BY events_fts.rowid DESC LIMIT ?`,
+		append(append([]any{f.Match, bound}, args...), k)...)
+	if err != nil {
+		return nil, err
+	}
+	newest := func(a, b hit) int {
+		if a.ts != b.ts {
+			return cmp.Compare(b.ts, a.ts)
+		}
+		return cmp.Compare(b.id, a.id)
+	}
+	if len(cand) == k {
+		slices.SortFunc(cand, newest)
+		oldest, minID := cand[k-1].ts, cand[len(cand)-1].id
+		for _, h := range cand {
+			minID = min(minID, h.id)
+		}
+		late, err := read(`SELECT e.id, e.timestamp FROM events e INDEXED BY idx_events_ts
+			WHERE e.timestamp >= ? AND e.id < ?`+andSQL(where)+`
+			AND EXISTS (SELECT 1 FROM events_fts WHERE events_fts MATCH ? AND events_fts.rowid = e.id)`,
+			append(append([]any{oldest, minID}, args...), f.Match)...)
+		if err != nil {
+			return nil, err
+		}
+		cand = append(cand, late...)
+	}
+	slices.SortFunc(cand, newest)
+	if f.Offset >= len(cand) {
+		return nil, nil
+	}
+	cand = cand[f.Offset:min(len(cand), k)]
+	ids := make([]int64, len(cand))
+	for i, h := range cand {
+		ids[i] = h.id
+	}
+	return ids, nil
+}
+
+// records reads events by id, keeping the order of ids.
+func (r *Repository) records(ctx context.Context, ids []int64) ([]Record, error) {
+	if len(ids) == 0 {
+		return []Record{}, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	q := `SELECT ` + recordCols + ` FROM events e LEFT JOIN sources so ON so.id = e.source_id WHERE e.id IN (` +
+		strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ") + `) ORDER BY e.timestamp DESC, e.id DESC`
+	return r.scanRecords(ctx, q, args...)
+}
+
+const recordCols = `e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
+		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
+		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment, e.sample,
+		e.source_id, COALESCE(so.name, ''), e.fields`
+
+func (r *Repository) scanRecords(ctx context.Context, q string, args ...any) ([]Record, error) {
+	rows, err := r.db.Read.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
 	defer rows.Close()
-
-	out := make([]Record, 0, min(max(f.Limit, 0), 1000))
+	out := []Record{}
 	for rows.Next() {
 		var rec Record
 		var src, dst, user, source, host, srcCC, dstCC, enrichment, fields sql.NullString
@@ -153,27 +302,24 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Record, error) {
 	return out, nil
 }
 
-func buildSearch(f Filter) (string, []any) {
-	var (
-		sb    strings.Builder
-		where []string
-		args  []any
-	)
-	sb.WriteString(`SELECT e.id, e.timestamp, e.category_uid, e.class_uid, e.severity_id,
-		e.src_ip, e.dst_ip, e.user_name, e.raw_data,
-		e.source, e.host, e.src_country, e.dst_country, e.src_asn, e.dst_asn, e.threat, e.enrichment, e.sample,
-		e.source_id, COALESCE(so.name, ''), e.fields FROM `)
-
-	if f.Match != "" {
-		sb.WriteString("events_fts JOIN events e ON e.id = events_fts.rowid")
-		where = append(where, "events_fts MATCH ?")
-		args = append(args, f.Match)
-	} else {
-		sb.WriteString("events e")
+func whereSQL(where []string) string {
+	if len(where) == 0 {
+		return ""
 	}
-	sb.WriteString(" LEFT JOIN sources so ON so.id = e.source_id")
-	where, args = sourceWhere(f, where, args)
+	return " WHERE " + strings.Join(where, " AND ")
+}
 
+func andSQL(where []string) string {
+	if len(where) == 0 {
+		return ""
+	}
+	return " AND " + strings.Join(where, " AND ")
+}
+
+// filterWhere is the conditions on events (e) for everything in f except
+// the text search.
+func filterWhere(f Filter) ([]string, []any) {
+	where, args := sourceWhere(f, nil, nil)
 	if f.StartMs > 0 {
 		where = append(where, "e.timestamp >= ?")
 		args = append(args, f.StartMs)
@@ -226,13 +372,7 @@ func buildSearch(f Filter) (string, []any) {
 		where = append(where, "e.threat = 1")
 	}
 
-	if len(where) > 0 {
-		sb.WriteString(" WHERE ")
-		sb.WriteString(strings.Join(where, " AND "))
-	}
-	sb.WriteString(" ORDER BY e.timestamp DESC, e.id DESC LIMIT ? OFFSET ?")
-	args = append(args, f.Limit, f.Offset)
-	return sb.String(), args
+	return where, args
 }
 
 // DeleteSample removes every sample event and returns how many there were.
@@ -350,8 +490,11 @@ func sourceWhere(f Filter, where []string, args []any) ([]string, []any) {
 		if len(f.AllowedSources) == 0 {
 			return append(where, "0"), args
 		}
+		// "+" keeps the limit from choosing the plan: the source index
+		// covers a large share of events and would be sorted in full, where
+		// the plan an admin gets (time, threat or search index) stops early.
 		marks := strings.TrimSuffix(strings.Repeat("?, ", len(f.AllowedSources)), ", ")
-		where = append(where, "e.source_id IN ("+marks+")")
+		where = append(where, "+e.source_id IN ("+marks+")")
 		for _, id := range f.AllowedSources {
 			args = append(args, id)
 		}

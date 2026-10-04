@@ -80,6 +80,7 @@
   .side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 26px;
           padding: 22px 16px 18px; border-right: 1px solid var(--rule); overflow-y: auto; background: var(--paper); }
   .wordmark { font-weight: 650; font-size: 19px; letter-spacing: -.2px; font-stretch: 88%; padding: 0 10px; margin: 0; }
+  .wordmark .ver { font-size: 12px; font-weight: 500; font-stretch: 100%; letter-spacing: 0; color: var(--ink-2); margin-left: 4px; }
   .nav { display: grid; gap: 2px; }
   .nav-sep { height: 1px; background: var(--rule); margin: 10px 10px; }
   .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 6px;
@@ -278,6 +279,26 @@
   .spinner { width: 14px; height: 14px; border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Alerts */
+  .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--sev-5); color: #fff;
+               font-size: 12px; font-weight: 700; text-align: center; line-height: 20px; }
+  .alert-tabs { margin-bottom: 14px; }
+  .alert-tabs .n { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .alerts-table td { white-space: nowrap; }
+  .alerts-table td.what { white-space: normal; min-width: 220px; }
+  .alerts-table .grp { font-family: var(--mono); font-size: 13px; color: var(--ink-2); margin-left: 8px; }
+  .alerts-table .grp.none { font-family: var(--sans); font-style: italic; }
+  .status-open { color: var(--sev-5); font-weight: 600; }
+  .status-acknowledged { color: var(--sev-3); font-weight: 600; }
+  .status-closed { color: var(--ink-2); }
+  .figures.four { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
+  .figure-link { color: inherit; text-decoration: none; }
+  .figure-link:hover { background: var(--raised); }
+  .figure-link .value { color: var(--sev-5); }
+  .three { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 12px; }
+  .rule-sentence { color: var(--ink-2); font-size: 14px; }
+  .rule-sentence code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+
   /* System */
   .sys-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 16px; }
   .sys-figures .value { font-size: 26px; }
@@ -320,10 +341,12 @@
     .main { padding: 0 16px 40px; }
     .dash-search { margin-top: 5vh; }
     .dash-search .field input.q { font-size: 17px; padding: 15px 8px; }
-    .figures { grid-template-columns: 1fr 1fr; }
+    .figures, .figures.four { grid-template-columns: 1fr 1fr; }
     .sys-figures { grid-template-columns: 1fr; }
+    .three { grid-template-columns: 1fr; }
     .sched { grid-template-columns: 1fr; }
     .figure.hero { grid-column: 1 / -1; }
+    .figures.four #fig-alerts-box { grid-column: 1 / -1; } /* no empty cell beside it */
     .dash-grid { grid-template-columns: 1fr; }
     .db-bar { grid-template-columns: 1fr; }
     .range { height: 44px; }
@@ -342,6 +365,7 @@
   <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.7.7 2.7 2.4 3 5.2"/></symbol>
   <symbol id="i-sources" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7m-7 5h7m-7 5h7"/><path d="M13.5 12h6.5m-3-3 3 3-3 3"/></symbol>
   <symbol id="i-parsers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-4.5 5L8 17m8-10 4.5 5L16 17M13.5 5l-3 14"/></symbol>
+  <symbol id="i-alerts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
   <symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
@@ -365,10 +389,11 @@
 
 <div class="app" id="app">
   <aside class="side" id="side" aria-label="Sidebar">
-    <p class="wordmark">SIEMLite</p>
+    <p class="wordmark">SIEMLite <span class="ver" id="ver"></span></p>
     <nav class="nav" aria-label="Main">
       <a class="nav-item" href="#/dashboard" data-nav="dashboard"><svg class="icon"><use href="#i-dash"/></svg>Dashboard</a>
       <a class="nav-item" href="#/database" data-nav="database"><svg class="icon"><use href="#i-db"/></svg>Database</a>
+      <a class="nav-item alerts-nav" href="#/alerts" data-nav="alerts"><svg class="icon"><use href="#i-alerts"/></svg>Alerts<span class="nav-count" id="nav-alerts" hidden></span></a>
       <div class="admin-only nav-sep" role="separator"></div>
       <a class="nav-item admin-only" href="#/users" data-nav="users"><svg class="icon"><use href="#i-users"/></svg>Users</a>
       <a class="nav-item admin-only" href="#/sources" data-nav="sources"><svg class="icon"><use href="#i-sources"/></svg>Sources</a>
@@ -421,6 +446,7 @@
           <div class="figure hero"><div class="label">Events</div><div class="value" id="fig-total">–</div><div class="sub" id="fig-total-sub"></div></div>
           <div class="figure"><div class="label">Threat intel matches</div><div class="value" id="fig-threats">–</div><div class="sub" id="fig-threats-sub"></div></div>
           <div class="figure"><div class="label">High or worse</div><div class="value" id="fig-high">–</div><div class="sub" id="fig-high-sub"></div></div>
+          <a class="figure figure-link" id="fig-alerts-box" href="#/alerts" hidden><div class="label">Open alerts</div><div class="value" id="fig-alerts">–</div><div class="sub">Look into them on the Alerts page</div></a>
         </div>
         <div class="panel" style="margin-top:16px">
           <div class="panel-head">
@@ -485,6 +511,7 @@
           <label class="field-label">Destination IP <input class="input mono" id="f-dst_ip"></label>
           <label class="field-label">User <input class="input" id="f-user"></label>
           <label class="field-label">Program <input class="input" id="f-program" placeholder="sshd"></label>
+          <label class="field-label">Host <input class="input" id="f-host" placeholder="web1"></label>
           <label class="field-label">Country <input class="input" id="f-country" maxlength="2" placeholder="Two letters, e.g. NL"></label>
           <label class="field-label">Results per page
             <select class="select" id="f-limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
@@ -513,6 +540,35 @@
           <tbody id="results"></tbody>
         </table>
       </div>
+    </section>
+
+    <!-- Alerts -->
+    <section id="view-alerts" class="page" aria-labelledby="alerts-title" hidden>
+      <div class="page-head">
+        <div><h1 id="alerts-title">Alerts</h1><p>When a rule matches enough events, an alert opens here. Acknowledge it while you look
+          into it, and close it when you&rsquo;re done.</p></div>
+        <div class="page-actions"><button class="btn btn-primary admin-only" id="add-rule" hidden>New rule</button></div>
+      </div>
+      <div class="seg alert-tabs" role="group" aria-label="Show">
+        <button type="button" data-atab="open" aria-pressed="true">Open <span class="n" id="cnt-open"></span></button>
+        <button type="button" data-atab="acknowledged" aria-pressed="false">Acknowledged <span class="n" id="cnt-acknowledged"></span></button>
+        <button type="button" data-atab="closed" aria-pressed="false">Closed <span class="n" id="cnt-closed"></span></button>
+        <button type="button" data-atab="all" aria-pressed="false">All</button>
+        <button type="button" data-atab="rules" aria-pressed="false">Rules</button>
+      </div>
+      <div class="table-wrap" id="alerts-wrap">
+        <table class="data alerts-table">
+          <thead><tr><th>Severity</th><th>Alert</th><th>Events</th><th>First seen</th><th>Last seen</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="alerts-body"></tbody>
+        </table>
+      </div>
+      <div class="table-wrap" id="rules-wrap" hidden>
+        <table class="data">
+          <thead><tr><th>Rule</th><th>Fires when</th><th>Severity</th><th>On</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="rules-body"></tbody>
+        </table>
+      </div>
+      <p class="notice" id="alerts-msg" role="status" hidden></p>
     </section>
 
     <!-- Users -->
@@ -664,7 +720,7 @@
       </div>
       <div class="figures sys-figures">
         <div class="figure"><div class="label">Database</div><div class="value" id="sys-size">–</div><div class="sub" id="sys-events"></div></div>
-        <div class="figure"><div class="label">Running since</div><div class="value" id="sys-up">–</div><div class="sub" id="sys-started"></div></div>
+        <div class="figure"><div class="label">Running</div><div class="value" id="sys-up">–</div><div class="sub" id="sys-started"></div></div>
         <div class="figure"><div class="label">Free space for backups</div><div class="value" id="sys-free">–</div><div class="sub mono" id="sys-dir"></div></div>
       </div>
       <form class="panel sched" id="sched-form">
@@ -791,6 +847,39 @@
   </form>
 </dialog>
 
+<dialog id="dlg-rule" class="wide">
+  <form method="dialog" id="rule-form">
+    <h2 id="rule-dlg-title">New rule</h2>
+    <p>An alert opens when at least the given number of matching events arrive within the time window. Rules apply to events
+      stored from now on.</p>
+    <div class="two">
+      <label class="field-label">Name <input class="input" id="r-name" maxlength="80"></label>
+      <label class="field-label">Alert severity <select class="select" id="r-severity"></select></label>
+    </div>
+    <label class="field-label">Description <input class="input" id="r-desc" maxlength="300" placeholder="What this rule catches"></label>
+    <label class="field-label">Events that match the search <input class="input mono" id="r-query" placeholder='"failed password" (leave empty for any event)'></label>
+    <div class="two">
+      <label class="field-label">From source <select class="select" id="r-source"></select></label>
+      <label class="field-label">With severity of at least <select class="select" id="r-minsev"></select></label>
+    </div>
+    <label class="check"><input type="checkbox" id="r-threat"> Only events that matched threat intel</label>
+    <div class="three">
+      <label class="field-label">At least <input class="input" id="r-threshold" type="number" min="1" value="10"></label>
+      <label class="field-label">Within (minutes) <input class="input" id="r-window" type="number" min="1" value="5"></label>
+      <label class="field-label">Counted for <select class="select" id="r-group">
+        <option value="src_ip">Each source IP</option><option value="dst_ip">Each destination IP</option>
+        <option value="user">Each user</option><option value="host">Each host</option><option value="">All events together</option>
+      </select></label>
+    </div>
+    <label class="check"><input type="checkbox" id="r-enabled" checked> Rule is on</label>
+    <p class="notice bad" id="r-err" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn btn-primary" id="r-save" value="save">Save rule</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-confirm">
   <form method="dialog">
     <h2 id="c-title"></h2>
@@ -894,6 +983,8 @@ async function apiJSON(path, opts) {
 function applySession(s) {
   me = s;
   isAdmin = s.role === "admin";
+  $("ver").textContent = s.version || "";
+  for (const n of document.querySelectorAll(".alerts-nav")) n.hidden = !!s.limited;
   $("who-name").textContent = s.username;
   $("who-role").textContent = isAdmin ? "Admin" : "Standard";
   for (const n of document.querySelectorAll(".admin-only")) n.hidden = !isAdmin;
@@ -925,13 +1016,14 @@ $("logout").onclick = async () => {
 };
 
 // --- Routing: #/page or #/page?query ---
-const VIEWS = ["dashboard", "database", "users", "sources", "parsers", "parser", "system"];
+const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "parsers", "parser", "system"];
 function route() {
   const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
   let [view, arg] = path.split("/");
   if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
   if (view === "parsers" && arg) view = "parser";
   if (!isAdmin && ["users", "sources", "parsers", "parser", "system"].includes(view)) view = "dashboard";
+  if (view === "alerts" && me.limited) view = "dashboard";
   for (const v of VIEWS) $("view-" + v).hidden = v !== view;
   const navKey = view === "parser" ? "parsers" : view;
   for (const a of document.querySelectorAll("[data-nav]")) {
@@ -940,8 +1032,8 @@ function route() {
   setMenu(false);
   const params = new URLSearchParams(query || "");
   ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources,
-     parsers: openParsers, parser: () => openParserEditor(arg), system: openSystem })[view]();
-  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", system: "System" })[view]} · SIEMLite`;
+     parsers: openParsers, parser: () => openParserEditor(arg), system: openSystem, alerts: () => openAlerts(params) })[view]();
+  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", system: "System", alerts: "Alerts" })[view]} · SIEMLite`;
   if (view !== "system") clearTimeout(backupPoll);
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
@@ -1004,6 +1096,7 @@ $("sample-toggle").onchange = async (e) => {
   try {
     showSample(await apiJSON("/api/v1/sample", { method: "POST", json: { enabled: want } }));
     refreshHealth();
+    refreshAlertCount();
     route();
   } catch (err) {
     e.target.checked = !want;
@@ -1059,6 +1152,10 @@ function renderStats(s) {
   $("dash-hint").textContent = o.total === 0 && totalEvents === 0
     ? (isAdmin ? "No events yet. Add a source, or turn on Sample data in the sidebar to look around." : "No events yet.")
     : "Press Enter to open the results in the Database.";
+  const showAlerts = s.open_alerts !== undefined;
+  $("fig-alerts-box").hidden = !showAlerts;
+  document.querySelector(".figures:not(.sys-figures)").classList.toggle("four", showAlerts);
+  if (showAlerts) { $("fig-alerts").textContent = compact(s.open_alerts); $("fig-alerts").style.color = s.open_alerts ? "" : "var(--ink)"; setNavAlerts(s.open_alerts); }
   $("chart-title").textContent = s.bucket_ms >= 86400000 ? "Events per day" : s.bucket_ms > 3600000 ? "Events per 6 hours" : "Events per hour";
   drawChart(s);
   renderTable(s);
@@ -1206,7 +1303,7 @@ for (const id of ["from", "to"]) {
 
 // --- Database ---
 const FILTERS = { "f-source": "source", "f-severity": "severity", "f-category": "category", "f-src_ip": "src_ip", "f-dst_ip": "dst_ip",
-                  "f-user": "user", "f-program": "program", "f-country": "country" };
+                  "f-user": "user", "f-program": "program", "f-host": "host", "f-country": "country" };
 let offset = 0;
 async function openDatabase(params) {
   await fillSourceFilter();
@@ -1265,7 +1362,7 @@ function searchParams() {
     $("to").setAttribute("aria-invalid", "true"); throw new Error("The end date is before the start date.");
   }
   const map = { q: "q", "f-severity": "severity", "f-category": "category", "f-src_ip": "src_ip", "f-dst_ip": "dst_ip",
-                "f-user": "user", "f-program": "source", "f-country": "country", "f-source": "source_id", "f-limit": "limit" };
+                "f-user": "user", "f-program": "source", "f-host": "host", "f-country": "country", "f-source": "source_id", "f-limit": "limit" };
   for (const [id, key] of Object.entries(map)) { const v = $(id).value.trim(); if (v) p.set(key, v); }
   if ($("f-threat").checked) p.set("threat", "true");
   p.set("offset", String(offset));
@@ -1832,6 +1929,149 @@ pe("suggest").onclick = async () => {
   }
 };
 
+// --- Alerts ---
+let alertTab = "open", rulesCache = [];
+const GROUP_LABEL = { src_ip: "source IP", dst_ip: "destination IP", user: "user", host: "host", "": "" };
+function setNavAlerts(n) { const b = $("nav-alerts"); b.hidden = !n; b.textContent = n > 99 ? "99+" : String(n); }
+async function refreshAlertCount() {
+  if (!me || me.limited) return;
+  try { const d = await apiJSON("/api/v1/alerts?status=open"); setNavAlerts(d.counts.open); } catch {}
+}
+for (const b of document.querySelectorAll("[data-atab]")) {
+  b.onclick = () => { alertTab = b.dataset.atab; history.replaceState(null, "", "#/alerts" + (alertTab === "open" ? "" : "?tab=" + alertTab)); loadAlertsView(); };
+}
+async function openAlerts(params) {
+  alertTab = params.get("tab") || "open";
+  $("add-rule").hidden = !isAdmin;
+  notice($("alerts-msg"), "");
+  try { rulesCache = await apiJSON("/api/v1/rules"); } catch { rulesCache = []; }
+  loadAlertsView();
+}
+function ruleSentence(r) {
+  const parts = [];
+  parts.push(`${r.threshold === 1 ? "an event" : nf.format(r.threshold) + " events"}`);
+  const conds = [];
+  if (r.query) conds.push(el("span", {}, "matching ", el("code", { textContent: r.query })));
+  if (r.threat_only) conds.push("that matched threat intel");
+  if (r.min_severity != null) conds.push(`rated ${SEV[r.min_severity]} or worse`);
+  if (r.source_id) conds.push("from " + ((sourcesCache.find((x) => x.id === r.source_id) || {}).name || "one source"));
+  const out = el("span", { className: "rule-sentence" }, parts[0]);
+  conds.forEach((c, i) => out.append(i ? ", " : " ", c));
+  if (r.threshold > 1) out.append(` within ${r.window_minutes} min`);
+  if (r.group_by) out.append(` from the same ${GROUP_LABEL[r.group_by]}`);
+  return out;
+}
+async function loadAlertsView() {
+  for (const b of document.querySelectorAll("[data-atab]")) b.setAttribute("aria-pressed", String(b.dataset.atab === alertTab));
+  const rules = alertTab === "rules";
+  $("alerts-wrap").hidden = rules; $("rules-wrap").hidden = !rules;
+  if (rules) { await loadSources(); renderRules(); }
+  let data;
+  try { data = await apiJSON("/api/v1/alerts?status=" + (rules ? "open" : alertTab)); }
+  catch (err) { notice($("alerts-msg"), err.message); return; }
+  for (const k of ["open", "acknowledged", "closed"]) $("cnt-" + k).textContent = data.counts[k] ? nf.format(data.counts[k]) : "";
+  setNavAlerts(data.counts.open);
+  if (rules) return;
+  const empty = { open: "No open alerts. They appear here when a rule matches.", acknowledged: "No acknowledged alerts.",
+                  closed: "No closed alerts yet.", all: "No alerts yet. They appear here when a rule matches." }[alertTab];
+  $("alerts-body").replaceChildren(...(data.alerts.length ? data.alerts.map(alertRow) :
+    [el("tr", { className: "empty" }, el("td", { colSpan: 7, textContent: empty }))]));
+}
+function alertRow(a) {
+  const sev = el("span", { className: "sev" }, el("i"), SEV[a.severity]); sev.style.setProperty("--c", `var(--sev-${a.severity})`);
+  const what = el("td", { className: "what" });
+  if (a.sample) what.append(el("span", { className: "tag tag-sample", textContent: "Sample" }));
+  what.append(el("b", { textContent: a.rule_name }));
+  if (a.group_value) what.append(el("span", { className: "grp", textContent: a.group_value }));
+  else if (a.group_by) what.append(el("span", { className: "grp none", textContent: `no ${GROUP_LABEL[a.group_by]}` }));
+  const fmt = (ms) => new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const set = (status) => async () => {
+    try { await apiJSON("/api/v1/alerts/" + a.id, { method: "PATCH", json: { status } }); loadAlertsView(); }
+    catch (err) { notice($("alerts-msg"), err.message); }
+  };
+  const acts = [el("a", { className: "btn btn-small", href: alertLink(a), textContent: "View events" })];
+  if (a.status === "open") acts.push(el("button", { className: "btn btn-small", textContent: "Acknowledge", onclick: set("acknowledged") }));
+  if (a.status !== "closed") acts.push(el("button", { className: "btn btn-small", textContent: "Close", onclick: set("closed") }));
+  else acts.push(el("button", { className: "btn btn-small", textContent: "Reopen", onclick: set("open") }));
+  return el("tr", {},
+    el("td", {}, sev), what,
+    el("td", { textContent: nf.format(a.count) }),
+    el("td", { className: "muted", textContent: fmt(a.first_seen) }),
+    el("td", { className: "muted", textContent: fmt(a.last_seen) }),
+    el("td", { className: "status-" + a.status, textContent: a.status[0].toUpperCase() + a.status.slice(1), title: a.updated_by ? "By " + a.updated_by : "" }),
+    el("td", { className: "actions" }, el("div", { className: "row-actions" }, ...acts)));
+}
+// alertLink opens the Database on the events behind an alert.
+function alertLink(a) {
+  const r = rulesCache.find((x) => x.id === a.rule_id) || {};
+  const p = new URLSearchParams();
+  if (r.query) p.set("q", r.query);
+  if (r.threat_only) p.set("threat", "1");
+  if (r.source_id) p.set("source", String(r.source_id));
+  const key = { src_ip: "src_ip", dst_ip: "dst_ip", user: "user", host: "host" }[a.group_by];
+  if (key && a.group_value) p.set(key, a.group_value);
+  p.set("from", mdy(new Date(a.first_seen)));
+  p.set("to", mdy(new Date(a.last_seen)));
+  return "#/database?" + p;
+}
+function renderRules() {
+  $("rules-body").replaceChildren(...(rulesCache.length ? rulesCache.map((r) => {
+    const sev = el("span", { className: "sev" }, el("i"), SEV[r.severity]); sev.style.setProperty("--c", `var(--sev-${r.severity})`);
+    const sw = el("label", { className: "switch", style: "padding:0" }, el("span", { className: "visually-hidden", textContent: `${r.name} is on` }),
+      el("input", { type: "checkbox", checked: r.enabled, disabled: !isAdmin, role: "switch" }), el("span", { className: "track" }));
+    sw.querySelector("input").onchange = async (e) => {
+      try { await apiJSON("/api/v1/rules/" + r.id, { method: "PUT", json: { ...r, enabled: e.target.checked } }); r.enabled = e.target.checked; }
+      catch (err) { e.target.checked = !e.target.checked; notice($("alerts-msg"), err.message); }
+    };
+    return el("tr", { className: r.enabled ? "" : "muted" },
+      el("td", { className: "what" }, el("b", { textContent: r.name }), r.description ? el("div", { className: "muted", textContent: r.description }) : ""),
+      el("td", {}, ruleSentence(r)),
+      el("td", {}, sev),
+      el("td", {}, sw),
+      el("td", { className: "actions" }, isAdmin ? el("div", { className: "row-actions" },
+        el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => ruleDialog(r) }),
+        r.builtin ? "" : el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: () => deleteRule(r) })) : ""));
+  }) : [el("tr", { className: "empty" }, el("td", { colSpan: 5, textContent: "No rules." }))]));
+}
+function ruleDialog(r) {
+  const editing = !!r;
+  r = r || { name: "", description: "", severity: 3, query: "", threat_only: false, group_by: "src_ip", threshold: 10, window_minutes: 5, enabled: true };
+  $("rule-dlg-title").textContent = editing ? `Edit ${r.name}` : "New rule";
+  $("r-name").value = r.name; $("r-desc").value = r.description || ""; $("r-query").value = r.query || "";
+  $("r-severity").replaceChildren(...[1, 2, 3, 4, 5].map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === r.severity })));
+  $("r-minsev").replaceChildren(el("option", { value: "", textContent: "Any severity" }),
+    ...[2, 3, 4, 5].map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === r.min_severity })));
+  $("r-source").replaceChildren(el("option", { value: "", textContent: "Any source" }),
+    ...sourcesCache.map((x) => el("option", { value: String(x.id), textContent: x.name, selected: x.id === r.source_id })));
+  $("r-threat").checked = !!r.threat_only; $("r-threshold").value = String(r.threshold); $("r-window").value = String(r.window_minutes);
+  $("r-group").value = r.group_by; $("r-enabled").checked = r.enabled;
+  notice($("r-err"), "");
+  const d = $("dlg-rule");
+  $("rule-form").onsubmit = async (e) => {
+    if (e.submitter && e.submitter.value === "cancel") return;
+    e.preventDefault();
+    const body = { name: $("r-name").value.trim(), description: $("r-desc").value.trim(), severity: Number($("r-severity").value),
+      query: $("r-query").value.trim(), threat_only: $("r-threat").checked, group_by: $("r-group").value,
+      threshold: Number($("r-threshold").value), window_minutes: Number($("r-window").value), enabled: $("r-enabled").checked };
+    if ($("r-minsev").value) body.min_severity = Number($("r-minsev").value);
+    if ($("r-source").value) body.source_id = Number($("r-source").value);
+    try {
+      await apiJSON(editing ? "/api/v1/rules/" + r.id : "/api/v1/rules", { method: editing ? "PUT" : "POST", json: body });
+      d.close();
+      rulesCache = await apiJSON("/api/v1/rules");
+      renderRules();
+      notice($("alerts-msg"), `Saved the rule ${body.name}.`, true);
+    } catch (err) { notice($("r-err"), err.message); }
+  };
+  d.showModal(); $("r-name").focus();
+}
+$("add-rule").onclick = async () => { await loadSources(); ruleDialog(null); };
+async function deleteRule(r) {
+  if (!(await confirmAction(`Delete the rule ${r.name}?`, "It stops raising alerts. Alerts it already raised are kept.", "Delete rule"))) return;
+  try { await apiJSON("/api/v1/rules/" + r.id, { method: "DELETE" }); rulesCache = await apiJSON("/api/v1/rules"); renderRules(); notice($("alerts-msg"), `Deleted the rule ${r.name}.`, true); }
+  catch (err) { notice($("alerts-msg"), err.message); }
+}
+
 // --- System: backups ---
 const BACKUP_KIND = { manual: "Manual", auto: "Automatic", "before-restore": "Before a restore", uploaded: "Uploaded" };
 let backupPoll = null;
@@ -1854,7 +2094,7 @@ async function openSystem() {
     $("sys-size").textContent = bytes(sys.database.size_bytes);
     $("sys-events").textContent = `${nf.format(sys.database.events)} events, database version ${sys.database.schema_version}`;
     $("sys-up").textContent = since(sys.started_at);
-    $("sys-started").textContent = "Since " + new Date(sys.started_at).toLocaleString();
+    $("sys-started").textContent = `SIEMLite ${sys.version || ""}, started ${new Date(sys.started_at).toLocaleString()}`;
     if (sys.backups) {
       $("sys-free").textContent = bytes(sys.backups.free_bytes);
       $("sys-dir").textContent = sys.backups.dir; $("sys-dir").title = sys.backups.dir;
@@ -1951,7 +2191,8 @@ function start() {
   refreshSample();
   refreshHealth();
   clearInterval(healthTimer);
-  healthTimer = setInterval(refreshHealth, 5000);
+  healthTimer = setInterval(() => { refreshHealth(); refreshAlertCount(); }, 5000);
+  refreshAlertCount();
   if (!location.hash || location.hash === "#") history.replaceState(null, "", "#/dashboard");
   route();
 }

@@ -3,11 +3,12 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 8
+const schemaVersion = 10
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -131,8 +132,8 @@ var upgrades = map[int][]string{
 			('Added in the UI', 'upload', CAST(strftime('%s','now') AS INTEGER) * 1000),
 			('Sample data', 'sample', CAST(strftime('%s','now') AS INTEGER) * 1000)`,
 		// Roles become admin and standard. SQLite cannot change a CHECK
-		// constraint in place, so the table is rebuilt; dropping it ends all
-		// sessions (they cascade), so everyone signs in again once.
+		// constraint in place, so the table is rebuilt (with the same ids, so
+		// sessions still point at the right people).
 		`CREATE TABLE users_new (
 			id            INTEGER PRIMARY KEY AUTOINCREMENT,
 			username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -166,11 +167,106 @@ var upgrades = map[int][]string{
 	7: {
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 	},
+	// v9: the INTERNAL source (SIEMLite's own audit log), alert rules and
+	// alerts. sources is rebuilt to allow the new kind; migrate runs with
+	// foreign keys off so user_sources rows aren't cascaded away.
+	8: {
+		`CREATE TABLE sources_new (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT NOT NULL,
+			kind         TEXT NOT NULL CHECK (kind IN ('token', 'syslog', 'upload', 'sample', 'internal')),
+			key_hash     TEXT UNIQUE,
+			parser_id    INTEGER REFERENCES parsers(id) ON DELETE SET NULL,
+			created_at   INTEGER NOT NULL,
+			revoked_at   INTEGER,
+			last_used_at INTEGER
+		)`,
+		`INSERT INTO sources_new (id, name, kind, key_hash, parser_id, created_at, revoked_at, last_used_at)
+			SELECT id, name, kind, key_hash, parser_id, created_at, revoked_at, last_used_at FROM sources`,
+		`DROP TABLE sources`,
+		`ALTER TABLE sources_new RENAME TO sources`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_builtin ON sources(kind) WHERE kind <> 'token'`,
+		`INSERT INTO sources (name, kind, created_at) SELECT 'INTERNAL', 'internal', CAST(strftime('%s','now') AS INTEGER) * 1000
+			WHERE NOT EXISTS (SELECT 1 FROM sources WHERE kind = 'internal')`,
+		`CREATE TABLE IF NOT EXISTS alert_rules (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			name           TEXT NOT NULL UNIQUE COLLATE NOCASE,
+			description    TEXT NOT NULL DEFAULT '',
+			enabled        INTEGER NOT NULL DEFAULT 1,
+			severity       INTEGER NOT NULL,
+			query          TEXT NOT NULL DEFAULT '',
+			min_severity   INTEGER,
+			threat_only    INTEGER NOT NULL DEFAULT 0,
+			source_id      INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+			group_by       TEXT NOT NULL DEFAULT '' CHECK (group_by IN ('', 'src_ip', 'dst_ip', 'user', 'host')),
+			threshold      INTEGER NOT NULL CHECK (threshold >= 1),
+			window_minutes INTEGER NOT NULL CHECK (window_minutes >= 1),
+			builtin        INTEGER NOT NULL DEFAULT 0,
+			created_at     INTEGER NOT NULL,
+			updated_at     INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS alerts (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			rule_id     INTEGER REFERENCES alert_rules(id) ON DELETE SET NULL,
+			rule_name   TEXT NOT NULL,
+			severity    INTEGER NOT NULL,
+			group_by    TEXT NOT NULL DEFAULT '',
+			group_value TEXT NOT NULL DEFAULT '',
+			status      TEXT NOT NULL CHECK (status IN ('open', 'acknowledged', 'closed')),
+			count       INTEGER NOT NULL,
+			first_seen  INTEGER NOT NULL,
+			last_seen   INTEGER NOT NULL,
+			sample      INTEGER NOT NULL DEFAULT 0,
+			created_at  INTEGER NOT NULL,
+			updated_at  INTEGER NOT NULL,
+			updated_by  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_alerts_rule ON alerts(rule_id, group_value, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status, last_seen DESC)`,
+		`INSERT OR IGNORE INTO alert_rules (name, description, severity, query, group_by, threshold, window_minutes, builtin, created_at, updated_at) VALUES
+			('SSH brute force', 'Many failed SSH passwords from one address in a few minutes.', 4, '"failed password"', 'src_ip', 10, 5, 1,
+				CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)`,
+		`INSERT OR IGNORE INTO alert_rules (name, description, severity, threat_only, group_by, threshold, window_minutes, builtin, created_at, updated_at) VALUES
+			('Threat intel match', 'An event involving an address, domain or file on a threat list.', 4, 1, 'src_ip', 1, 60, 1,
+				CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)`,
+		`INSERT OR IGNORE INTO alert_rules (name, description, severity, min_severity, group_by, threshold, window_minutes, builtin, created_at, updated_at) VALUES
+			('Critical event', 'Any event rated Critical or Fatal.', 5, 5, 'host', 1, 60, 1,
+				CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)`,
+		`INSERT OR IGNORE INTO alert_rules (name, description, severity, query, source_id, group_by, threshold, window_minutes, builtin, created_at, updated_at)
+			SELECT 'Failed sign-ins to SIEMLite', 'Repeated failed sign-ins to this SIEMLite from one address.', 4, '"sign-in failed"', id, 'src_ip', 5, 15, 1,
+				CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000
+			FROM sources WHERE kind = 'internal'`,
+	},
+	// v10: indexes for looking up an address, user or host, the most common
+	// pivots, which otherwise read every event.
+	9: {
+		`CREATE INDEX IF NOT EXISTS idx_events_src_ip ON events(src_ip, timestamp DESC) WHERE src_ip IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip, timestamp DESC) WHERE dst_ip IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_name, timestamp DESC) WHERE user_name IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_events_host ON events(host, timestamp DESC) WHERE host IS NOT NULL`,
+	},
 }
 
-// migrate applies the schema inside one transaction.
-func migrate(ctx context.Context, db *sql.DB) error {
-	tx, err := db.BeginTx(ctx, nil)
+// migrate applies the schema inside one transaction. It follows SQLite's
+// procedure for rebuilding tables: foreign keys are switched off on a pinned
+// connection (it's a no-op inside a transaction), the changes are made, and
+// foreign_key_check must pass before committing. Without this, rebuilding a
+// table would cascade-delete rows that refer to it.
+func migrate(ctx context.Context, db *sql.DB) (err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("schema connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("schema: %w", err)
+	}
+	defer func() {
+		if _, ferr := conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON"); ferr != nil && err == nil {
+			err = fmt.Errorf("schema: %w", ferr)
+		}
+	}()
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin schema tx: %w", err)
 	}
@@ -193,6 +289,15 @@ func migrate(ctx context.Context, db *sql.DB) error {
 				return fmt.Errorf("upgrade schema to v%d: %w", v+1, err)
 			}
 		}
+	}
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign key check: %w", err)
+	}
+	broken := rows.Next()
+	rows.Close()
+	if broken {
+		return errors.New("schema upgrade would break references between tables; the database was left unchanged")
 	}
 	// PRAGMA does not accept bound parameters.
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {

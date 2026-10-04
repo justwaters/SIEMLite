@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"siemlite/pkg/ai"
+	"siemlite/pkg/alerts"
+	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/ingest"
@@ -54,6 +56,9 @@ type Deps struct {
 	Backups *backup.Manager
 	Started time.Time
 	Restart func()
+	Version string         // e.g. "v0.7"
+	Audit   *audit.Logger  // optional: records actions as INTERNAL events
+	Alerts  *alerts.Engine // optional: alert rules
 	Logger  *slog.Logger
 }
 
@@ -110,6 +115,12 @@ func (s *Server) Handler() http.Handler {
 	admin("DELETE /api/v1/parsers/{id}", s.handleDeleteParser)
 	admin("POST /api/v1/parsers/test", s.handleTestParser)
 	admin("POST /api/v1/parsers/suggest", s.handleSuggestParser)
+	mux.Handle("GET /api/v1/alerts", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListAlerts)))
+	mux.Handle("PATCH /api/v1/alerts/{id}", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSetAlertStatus)))
+	mux.Handle("GET /api/v1/rules", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListRules)))
+	admin("POST /api/v1/rules", s.handleSaveRule)
+	admin("PUT /api/v1/rules/{id}", s.handleSaveRule)
+	admin("DELETE /api/v1/rules/{id}", s.handleDeleteRule)
 	admin("GET /api/v1/system", s.handleSystem)
 	admin("GET /api/v1/backups", s.handleListBackups)
 	admin("POST /api/v1/backups", s.handleCreateBackup)
@@ -450,6 +461,15 @@ func (s *Server) handleSampleSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.Logger.Info("sample data changed", "enabled", st.Enabled, "events", st.Events,
 		"by", auth.FromContext(r.Context()).Name)
+	if s.deps.Alerts != nil {
+		// Old sample alerts go with the sample; new ones are raised now.
+		_ = s.deps.Repo.DeleteSampleAlerts(r.Context())
+		if st.Enabled {
+			_, _ = s.deps.Alerts.Check(r.Context())
+		}
+	}
+	onOff := map[bool]string{true: "on", false: "off"}[st.Enabled]
+	s.audit(r, audit.Entry{Action: "sample." + onOff, Message: auth.FromContext(r.Context()).Name + " turned Sample data " + onOff})
 	writeJSON(w, http.StatusOK, st)
 }
 
@@ -465,13 +485,14 @@ type sessionInfo struct {
 	Limited bool      `json:"limited"`
 	Sources []int64   `json:"sources"`
 	AI      ai.Status `json:"ai"`
+	Version string    `json:"version,omitempty"`
 }
 
 func (s *Server) session(username, role string, limited bool, sources []int64) sessionInfo {
 	if sources == nil || role == auth.RoleAdmin {
 		sources = []int64{}
 	}
-	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status()}
+	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status(), Version: s.deps.Version}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -492,9 +513,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	token, user, err := s.deps.Auth.Login(r.Context(), host, req.Username, req.Password)
 	switch {
 	case errors.Is(err, auth.ErrBadCredentials):
+		s.audit(r, audit.Entry{Action: "signin.failed", Actor: req.Username, Class: audit.Authentication, Severity: 3,
+			Message: "Sign-in failed for " + req.Username})
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	case errors.Is(err, auth.ErrTooManyAttempts):
+		s.audit(r, audit.Entry{Action: "signin.blocked", Actor: req.Username, Class: audit.Authentication, Severity: 4,
+			Message: "Sign-in blocked for " + req.Username + " after too many failed attempts from this address"})
 		w.Header().Set("Retry-After", "900")
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
@@ -504,6 +529,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.SetSessionCookie(w, token)
+	s.audit(r, audit.Entry{Action: "signin", Actor: user.Username, Class: audit.Authentication, Message: user.Username + " signed in"})
 	limited, sources := true, []int64{} // if the lookup fails, show nothing rather than everything
 	if full, err := s.deps.Repo.GetUser(r.Context(), user.ID); err == nil {
 		limited, sources = full.Limited, full.Sources
@@ -516,11 +542,39 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "cross-origin request refused")
 		return
 	}
+	if p, err := s.deps.Auth.Authenticate(r); err == nil && p.Kind == auth.KindUser {
+		s.audit(r, audit.Entry{Action: "signout", Actor: p.Name, Class: audit.Authentication, Message: p.Name + " signed out"})
+	}
 	if err := s.deps.Auth.Logout(r); err != nil {
 		s.deps.Logger.Error("logout failed", "err", err)
 	}
 	auth.ClearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
+}
+
+// clientIP is the caller's address.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// audit records an action from a request, filling in who and where from.
+func (s *Server) audit(r *http.Request, e audit.Entry) {
+	if s.deps.Audit == nil {
+		return
+	}
+	if e.Actor == "" {
+		if p := auth.FromContext(r.Context()); p != nil {
+			e.Actor = p.Name
+		}
+	}
+	if e.IP == "" {
+		e.IP = clientIP(r)
+	}
+	s.deps.Audit.Record(r.Context(), e)
 }
 
 // handleMe tells the UI whether the browser has a valid session.
@@ -535,6 +589,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 type healthResponse struct {
 	Status   string         `json:"status"`
+	Version  string         `json:"version,omitempty"`
 	Time     time.Time      `json:"time"`
 	Database map[string]any `json:"database,omitempty"`
 	Ingest   *ingest.Stats  `json:"ingest,omitempty"`
@@ -556,6 +611,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if detailed {
 		stats := s.deps.Ingest.Stats()
 		resp.Ingest = &stats
+		resp.Version = s.deps.Version
 		resp.Database = map[string]any{"status": "ok"}
 		if s.deps.Intel != nil {
 			st := s.deps.Intel.Stats()

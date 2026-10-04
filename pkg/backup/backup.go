@@ -12,6 +12,7 @@ package backup
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -396,35 +397,49 @@ func (m *Manager) StageRestore(ctx context.Context, name string) (Backup, error)
 	if err := os.Rename(tmp, pending); err != nil {
 		return Backup{}, err
 	}
+	// A note for the next start, so it can record what was restored.
+	note, _ := json.Marshal(RestoreInfo{Backup: name, SavedAs: safety.Name})
+	_ = os.WriteFile(pending+".json", note, 0o600)
 	m.log.Warn("restore staged; SIEMLite will restart to apply it", "backup", name, "current_saved_as", safety.Name)
 	return safety, nil
 }
 
+// RestoreInfo describes an applied restore.
+type RestoreInfo struct {
+	Backup  string `json:"backup"`   // the backup restored
+	SavedAs string `json:"saved_as"` // the database before it, as a backup
+}
+
 // ApplyPendingRestore swaps a staged restore into place. Call it before
-// opening the database. It reports whether a restore was applied.
-func ApplyPendingRestore(dbPath string, log *slog.Logger) (bool, error) {
+// opening the database. It returns what was restored, or nil if nothing.
+func ApplyPendingRestore(dbPath string, log *slog.Logger) (*RestoreInfo, error) {
 	pending := PendingPath(dbPath)
 	if !fileExists(pending) {
-		return false, nil
+		return nil, nil
 	}
+	info := &RestoreInfo{}
+	if b, err := os.ReadFile(pending + ".json"); err == nil {
+		_ = json.Unmarshal(b, info)
+	}
+	defer os.Remove(pending + ".json")
 	if log == nil {
 		log = slog.Default()
 	}
 	if _, err := storage.CheckFile(context.Background(), pending); err != nil {
 		bad := pending + ".rejected"
 		_ = os.Rename(pending, bad)
-		return false, fmt.Errorf("the staged restore failed its check and was set aside as %s: %w", bad, err)
+		return nil, fmt.Errorf("the staged restore failed its check and was set aside as %s: %w", bad, err)
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
-			return false, err
+			return nil, err
 		}
 	}
 	if err := os.Rename(pending, dbPath); err != nil {
-		return false, fmt.Errorf("apply restore: %w", err)
+		return nil, fmt.Errorf("apply restore: %w", err)
 	}
-	log.Warn("restored the database from a backup", "db", dbPath)
-	return true, nil
+	log.Warn("restored the database from a backup", "db", dbPath, "backup", info.Backup)
+	return info, nil
 }
 
 // Settings returns the schedule.
