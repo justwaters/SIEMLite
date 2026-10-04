@@ -494,6 +494,11 @@ Measured with the load tests in [`loadtest`](loadtest/doc.go) (`SIEMLITE_LOAD=ha
 Embedded R2544 (4 cores, 8 threads), 14 GB of memory and an SSD, with the database on that SSD. Each figure is the 95th
 percentile with many clients working at once.
 
+The table below is version 0.7, which kept every event in one file, at 5 million events. Version 0.8 stores one file per
+day; a shorter run on 600,000 events across 30 days measured: logs over HTTPS 4,300 events/s stored (17% more), TCP
+syslog 4,600 lines/s, searches 6-120 ms, results 5,001-5,100 about 400 ms, the dashboard 75 ms, the first alert check
+1 s, and backup and restore 5 s and 3 s.
+
 | Workload | Result |
 |---|---|
 | Logs over HTTPS, 32 apps sending 500-line batches at once | 4,600 events/s accepted, 3,700/s stored and searchable (about 320 million a day) |
