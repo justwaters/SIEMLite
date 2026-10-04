@@ -133,6 +133,9 @@
   .api td:first-child { white-space: nowrap; }
   .api td:first-child code { background: none; padding: 0; font-size: 14px; }
 
+  .perf td:last-child { font-variant-numeric: tabular-nums; }
+  .perf td:first-child { white-space: normal; }
+  .perf-more { max-width: 70ch; margin-top: 20px; }
   .note { margin: 40px 0 0; padding: 16px 20px; border-radius: 10px; background: var(--surface); border: 1px solid var(--rule);
           box-shadow: inset 3px 0 0 var(--sev-3); color: var(--ink-2); max-width: 760px; }
   .note b { color: var(--ink); }
@@ -184,6 +187,7 @@
     <nav aria-label="Main">
       <a href="#see-it">See it</a>
       <a class="wide" href="#features">Features</a>
+      <a class="wide" href="#performance">Performance</a>
       <a href="#quickstart">Quick start</a>
       <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
     </nav>
@@ -221,9 +225,9 @@
       <picture>
         <source srcset="screenshots/dashboard-dark.webp" media="(prefers-color-scheme: dark)">
         <img class="shot hero-shot" src="screenshots/dashboard-light.webp" width="2880" height="1800"
-          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with 474 events, 69 threat intel matches and 22 events rated High or worse, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
+          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with about 400 events, 69 threat intel matches, 15 events rated High or worse and 6 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
       </picture>
-      <p class="caption">The Dashboard: the last 24 hours at a glance, with threat matches in red.</p>
+      <p class="caption">The Dashboard: the last 24 hours at a glance, with threat matches in red and the alerts waiting for you.</p>
     </div>
   </div>
 
@@ -248,6 +252,21 @@
         </div>
         <div class="tour-row flip">
           <div class="tour-text">
+            <h3>Hear about it when something&rsquo;s wrong</h3>
+            <p>Alert rules watch for patterns, like ten failed SSH passwords from one address in five minutes, and open an
+              alert you can acknowledge while you look into it and close when you&rsquo;re done. Four rules come built in;
+              add your own with the same search you use in the Database.</p>
+            <p>SIEMLite keeps an audit log too: every sign-in and every change anyone makes is an event from the INTERNAL
+              source, so repeated failed sign-ins raise an alert like anything else.</p>
+          </div>
+          <picture>
+            <source srcset="screenshots/alerts-dark.webp" media="(prefers-color-scheme: dark)">
+            <img class="shot" src="screenshots/alerts-light.webp" width="2880" height="1800" loading="lazy"
+              alt="The Alerts page with six open alerts from the sample data: threat intel matches from 10.0.0.5, 203.0.113.7 and 192.0.2.45, an SSH brute force from 203.0.113.7 with 13 events, and a critical event on web1, each with View events, Acknowledge and Close buttons.">
+          </picture>
+        </div>
+        <div class="tour-row">
+          <div class="tour-text">
             <h3>Teach it your log format</h3>
             <p>A parser picks the time, IPs, user and severity out of a source&rsquo;s lines and keeps anything else worth
               keeping. Paste a few lines, write the layout with <code>{field}</code> placeholders, and watch the preview.</p>
@@ -256,10 +275,10 @@
           <picture>
             <source srcset="screenshots/parser-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/parser-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The parser editor after an AI suggestion: a pattern with time, level, component, message, user and source IP fields, a table mapping each field, and a preview reading all three sample lines.">
+              alt="The parser editor for a web shop's access log: a pattern with source IP, user, time, method, path and status fields, severity decided by the status code, and a preview reading all three sample lines.">
           </picture>
         </div>
-        <div class="tour-row">
+        <div class="tour-row flip">
           <div class="tour-text">
             <h3>Know where every log comes from</h3>
             <p>Each application sends with its own access token, which can only send logs. The Sources page shows when each one
@@ -271,7 +290,7 @@
               alt="The Sources page: the syslog listener, logs added in the UI, sample data, and three access tokens. Web shop and Office firewall were used just now and each has its own parser; Billing service has never been used.">
           </picture>
         </div>
-        <div class="tour-row flip">
+        <div class="tour-row">
           <div class="tour-text">
             <h3>Decide who sees what</h3>
             <p>Admins run everything. Standard users search, and can be limited to the logs from the sources they look after.</p>
@@ -323,7 +342,8 @@
           <h3>Investigate<span>Finding answers</span></h3>
           <dl>
             <div><dt>Dashboard</dt><dd>Events, threat matches and severity over the last day, week or month, and the sources and IPs behind them.</dd></div>
-            <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in a few milliseconds.</dd></div>
+            <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in milliseconds, even across millions of events.</dd></div>
+            <div><dt>Alerts</dt><dd>Rules count matching events per address, user or host and open an alert when there are too many. Four are built in, including SSH brute force and threat intel matches.</dd></div>
             <div><dt>Sample data</dt><dd>One switch loads a realistic day with an intrusion to investigate. Turn it off and only the sample goes.</dd></div>
           </dl>
         </div>
@@ -331,19 +351,47 @@
           <h3>Control<span>Running it safely</span></h3>
           <dl>
             <div><dt>Users and roles</dt><dd>Admins and Standard users; Standard users can be limited to chosen sources.</dd></div>
+            <div><dt>Audit log</dt><dd>Sign-ins, failed sign-ins and every change, from the web or the command line, are recorded as searchable events.</dd></div>
+            <div><dt>Backups</dt><dd>Consistent backups while it runs, on a schedule or on demand. Download them, upload them elsewhere, restore in seconds.</dd></div>
             <div><dt>HTTPS only</dt><dd>No plain-HTTP port to forget to close. A certificate is generated on first start, or bring your own.</dd></div>
             <div><dt>Retention</dt><dd>Events older than your window, 30 days by default, are deleted and the disk space is given back.</dd></div>
-            <div><dt>One container</dt><dd><code>docker compose up -d --build</code> runs it; the same command after <code>git pull</code> upgrades it.</dd></div>
+            <div><dt>Easy to run</dt><dd>Download a binary for Linux, macOS or Windows, or run the image for x86-64 and ARM64. With the repository, <code>docker compose up -d --build</code> runs it and the same command after <code>git pull</code> upgrades it.</dd></div>
           </dl>
         </div>
       </div>
     </div>
   </section>
 
+  <section id="performance">
+    <div class="wrap">
+      <h2>Fast on a small machine</h2>
+      <p class="intro">Measured with SIEMLite&rsquo;s own load tests on an AMD Ryzen Embedded R2544 (4 cores) with
+        14 GB of memory and an SSD. Searches are the slowest of every 20, with 16 people searching at once.</p>
+      <table class="api perf">
+        <thead><tr><th>Workload</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Logs over HTTPS from 32 apps at once</td><td>3,700 events a second stored and searchable, about 320 million a day</td></tr>
+          <tr><td>Syslog over UDP at 4,000 messages a second</td><td>300,000 sent, 300,000 stored</td></tr>
+          <tr><td>Search 5 million events for a word, an address or a user</td><td>4&ndash;27 ms</td></tr>
+          <tr><td>&hellip; for a phrase, three words, a host and severity</td><td>28&ndash;80 ms</td></tr>
+          <tr><td>&hellip; for a word within one day, or results 5,001&ndash;5,100</td><td>190&ndash;200 ms</td></tr>
+          <tr><td>Check alert rules against all 5 million events</td><td>7 seconds</td></tr>
+          <tr><td>Back up 5 million events (684 MB compressed) / restore them</td><td>33 seconds / 21 seconds</td></tr>
+        </tbody>
+      </table>
+      <p class="caption perf-more">Version 0.7 made big searches much faster: on 500,000 events a common word went from 2.3 seconds to
+        20 milliseconds, and an address from 300 milliseconds to 1. Every commit is checked with a smaller run of the same
+        tests, along with fuzzing, a test that runs everything at once, and a browser that clicks through every page.
+        <a href="https://github.com/justwaters/SIEMLite#performance">How it&rsquo;s measured</a></p>
+    </div>
+  </section>
+
   <section id="quickstart">
     <div class="wrap">
       <h2>Running in about a minute</h2>
-      <p class="intro">You need Docker. To build it yourself instead, use Go: <code>go build -o siemlite .</code></p>
+      <p class="intro">You need Docker. Or download a ready-made binary from the
+        <a href="https://github.com/justwaters/SIEMLite/releases/latest">latest release</a> and run it, or build it with Go:
+        <code>go build -o siemlite .</code></p>
       <ol class="steps">
         <li>
           <h3>Start it</h3>
@@ -387,13 +435,16 @@ SIEMLITE_AI_URL=http://ollama:11434</pre>
           <tr><td><code>POST /api/v1/events</code></td><td>access token or admin</td><td>Store up to 10,000 OCSF events at once</td></tr>
           <tr><td><code>GET /api/v1/search</code></td><td>signed-in user</td><td>Search with text, dates and filters</td></tr>
           <tr><td><code>GET /api/v1/stats</code></td><td>signed-in user</td><td>The Dashboard&rsquo;s figures for any number of hours</td></tr>
+          <tr><td><code>/api/v1/alerts</code></td><td>signed-in user</td><td>List alerts; acknowledge, close or reopen them</td></tr>
+          <tr><td><code>/api/v1/rules</code></td><td>admin</td><td>Add, change and switch off alert rules</td></tr>
           <tr><td><code>/api/v1/sources</code></td><td>admin</td><td>Create, rename and revoke access tokens; choose parsers</td></tr>
           <tr><td><code>/api/v1/parsers</code></td><td>admin</td><td>Manage parsers, test them on sample lines, ask for a suggestion</td></tr>
           <tr><td><code>/api/v1/users</code></td><td>admin</td><td>Manage users, roles and the sources they can see</td></tr>
         </tbody>
       </table>
       <p class="note"><b>Early-stage project.</b> Client-certificate (mTLS) verification and per-token rate limiting are
-        not built yet. Every pull request runs the tests, a race detector, a Docker build and Go&rsquo;s vulnerability scanner.</p>
+        not built yet. Every pull request runs the tests with a race detector, load tests, fuzzing, a browser test, a Docker
+        build and Go&rsquo;s vulnerability scanner.</p>
     </div>
   </section>
 </main>
