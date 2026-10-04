@@ -69,56 +69,77 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	if maxID < cp {
-		// Events were deleted (retention, a restore): start over from here.
-		cp = maxID
-	}
-	if maxID == cp {
-		return res, e.store.SetSetting(ctx, checkpointKey, strconv.FormatInt(cp, 10))
-	}
+	cp = min(cp, maxID) // events were deleted (retention, a restore)
 	rules, err := e.store.ListRules(ctx)
 	if err != nil {
 		return res, err
 	}
 	now := e.now().UnixMilli()
+	// Each rule keeps its own checkpoint, so a rule that fails (a broken
+	// search, a database error) looks at the same events again next time
+	// instead of skipping them, without holding the others back. A new rule
+	// starts where the last check ended.
 	for _, ru := range rules {
-		if !ru.Enabled {
-			continue
-		}
-		groups, err := e.store.NewMatches(ctx, ru, cp, maxID)
-		if err != nil {
-			// A broken rule (e.g. invalid search syntax) mustn't stop the others.
-			e.log.Warn("alert rule failed", "rule", ru.Name, "err", err)
-			continue
-		}
-		window := int64(ru.WindowMinutes) * 60_000
-		stats, err := e.store.WindowCounts(ctx, ru, groups, window, maxID)
-		if err != nil {
-			e.log.Warn("alert rule failed", "rule", ru.Name, "err", err)
-			continue
-		}
-		active, err := e.store.ActiveAlertGroups(ctx, ru.ID)
-		if err != nil {
+		key := checkpointKey + ":" + strconv.FormatInt(ru.ID, 10)
+		from := cp
+		if v, err := e.store.Setting(ctx, key, ""); err != nil {
 			return res, err
+		} else if v != "" {
+			from, _ = strconv.ParseInt(v, 10, 64)
 		}
-		for _, g := range groups {
-			st := stats[g.Value]
-			if st.Count == 0 || (!active[g.Value] && st.Count < int64(ru.Threshold)) {
+		from = min(from, maxID)
+		if ru.Enabled && from < maxID {
+			if err := e.checkRule(ctx, ru, from, maxID, now, &res); err != nil {
+				e.log.Warn("alert rule failed; it will look at these events again", "rule", ru.Name, "err", err)
+				// Pin where it must start again (a new rule would otherwise
+				// start from the overall checkpoint, which moves on).
+				if err := e.store.SetSetting(ctx, key, strconv.FormatInt(from, 10)); err != nil {
+					return res, err
+				}
 				continue
 			}
-			opened, err := e.store.RaiseAlert(ctx, ru, g.Value, g.New, st.Count, st.First, st.Last, st.Sample, now)
-			if err != nil {
-				return res, err
-			}
-			if opened {
-				res.Opened++
-				e.log.Info("alert opened", "rule", ru.Name, "group", g.Value, "events", st.Count)
-			} else {
-				res.Updated++
-			}
+		}
+		// A switched-off rule moves along too, so switching it back on
+		// doesn't raise alerts for everything that happened meanwhile.
+		if err := e.store.SetSetting(ctx, key, strconv.FormatInt(maxID, 10)); err != nil {
+			return res, err
 		}
 	}
 	return res, e.store.SetSetting(ctx, checkpointKey, strconv.FormatInt(maxID, 10))
+}
+
+// checkRule runs one rule over the events with ids in (from, maxID].
+func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, now int64, res *Result) error {
+	groups, err := e.store.NewMatches(ctx, ru, from, maxID)
+	if err != nil {
+		return err
+	}
+	window := int64(ru.WindowMinutes) * 60_000
+	stats, err := e.store.WindowCounts(ctx, ru, groups, window, maxID)
+	if err != nil {
+		return err
+	}
+	active, err := e.store.ActiveAlertGroups(ctx, ru.ID)
+	if err != nil {
+		return err
+	}
+	for _, g := range groups {
+		st := stats[g.Value]
+		if st.Count == 0 || (!active[g.Value] && st.Count < int64(ru.Threshold)) {
+			continue
+		}
+		opened, err := e.store.RaiseAlert(ctx, ru, g.Value, g.New, st.Count, st.First, st.Last, st.Sample, now)
+		if err != nil {
+			return err
+		}
+		if opened {
+			res.Opened++
+			e.log.Info("alert opened", "rule", ru.Name, "group", g.Value, "events", st.Count)
+		} else {
+			res.Updated++
+		}
+	}
+	return nil
 }
 
 // Run checks every interval until ctx is done.

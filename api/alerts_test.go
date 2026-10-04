@@ -172,3 +172,31 @@ func TestRuleValidation(t *testing.T) {
 		t.Errorf("delete again = %d, want 404", got)
 	}
 }
+
+// A failed sign-in names the account only if it exists (people type
+// passwords into the username field), and strangers can't fill the database
+// with failed sign-ins.
+func TestFailedSignInAuditIsSafe(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.user("root", auth.RoleAdmin)
+	expect(t, "typo'd password as username", e.login(e.client(), "Tr0ub4dor&3-secret", "x"), 401)
+	for i := 0; i < 60; i++ { // the address is locked out after 10; blocked attempts are recorded too
+		e.login(e.client(), fmt.Sprintf("guess%d", i), "x")
+	}
+	e.worker.Drain(ctx)
+	count := func(match string) int {
+		t.Helper()
+		recs, err := e.repo.Search(ctx, storage.Filter{Match: match, Limit: 1000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(recs)
+	}
+	if n := count("Tr0ub4dor*"); n != 0 {
+		t.Errorf("the text typed as a username was recorded %d times", n)
+	}
+	if n := count(`"unknown username"`); n == 0 || n > 30 {
+		t.Errorf("failed and blocked sign-ins recorded = %d, want 1-30 a minute", n)
+	}
+}

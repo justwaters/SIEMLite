@@ -320,6 +320,11 @@ off, and backups created, downloaded, uploaded, restored or deleted. Command-lin
 `user.delete`. Search for them in the Database by choosing the INTERNAL source, or with a search like `"sign-in failed"`.
 They are kept, and removed by retention, like any other events.
 
+A failed sign-in names the account only if it exists; otherwise it says "an unknown username", so a password typed
+into the username field is never stored. Failed and blocked sign-ins are recorded at most 30 a minute, with one event
+counting the rest, so nobody can fill the database by guessing. Every analyst who isn't limited to some sources can
+read the audit log and acknowledge or close alerts.
+
 ## Backups
 
 On the **System** page, choose **Create backup now**, or set automatic backups to run every 6 hours, every day or every

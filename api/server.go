@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"siemlite/pkg/ai"
@@ -66,7 +67,17 @@ type Deps struct {
 type Server struct {
 	deps Deps
 	http *http.Server
+
+	// Failed and blocked sign-ins are recorded before anyone has signed in,
+	// so they are capped to keep strangers from filling the database.
+	signinMu      sync.Mutex
+	signinWindow  time.Time
+	signinCount   int
+	signinDropped int
 }
+
+// signinAuditsPerMinute caps audit events for failed and blocked sign-ins.
+const signinAuditsPerMinute = 30
 
 // NewServer builds a server listening on addr once Start is called.
 func NewServer(addr string, deps Deps) *Server {
@@ -513,13 +524,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	token, user, err := s.deps.Auth.Login(r.Context(), host, req.Username, req.Password)
 	switch {
 	case errors.Is(err, auth.ErrBadCredentials):
-		s.audit(r, audit.Entry{Action: "signin.failed", Actor: req.Username, Class: audit.Authentication, Severity: 3,
-			Message: "Sign-in failed for " + req.Username})
+		who := s.attemptedUser(r, req.Username)
+		s.auditSignin(r, audit.Entry{Action: "signin.failed", Actor: who, Class: audit.Authentication, Severity: 3,
+			Message: "Sign-in failed for " + who})
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	case errors.Is(err, auth.ErrTooManyAttempts):
-		s.audit(r, audit.Entry{Action: "signin.blocked", Actor: req.Username, Class: audit.Authentication, Severity: 4,
-			Message: "Sign-in blocked for " + req.Username + " after too many failed attempts from this address"})
+		who := s.attemptedUser(r, req.Username)
+		s.auditSignin(r, audit.Entry{Action: "signin.blocked", Actor: who, Class: audit.Authentication, Severity: 4,
+			Message: "Sign-in blocked for " + who + " after too many failed attempts from this address"})
 		w.Header().Set("Retry-After", "900")
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
@@ -559,6 +572,44 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// attemptedUser names the account a failed sign-in tried. Text that isn't an
+// account name is not recorded: people sometimes type their password into
+// the username field, and the audit log is readable by every analyst.
+func (s *Server) attemptedUser(r *http.Request, username string) string {
+	if u, _, err := s.deps.Repo.GetUserForLogin(r.Context(), username); err == nil {
+		return u.Username
+	}
+	return "an unknown username"
+}
+
+// auditSignin records a failed or blocked sign-in, at most
+// signinAuditsPerMinute a minute; the rest are summed into one event when the
+// next minute starts.
+func (s *Server) auditSignin(r *http.Request, e audit.Entry) {
+	s.signinMu.Lock()
+	now := time.Now()
+	dropped := 0
+	if now.Sub(s.signinWindow) >= time.Minute {
+		dropped, s.signinDropped = s.signinDropped, 0
+		s.signinWindow, s.signinCount = now, 0
+	}
+	record := s.signinCount < signinAuditsPerMinute
+	if record {
+		s.signinCount++
+	} else {
+		s.signinDropped++
+	}
+	s.signinMu.Unlock()
+	if dropped > 0 && s.deps.Audit != nil { // from many addresses, so none is named
+		s.deps.Audit.Record(r.Context(), audit.Entry{Action: "signin.failed.more", Actor: "SIEMLite", Class: audit.Authentication, Severity: 4,
+			Message: fmt.Sprintf("%d more failed or blocked sign-ins in the last minute weren't recorded one by one", dropped),
+			Fields:  map[string]string{"count": strconv.Itoa(dropped)}})
+	}
+	if record {
+		s.audit(r, e)
+	}
 }
 
 // audit records an action from a request, filling in who and where from.

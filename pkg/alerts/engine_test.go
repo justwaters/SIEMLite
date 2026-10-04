@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -132,5 +133,55 @@ func TestBrokenRuleDoesNotStopOthers(t *testing.T) {
 	}
 	if got := alertsByRule(t, repo)["Critical event"]; len(got) != 1 {
 		t.Errorf("critical alerts = %+v", got)
+	}
+}
+
+// flaky fails one rule's lookups while failing is set.
+type flaky struct {
+	*storage.Repository
+	rule    string
+	failing bool
+}
+
+func (f *flaky) NewMatches(ctx context.Context, ru storage.Rule, afterID, maxID int64) ([]storage.RuleGroup, error) {
+	if f.failing && ru.Name == f.rule {
+		return nil, errors.New("database is locked")
+	}
+	return f.Repository.NewMatches(ctx, ru, afterID, maxID)
+}
+
+// A rule that fails once looks at the same events again on the next check,
+// instead of skipping them, and the other rules carry on meanwhile.
+func TestFailedRuleRetriesItsEvents(t *testing.T) {
+	repo, w, _ := setup(t)
+	ctx := context.Background()
+	store := &flaky{Repository: repo, rule: "SSH brute force", failing: true}
+	eng := New(store, nil)
+	now := time.Now()
+	for i := 0; i < 12; i++ {
+		ev := &ocsf.Event{Time: now.Add(time.Duration(i) * time.Second).UnixMilli(), CategoryUID: 3, ClassUID: 3002, ActivityID: 1, SeverityID: 5,
+			Message: "Failed password for root from 198.51.100.9", SrcEndpoint: &ocsf.Endpoint{IP: "198.51.100.9"}}
+		if err := w.Submit(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Drain(ctx)
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := alertsByRule(t, repo)
+	if len(got["SSH brute force"]) != 0 || len(got["Critical event"]) == 0 {
+		t.Fatalf("while failing: brute force %d, critical %d", len(got["SSH brute force"]), len(got["Critical event"]))
+	}
+	store.failing = false
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got = alertsByRule(t, repo)
+	if b := got["SSH brute force"]; len(b) != 1 || b[0].Count != 12 {
+		t.Errorf("after recovering: brute force alerts %+v", b)
+	}
+	if c := got["Critical event"]; len(c) != 1 || c[0].Count != 12 {
+		t.Errorf("critical event counted again: %+v", c)
 	}
 }
