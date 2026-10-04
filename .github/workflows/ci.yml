@@ -40,6 +40,45 @@ jobs:
           python3 -c "import re,sys; s=open('web/static/index.html').read(); sys.stdout.write(re.findall(r'<script>(.*?)</script>', s, re.S)[-1])" > ui.js
           node --check ui.js
 
+  load:
+    name: Load and fuzzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # A small version of the load suite (loadtest/doc.go); its floors only
+      # catch large slowdowns, since runners vary.
+      - name: Load
+        run: SIEMLITE_LOAD=ci go test ./loadtest -run Load -v -timeout 15m
+      - name: Fuzz
+        run: |
+          for target in pkg/parser:FuzzParseLine pkg/parser:FuzzPattern pkg/parser:FuzzDraftPattern \
+              pkg/syslogd:FuzzReadFrame pkg/backup:FuzzBackupName pkg/intel:FuzzNormalize pkg/intel:FuzzParseFeed; do
+            go test "./${target%%:*}" -run '^$' -fuzz "^${target##*:}\$" -fuzztime 20s
+          done
+
+  e2e:
+    name: Browser test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: CGO_ENABLED=0 go build -o siemlite .
+      - name: Install Playwright
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet playwright==1.63.0
+          .venv/bin/python -m playwright install --with-deps chromium
+      - name: Click through the UI
+        run: .venv/bin/python e2e/ui_test.py ./siemlite
+
   vulncheck:
     name: Known vulnerabilities
     runs-on: ubuntu-latest
@@ -68,6 +107,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

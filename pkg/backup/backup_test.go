@@ -92,8 +92,8 @@ func TestCreateRestoreRoundTrip(t *testing.T) {
 	}
 	e.db.Close()
 	applied, err := ApplyPendingRestore(e.path, nil)
-	if err != nil || !applied {
-		t.Fatalf("apply = %v, %v", applied, err)
+	if err != nil || applied == nil || applied.Backup != b.Name || applied.SavedAs != safety.Name {
+		t.Fatalf("apply = %+v, %v", applied, err)
 	}
 	e.open()
 	defer e.db.Close()
@@ -105,7 +105,7 @@ func TestCreateRestoreRoundTrip(t *testing.T) {
 	if len(list) != 2 || list[0].Kind != BeforeRestore {
 		t.Errorf("list = %+v", list)
 	}
-	if applied, _ := ApplyPendingRestore(e.path, nil); applied {
+	if applied, _ := ApplyPendingRestore(e.path, nil); applied != nil {
 		t.Error("restore applied twice")
 	}
 }

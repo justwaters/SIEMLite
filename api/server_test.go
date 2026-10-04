@@ -14,6 +14,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"siemlite/api"
+	"siemlite/pkg/alerts"
+	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/intel"
@@ -30,6 +32,7 @@ type env struct {
 	srv    *httptest.Server
 	repo   *storage.Repository
 	worker *ingest.Worker
+	alerts *alerts.Engine
 }
 
 func newEnv(t *testing.T) *env {
@@ -46,11 +49,14 @@ func newEnv(t *testing.T) *env {
 	worker := ingest.New(repo, ingest.Config{FlushInterval: 20 * time.Millisecond})
 	t.Cleanup(worker.Close)
 
+	router := sources.New(repo)
+	engine := alerts.New(repo, nil)
 	srv := httptest.NewTLSServer(api.NewServer("", api.Deps{
-		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Router: sources.New(repo),
+		DB: db, Repo: repo, Ingest: worker, Search: search.NewEngine(repo), Auth: auth.New(repo, nil), Router: router,
+		Version: "v0.0-test", Audit: audit.New(worker, router, nil), Alerts: engine,
 	}).Handler())
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, repo: repo, worker: worker}
+	return &env{t: t, srv: srv, repo: repo, worker: worker, alerts: engine}
 }
 
 func (e *env) user(name, role string) {

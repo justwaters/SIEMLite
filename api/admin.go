@@ -4,16 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"siemlite/pkg/ai"
+	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/parser"
+	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
+
+// searchProbe is a one-row search used to check that a rule's query runs.
+func searchProbe(q string) search.Query { return search.Query{Text: q, Limit: 1} }
 
 // decodeJSON reads a small JSON body into v, writing a 400 on failure.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
@@ -87,9 +93,16 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, "stats", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"hours": hours, "start": start.UnixMilli(), "end": end.UnixMilli(), "bucket_ms": bucket.Milliseconds(), "overview": ov,
-	})
+	}
+	// Open alerts span every source, so limited users don't get the count.
+	if p := auth.FromContext(r.Context()); !p.Restricted() {
+		if n, err := s.deps.Repo.CountOpenAlerts(r.Context()); err == nil {
+			out["open_alerts"] = n
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // --- Sources ---
@@ -163,6 +176,8 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("source created", "source", src.Name, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "source.create", Message: auth.FromContext(r.Context()).Name + " created the access token " + src.Name,
+		Fields: map[string]string{"target": src.Name}})
 	writeJSON(w, http.StatusCreated, map[string]any{"source": src, "token": token})
 }
 
@@ -218,6 +233,17 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.Router.Invalidate()
 	src, _ := s.deps.Repo.GetSource(r.Context(), id)
+	if src != nil {
+		what := "changed the source " + src.Name
+		if parserID != nil {
+			what = "set the parser for " + src.Name + " to " + src.ParserName
+		} else if clear {
+			what = "set " + src.Name + " to automatic parsing"
+		} else if name != nil {
+			what = "renamed a source to " + src.Name
+		}
+		s.audit(r, audit.Entry{Action: "source.update", Message: auth.FromContext(r.Context()).Name + " " + what, Fields: map[string]string{"target": src.Name}})
+	}
 	writeJSON(w, http.StatusOK, src)
 }
 
@@ -243,6 +269,8 @@ func (s *Server) handleRevokeSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("source revoked", "source", src.Name, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "source.revoke", Severity: 3, Message: auth.FromContext(r.Context()).Name + " revoked the access token " + src.Name,
+		Fields: map[string]string{"target": src.Name}})
 	src, _ = s.deps.Repo.GetSource(r.Context(), id)
 	writeJSON(w, http.StatusOK, src)
 }
@@ -327,6 +355,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("user created", "user", req.Username, "role", role, "limited", limited, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "user.create", Class: audit.AccountChange,
+		Message: fmt.Sprintf("%s added the %s user %s", auth.FromContext(r.Context()).Name, role, req.Username),
+		Fields:  map[string]string{"target": req.Username, "role": role, "limited": strconv.FormatBool(limited)}})
 	u, _ := s.deps.Repo.GetUser(r.Context(), id)
 	writeJSON(w, http.StatusCreated, u)
 }
@@ -387,6 +418,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, _ := s.deps.Repo.GetUser(r.Context(), id)
+	s.audit(r, audit.Entry{Action: "user.update", Class: audit.AccountChange, Severity: 2,
+		Message: fmt.Sprintf("%s changed %s's access: %s, %s", auth.FromContext(r.Context()).Name, u.Username, role,
+			map[bool]string{true: fmt.Sprintf("limited to %d sources", len(sources)), false: "every source"}[limited]),
+		Fields: map[string]string{"target": u.Username, "role": role, "limited": strconv.FormatBool(limited)}})
 	s.deps.Logger.Info("user access changed", "user", u.Username, "role", role, "limited", limited,
 		"sources", len(sources), "by", auth.FromContext(r.Context()).Name)
 	writeJSON(w, http.StatusOK, u)
@@ -416,6 +451,8 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("password changed", "user", u.Username, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "user.password", Class: audit.AccountChange, Severity: 2,
+		Message: auth.FromContext(r.Context()).Name + " changed the password for " + u.Username, Fields: map[string]string{"target": u.Username}})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password changed; the user was signed out"})
 }
 
@@ -445,6 +482,8 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Logger.Info("user deleted", "user", u.Username, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "user.delete", Class: audit.AccountChange, Severity: 3,
+		Message: auth.FromContext(r.Context()).Name + " deleted the user " + u.Username, Fields: map[string]string{"target": u.Username}})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -539,6 +578,8 @@ func (s *Server) handleSaveParser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.Router.Invalidate()
 	s.deps.Logger.Info("parser saved", "parser", def.Name, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "parser.save", Message: auth.FromContext(r.Context()).Name + " saved the parser " + def.Name,
+		Fields: map[string]string{"target": def.Name}})
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		status = http.StatusCreated
@@ -560,6 +601,7 @@ func (s *Server) handleDeleteParser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Router.Invalidate()
+	s.audit(r, audit.Entry{Action: "parser.delete", Message: fmt.Sprintf("%s deleted parser %d", auth.FromContext(r.Context()).Name, id)})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

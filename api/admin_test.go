@@ -203,8 +203,14 @@ func TestSourcesParsersAndRestrictions(t *testing.T) {
 	// Removing the limit explicitly shows everything again.
 	e.call(root, "PATCH", fmt.Sprintf("/api/v1/users/%d", u.ID), map[string]any{"limited": false}, nil, nil)
 	e.call(sam, "GET", "/api/v1/search", nil, &res, nil)
-	if len(res.Events) != 3 {
-		t.Errorf("unrestricted search = %d events", len(res.Events))
+	logs := 0
+	for _, ev := range res.Events {
+		if ev.SourceName != "INTERNAL" { // the audit log is visible too
+			logs++
+		}
+	}
+	if logs != 3 {
+		t.Errorf("unrestricted search = %d log events", logs)
 	}
 
 	// Revoking a token stops it sending; deleting the parser returns the

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,6 +25,8 @@ import (
 
 	"siemlite/api"
 	"siemlite/pkg/ai"
+	"siemlite/pkg/alerts"
+	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/enrich"
@@ -39,8 +42,20 @@ import (
 	"siemlite/pkg/syslogd"
 )
 
+// versionFile is the release this build is, from the VERSION file.
+//
+//go:embed VERSION
+var versionFile string
+
+// version returns the release, e.g. "v0.7".
+func version() string { return strings.TrimSpace(versionFile) }
+
 func main() {
 	var err error
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Println("SIEMLite", version())
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		err = runKeys(os.Args[2:])
 	} else if len(os.Args) > 1 && os.Args[1] == "users" {
@@ -65,18 +80,6 @@ func main() {
 
 // errRestart asks main to start SIEMLite again, after a restore.
 var errRestart = errors.New("restart requested")
-
-// restartSelf replaces this process with a fresh copy of itself, with the
-// same arguments and environment, once everything has shut down. It works
-// the same under Docker, systemd or a plain shell.
-func restartSelf() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("restart: %w", err)
-	}
-	slog.Info("restarting SIEMLite")
-	return syscall.Exec(exe, os.Args, os.Environ())
-}
 
 func run() error {
 	dbPath := flag.String("db", "siemlite.db", "SQLite database path")
@@ -122,7 +125,8 @@ func run() error {
 		*backupDir = filepath.Join(filepath.Dir(*dbPath), "backups")
 	}
 	// A restore chosen on the System page is applied before the database opens.
-	if _, err := backup.ApplyPendingRestore(*dbPath, nil); err != nil {
+	restored, err := backup.ApplyPendingRestore(*dbPath, nil)
+	if err != nil {
 		slog.Error("restore not applied; starting with the current database", "err", err)
 	}
 	started := time.Now()
@@ -178,6 +182,19 @@ func run() error {
 
 	router := sources.New(repo)
 	authn := auth.New(repo, nil)
+	auditLog := audit.New(worker, router, nil)
+	if restored != nil {
+		auditLog.Record(ctx, audit.Entry{Action: "backup.restored", Actor: "SIEMLite", Severity: 4,
+			Message: "SIEMLite restarted with the database restored from the backup " + restored.Backup +
+				"; the database before it was saved as " + restored.SavedAs,
+			Fields: map[string]string{"target": restored.Backup, "saved_as": restored.SavedAs}})
+	}
+	alertEngine := alerts.New(repo, nil)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		alertEngine.Run(bgCtx, 10*time.Second)
+	}()
 	var aiClient *ai.Client
 	if *aiURL != "" {
 		aiClient = ai.New(*aiURL, *aiModel, nil)
@@ -208,6 +225,7 @@ func run() error {
 				slog.Warn("loading sample data failed", "err", err)
 			} else {
 				slog.Info("sample data loaded", "events", st.Events)
+				_, _ = alertEngine.Check(ctx)
 			}
 		}
 	}
@@ -273,7 +291,7 @@ func run() error {
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine,
 		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Sample: samples, Router: router, AI: aiClient,
-		Backups: backups, Started: started,
+		Backups: backups, Started: started, Version: version(), Audit: auditLog, Alerts: alertEngine,
 		Restart: func() {
 			select {
 			case restartCh <- struct{}{}:
@@ -283,7 +301,7 @@ func run() error {
 	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Start(*certFile, *keyFile) }()
-	slog.Info("SIEMLite listening (HTTPS only)", "url", "https://"+*addr, "db", *dbPath,
+	slog.Info("SIEMLite listening (HTTPS only)", "version", version(), "url", "https://"+*addr, "db", *dbPath,
 		"retention_days", *retentionDays, "cert_sha256", fingerprint)
 
 	var runErr error
@@ -374,6 +392,7 @@ func runKeys(args []string) error {
 			return err
 		}
 		fmt.Printf("Created source %d (%s). Its access token can only send logs. Shown once, store it safely:\n\n  %s\n", kid, *name, key)
+		cliAudit(repo, audit.Entry{Action: "source.create", Message: cliActor() + " created the access token " + *name, Fields: map[string]string{"target": *name}})
 	case "list":
 		srcs, err := repo.ListSources(ctx)
 		if err != nil {
@@ -403,6 +422,7 @@ func runKeys(args []string) error {
 			return fmt.Errorf("no active key with id %d", *id)
 		}
 		fmt.Printf("Revoked key %d\n", *id)
+		cliAudit(repo, audit.Entry{Action: "source.revoke", Severity: 3, Message: fmt.Sprintf("%s revoked access token %d", cliActor(), *id)})
 	default:
 		return fmt.Errorf("unknown keys command %q (want create, list or revoke)", cmd)
 	}
@@ -443,6 +463,7 @@ func runUsers(args []string) error {
 			return err
 		}
 		fmt.Printf("Created %s %q\n", *role, *username)
+		cliAudit(repo, audit.Entry{Action: "user.create", Class: audit.AccountChange, Message: cliActor() + " added the user " + *username, Fields: map[string]string{"target": *username}})
 	case "passwd":
 		pw, err := readNewPassword()
 		if err != nil {
@@ -455,6 +476,7 @@ func runUsers(args []string) error {
 			return err
 		}
 		fmt.Printf("Password updated for %q; their sessions were ended\n", *username)
+		cliAudit(repo, audit.Entry{Action: "user.password", Class: audit.AccountChange, Severity: 2, Message: cliActor() + " changed the password for " + *username, Fields: map[string]string{"target": *username}})
 	case "delete":
 		ok, err := repo.DeleteUser(ctx, *username)
 		if err != nil {
@@ -464,6 +486,7 @@ func runUsers(args []string) error {
 			return fmt.Errorf("no user %q", *username)
 		}
 		fmt.Printf("Deleted user %q\n", *username)
+		cliAudit(repo, audit.Entry{Action: "user.delete", Class: audit.AccountChange, Severity: 3, Message: cliActor() + " deleted the user " + *username, Fields: map[string]string{"target": *username}})
 	case "list":
 		users, err := repo.ListUsers(ctx)
 		if err != nil {
@@ -530,6 +553,24 @@ func runHealthcheck(args []string) error {
 	return nil
 }
 
+// cliActor names whoever ran a command-line change, for the audit log.
+func cliActor() string {
+	if u := os.Getenv("USER"); u != "" {
+		return "command line (" + u + ")"
+	}
+	return "command line"
+}
+
+// cliAudit records a command-line change in the INTERNAL audit log.
+func cliAudit(repo *storage.Repository, e audit.Entry) {
+	w := ingest.New(repo, ingest.Config{})
+	defer w.Close() // flushes the event before the command exits
+	if e.Actor == "" {
+		e.Actor = cliActor()
+	}
+	audit.New(w, sources.New(repo), nil).Record(context.Background(), e)
+}
+
 // runBackups implements `siemlite backups list|create|restore`. A restore is
 // applied the next time SIEMLite starts.
 func runBackups(args []string) error {
@@ -573,12 +614,14 @@ func runBackups(args []string) error {
 			return err
 		}
 		fmt.Printf("Created %s (%.1f MB) in %s\n", b.Name, float64(b.Size)/1048576, m.Dir())
+		cliAudit(repo, audit.Entry{Action: "backup.create", Message: cliActor() + " created the backup " + b.Name, Fields: map[string]string{"target": b.Name}})
 	case "restore":
 		safety, err := m.StageRestore(ctx, *name)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("The current database was saved as %s.\nRestart SIEMLite to restore %s.\n", safety.Name, *name)
+		cliAudit(repo, audit.Entry{Action: "backup.restore", Severity: 4, Message: cliActor() + " chose to restore the backup " + *name + " at the next start; the database was saved as " + safety.Name, Fields: map[string]string{"target": *name}})
 	default:
 		return fmt.Errorf("unknown backups command %q (want list, create or restore)", cmd)
 	}
@@ -709,6 +752,7 @@ func runIntel(args []string) error {
 			return err
 		}
 		fmt.Printf("Source %q now has %d indicators (%d lines skipped). A running server picks this up within 30s.\n", *source, n, skipped)
+		cliAudit(repo, audit.Entry{Action: "intel.import", Message: fmt.Sprintf("%s imported %d threat indicators into %s", cliActor(), n, *source), Fields: map[string]string{"target": *source}})
 	case "add":
 		if err := needSource(); err != nil {
 			return err
@@ -721,6 +765,7 @@ func runIntel(args []string) error {
 			return err
 		}
 		fmt.Printf("Added %s %s to %q\n", t, v, *source)
+		cliAudit(repo, audit.Entry{Action: "intel.add", Message: cliActor() + " added the indicator " + v + " to " + *source, Fields: map[string]string{"target": *source}})
 	case "list":
 		srcs, err := repo.ListIntelSources(ctx)
 		if err != nil {
@@ -742,6 +787,7 @@ func runIntel(args []string) error {
 			return fmt.Errorf("no indicators from source %q", *source)
 		}
 		fmt.Printf("Deleted %d indicators from %q\n", n, *source)
+		cliAudit(repo, audit.Entry{Action: "intel.delete", Severity: 2, Message: fmt.Sprintf("%s deleted %d threat indicators from %s", cliActor(), n, *source), Fields: map[string]string{"target": *source}})
 	default:
 		return fmt.Errorf("unknown intel command %q (want import, add, list or delete)", cmd)
 	}

@@ -14,9 +14,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"siemlite/pkg/ai"
+	"siemlite/pkg/alerts"
+	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/ingest"
@@ -54,6 +57,9 @@ type Deps struct {
 	Backups *backup.Manager
 	Started time.Time
 	Restart func()
+	Version string         // e.g. "v0.7"
+	Audit   *audit.Logger  // optional: records actions as INTERNAL events
+	Alerts  *alerts.Engine // optional: alert rules
 	Logger  *slog.Logger
 }
 
@@ -61,7 +67,25 @@ type Deps struct {
 type Server struct {
 	deps Deps
 	http *http.Server
+
+	// Failed and blocked sign-ins are recorded before anyone has signed in,
+	// so strangers mustn't be able to fill the database with them. Each
+	// address is already locked out after a few failures; a blocked address
+	// is recorded once per lockout, and a cap well above what one attacker's
+	// addresses produce stops a flood from many.
+	signinMu      sync.Mutex
+	signinWindow  time.Time
+	signinCount   int
+	signinDropped int
+	signinBlocked map[string]time.Time // address -> when its block was last recorded
+	signinPruned  time.Time
 }
+
+const (
+	signinAuditsPerMinute = 600
+	signinBlockedEvery    = 15 * time.Minute // the lockout window in pkg/auth
+	signinBlockedMax      = 50000            // addresses remembered at once
+)
 
 // NewServer builds a server listening on addr once Start is called.
 func NewServer(addr string, deps Deps) *Server {
@@ -110,6 +134,12 @@ func (s *Server) Handler() http.Handler {
 	admin("DELETE /api/v1/parsers/{id}", s.handleDeleteParser)
 	admin("POST /api/v1/parsers/test", s.handleTestParser)
 	admin("POST /api/v1/parsers/suggest", s.handleSuggestParser)
+	mux.Handle("GET /api/v1/alerts", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListAlerts)))
+	mux.Handle("PATCH /api/v1/alerts/{id}", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSetAlertStatus)))
+	mux.Handle("GET /api/v1/rules", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListRules)))
+	admin("POST /api/v1/rules", s.handleSaveRule)
+	admin("PUT /api/v1/rules/{id}", s.handleSaveRule)
+	admin("DELETE /api/v1/rules/{id}", s.handleDeleteRule)
 	admin("GET /api/v1/system", s.handleSystem)
 	admin("GET /api/v1/backups", s.handleListBackups)
 	admin("POST /api/v1/backups", s.handleCreateBackup)
@@ -450,6 +480,15 @@ func (s *Server) handleSampleSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.Logger.Info("sample data changed", "enabled", st.Enabled, "events", st.Events,
 		"by", auth.FromContext(r.Context()).Name)
+	if s.deps.Alerts != nil {
+		// Old sample alerts go with the sample; new ones are raised now.
+		_ = s.deps.Repo.DeleteSampleAlerts(r.Context())
+		if st.Enabled {
+			_, _ = s.deps.Alerts.Check(r.Context())
+		}
+	}
+	onOff := map[bool]string{true: "on", false: "off"}[st.Enabled]
+	s.audit(r, audit.Entry{Action: "sample." + onOff, Message: auth.FromContext(r.Context()).Name + " turned Sample data " + onOff})
 	writeJSON(w, http.StatusOK, st)
 }
 
@@ -465,13 +504,14 @@ type sessionInfo struct {
 	Limited bool      `json:"limited"`
 	Sources []int64   `json:"sources"`
 	AI      ai.Status `json:"ai"`
+	Version string    `json:"version,omitempty"`
 }
 
 func (s *Server) session(username, role string, limited bool, sources []int64) sessionInfo {
 	if sources == nil || role == auth.RoleAdmin {
 		sources = []int64{}
 	}
-	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status()}
+	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status(), Version: s.deps.Version}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -492,9 +532,20 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	token, user, err := s.deps.Auth.Login(r.Context(), host, req.Username, req.Password)
 	switch {
 	case errors.Is(err, auth.ErrBadCredentials):
+		who := s.attemptedUser(r, req.Username)
+		s.auditSignin(r, audit.Entry{Action: "signin.failed", Actor: who, Class: audit.Authentication, Severity: 3,
+			Message: "Sign-in failed for " + who})
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	case errors.Is(err, auth.ErrTooManyAttempts):
+		who := s.attemptedUser(r, req.Username)
+		if !s.firstBlock(clientIP(r)) {
+			w.Header().Set("Retry-After", "900")
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
+		s.auditSignin(r, audit.Entry{Action: "signin.blocked", Actor: who, Class: audit.Authentication, Severity: 4,
+			Message: "Sign-in blocked for " + who + " after too many failed attempts from this address"})
 		w.Header().Set("Retry-After", "900")
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
@@ -504,6 +555,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.SetSessionCookie(w, token)
+	s.audit(r, audit.Entry{Action: "signin", Actor: user.Username, Class: audit.Authentication, Message: user.Username + " signed in"})
 	limited, sources := true, []int64{} // if the lookup fails, show nothing rather than everything
 	if full, err := s.deps.Repo.GetUser(r.Context(), user.ID); err == nil {
 		limited, sources = full.Limited, full.Sources
@@ -516,11 +568,116 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "cross-origin request refused")
 		return
 	}
+	if p, err := s.deps.Auth.Authenticate(r); err == nil && p.Kind == auth.KindUser {
+		s.audit(r, audit.Entry{Action: "signout", Actor: p.Name, Class: audit.Authentication, Message: p.Name + " signed out"})
+	}
 	if err := s.deps.Auth.Logout(r); err != nil {
 		s.deps.Logger.Error("logout failed", "err", err)
 	}
 	auth.ClearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
+}
+
+// clientIP is the caller's address.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// attemptedUser names the account a failed sign-in tried. Text that isn't an
+// account name is not recorded: people sometimes type their password into
+// the username field, and the audit log is readable by every analyst.
+func (s *Server) attemptedUser(r *http.Request, username string) string {
+	if u, _, err := s.deps.Repo.GetUserForLogin(r.Context(), username); err == nil {
+		return u.Username
+	}
+	return "an unknown username"
+}
+
+// firstBlock reports whether a blocked sign-in from addr is the first since
+// its lockout began, so a locked-out address is recorded once, not per try.
+func (s *Server) firstBlock(addr string) bool {
+	s.signinMu.Lock()
+	defer s.signinMu.Unlock()
+	now := time.Now()
+	if s.signinBlocked == nil {
+		s.signinBlocked = map[string]time.Time{}
+	}
+	if now.Sub(s.signinPruned) >= time.Minute { // at most once a minute, so it stays cheap
+		for a, t := range s.signinBlocked {
+			if now.Sub(t) >= signinBlockedEvery {
+				delete(s.signinBlocked, a)
+			}
+		}
+		s.signinPruned = now
+	}
+	if t, ok := s.signinBlocked[addr]; ok && now.Sub(t) < signinBlockedEvery {
+		return false
+	}
+	if len(s.signinBlocked) < signinBlockedMax { // beyond it, every block is recorded (within the cap)
+		s.signinBlocked[addr] = now
+	}
+	return true
+}
+
+// auditSignin records a failed or blocked sign-in, at most
+// signinAuditsPerMinute a minute; the rest are counted in one event when the
+// minute ends.
+func (s *Server) auditSignin(r *http.Request, e audit.Entry) {
+	s.signinMu.Lock()
+	now := time.Now()
+	if now.Sub(s.signinWindow) >= time.Minute {
+		s.signinWindow, s.signinCount = now, 0
+	}
+	record := s.signinCount < signinAuditsPerMinute
+	if record {
+		s.signinCount++
+	} else {
+		s.signinDropped++
+		if s.signinDropped == 1 {
+			// Write the count when this minute ends, even if the flood stops.
+			time.AfterFunc(time.Until(s.signinWindow.Add(time.Minute)), s.flushSignin)
+		}
+	}
+	s.signinMu.Unlock()
+	if record {
+		s.audit(r, e)
+	}
+}
+
+// flushSignin records how many failed or blocked sign-ins went unrecorded.
+func (s *Server) flushSignin() {
+	s.signinMu.Lock()
+	dropped := s.signinDropped
+	s.signinDropped = 0
+	s.signinMu.Unlock()
+	if dropped == 0 || s.deps.Audit == nil {
+		return
+	}
+	// From many addresses, so none is named. Critical, so it raises an alert.
+	s.deps.Audit.Record(context.Background(), audit.Entry{Action: "signin.failed.more", Actor: "SIEMLite",
+		Class: audit.Authentication, Severity: 5,
+		Message: fmt.Sprintf("%d more failed or blocked sign-ins in a minute weren't recorded one by one", dropped),
+		Fields:  map[string]string{"count": strconv.Itoa(dropped)}})
+}
+
+// audit records an action from a request, filling in who and where from.
+func (s *Server) audit(r *http.Request, e audit.Entry) {
+	if s.deps.Audit == nil {
+		return
+	}
+	if e.Actor == "" {
+		if p := auth.FromContext(r.Context()); p != nil {
+			e.Actor = p.Name
+		}
+	}
+	if e.IP == "" {
+		e.IP = clientIP(r)
+	}
+	s.deps.Audit.Record(r.Context(), e)
 }
 
 // handleMe tells the UI whether the browser has a valid session.
@@ -535,6 +692,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 type healthResponse struct {
 	Status   string         `json:"status"`
+	Version  string         `json:"version,omitempty"`
 	Time     time.Time      `json:"time"`
 	Database map[string]any `json:"database,omitempty"`
 	Ingest   *ingest.Stats  `json:"ingest,omitempty"`
@@ -556,6 +714,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if detailed {
 		stats := s.deps.Ingest.Stats()
 		resp.Ingest = &stats
+		resp.Version = s.deps.Version
 		resp.Database = map[string]any{"status": "ok"}
 		if s.deps.Intel != nil {
 			st := s.deps.Intel.Stats()

@@ -14,10 +14,12 @@ const SchemaVersion = schemaVersion
 func (d *DB) Path() string { return d.path }
 
 // SnapshotTo writes a consistent, compacted copy of the database to dest
-// (which must not exist) with VACUUM INTO. It uses its own connection, so the
-// shared writer is never held up; WAL lets ingest continue meanwhile.
+// (which must not exist) with VACUUM INTO. It uses its own read-only
+// connection, so the shared writer is never held up; WAL lets ingest continue
+// meanwhile. (A connection that sets auto_vacuum, as the writer's does, makes
+// VACUUM INTO wait for the write lock, which a busy server never frees.)
 func (d *DB) SnapshotTo(ctx context.Context, dest string) error {
-	conn, err := sql.Open("sqlite", dsn(d.path, false))
+	conn, err := sql.Open("sqlite", "file:"+d.path+"?mode=ro&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return fmt.Errorf("snapshot: %w", err)
 	}

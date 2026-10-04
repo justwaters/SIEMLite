@@ -9,10 +9,11 @@ import (
 
 // Source kinds. Tokens are created by admins; the others exist once each.
 const (
-	SourceToken  = "token"  // an access token an application sends logs with
-	SourceSyslog = "syslog" // the syslog listeners
-	SourceUpload = "upload" // logs pasted or uploaded in the web UI
-	SourceSample = "sample" // the Sample data switch
+	SourceToken    = "token"    // an access token an application sends logs with
+	SourceSyslog   = "syslog"   // the syslog listeners
+	SourceUpload   = "upload"   // logs pasted or uploaded in the web UI
+	SourceSample   = "sample"   // the Sample data switch
+	SourceInternal = "internal" // SIEMLite's own audit log
 )
 
 var (

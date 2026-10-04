@@ -167,3 +167,58 @@ func TestUpgradeToV7(t *testing.T) {
 		}
 	}
 }
+
+// v9 rebuilds sources. A limited user's source rows must survive it (with
+// foreign keys on, dropping the old table would cascade-delete them), and
+// the INTERNAL source and built-in alert rules appear.
+func TestUpgradeToV9KeepsUserSources(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v8.db")
+	db, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(db)
+	uid, _ := repo.CreateUser(ctx, "lim", "x", "standard", 1)
+	tok, _ := repo.CreateTokenSource(ctx, "web", "hash-web", nil, 1)
+	if err := repo.UpdateUserAccess(ctx, uid, "standard", true, []int64{tok}); err != nil {
+		t.Fatal(err)
+	}
+	// Rewind to v8: drop what v9 adds, and put sources back without the
+	// internal kind.
+	for _, stmt := range []string{
+		`DROP TABLE alerts`, `DROP TABLE alert_rules`,
+		`DELETE FROM sources WHERE kind = 'internal'`,
+		`PRAGMA user_version = 8`,
+	} {
+		if _, err := db.Write.Exec(stmt); err != nil {
+			t.Fatal(stmt, err)
+		}
+	}
+	db.Close()
+
+	db, err = Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo = NewRepository(db)
+	u, err := repo.GetUser(ctx, uid)
+	if err != nil || !u.Limited || len(u.Sources) != 1 || u.Sources[0] != tok {
+		t.Fatalf("limited user after v9 = %+v, %v", u, err)
+	}
+	if s, err := repo.BuiltinSource(ctx, SourceInternal); err != nil || s.Name != "INTERNAL" {
+		t.Errorf("INTERNAL source = %+v, %v", s, err)
+	}
+	var n int
+	db.Read.QueryRow(`SELECT COUNT(*) FROM alert_rules WHERE builtin = 1`).Scan(&n)
+	if n != 4 {
+		t.Errorf("built-in rules = %d, want 4", n)
+	}
+	// Foreign keys are back on for normal use.
+	var fk int
+	db.Write.QueryRow(`PRAGMA foreign_keys`).Scan(&fk)
+	if fk != 1 {
+		t.Error("foreign keys left off after migrating")
+	}
+}

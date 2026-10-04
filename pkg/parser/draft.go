@@ -21,7 +21,7 @@ func DraftPattern(lines []string) string {
 		if strings.TrimSpace(l) == "" {
 			continue
 		}
-		t := strings.Fields(l)
+		t := strings.FieldsFunc(l, isSpace)
 		toks = append(toks, t)
 		if minLen < 0 || len(t) < minLen {
 			minLen = len(t)
@@ -75,6 +75,9 @@ func DraftPattern(lines []string) string {
 		segs = append(segs, describe(column(i, false))...)
 	}
 	middle := prefix < minLen-suffix || (!sameLen && suffix > 0)
+	if middle && prefix+suffix == minLen {
+		suffix-- // the shortest line must still have a word for {message}
+	}
 	if middle {
 		segs = append(segs, segment{name: "message", multi: true})
 	}
@@ -83,11 +86,19 @@ func DraftPattern(lines []string) string {
 	}
 	trailing := !sameLen && !middle // extra words after the aligned part on some lines
 	pat := render(mergeWords(segs), trailing)
-	if !strings.Contains(pat, "{") {
-		return "{message}" // every line is the same
+	if _, names, err := CompilePattern(pat); err != nil || len(names) == 0 {
+		return "{message}" // every line is the same (or the draft is unusable)
 	}
 	return pat
 }
+
+// isSpace matches the regexp \s class used by patterns (which, unlike
+// strings.Fields, doesn't include \v or Unicode spaces).
+func isSpace(r rune) bool { return r == ' ' || r == '\t' || r == '\n' || r == '\f' || r == '\r' }
+
+// braces writes literal braces as unnamed placeholders, since patterns have
+// no other way to match them.
+var braces = strings.NewReplacer("{", `{:\x7b}`, "}", `{:\x7d}`)
 
 // timePair recognises a timestamp written as two words, like nginx's
 // [03/Oct/2026:10:17:12 +0000], keeping any wrapping punctuation literal.
@@ -246,6 +257,11 @@ func commonEdges(col []string) (string, string) {
 	// Keep the prefix only up to its last punctuation character.
 	cut := strings.LastIndexFunc(pre, func(r rune) bool { return r < 128 && !isAlnum(byte(r)) })
 	pre = pre[:cut+1]
+	for _, w := range col {
+		if len(w) == len(pre) {
+			pre = "" // the field would be empty in this word
+		}
+	}
 	suf := col[0][len(pre):]
 	for _, w := range col {
 		w = w[len(pre):]
@@ -382,7 +398,7 @@ func render(segs []segment, trailing bool) string {
 	var sb strings.Builder
 	for i, s := range flat {
 		if s.name == "" {
-			sb.WriteString(s.lit)
+			sb.WriteString(braces.Replace(s.lit))
 			continue
 		}
 		next := func(k int) *segment {
