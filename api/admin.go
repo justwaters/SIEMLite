@@ -159,13 +159,21 @@ func (s *Server) checkParser(ctx context.Context, w http.ResponseWriter, id *int
 
 func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string `json:"name"`
-		ParserID *int64 `json:"parser_id"`
+		Name       string `json:"name"`
+		ParserID   *int64 `json:"parser_id"`
+		ParserNone bool   `json:"parser_none"`
 	}
-	if !decodeJSON(w, r, &req, 4<<10) || !s.checkParser(r.Context(), w, req.ParserID) {
+	if !decodeJSON(w, r, &req, 4<<10) {
 		return
 	}
-	id, token, err := auth.CreateKey(r.Context(), s.deps.Repo, req.Name, req.ParserID)
+	if req.ParserNone && req.ParserID != nil {
+		writeError(w, http.StatusBadRequest, "choose a parser or parser_none, not both")
+		return
+	}
+	if !s.checkParser(r.Context(), w, req.ParserID) {
+		return
+	}
+	id, token, err := auth.CreateKey(r.Context(), s.deps.Repo, req.Name, req.ParserID, req.ParserNone)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -182,7 +190,8 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateSource renames a source or sets its parser ("parser_id": null
-// returns it to automatic parsing).
+// returns it to automatic parsing; "parser_none": true keeps its lines as
+// they arrive, with no detection).
 func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -216,10 +225,23 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 			parserID = &pid
 		}
 	}
+	var parserNone *bool
+	if v, ok := raw["parser_none"]; ok {
+		var b bool
+		if json.Unmarshal(v, &b) != nil {
+			writeError(w, http.StatusBadRequest, "parser_none must be true or false")
+			return
+		}
+		parserNone = &b
+	}
+	if parserNone != nil && *parserNone && parserID != nil {
+		writeError(w, http.StatusBadRequest, "choose a parser or parser_none, not both")
+		return
+	}
 	if !s.checkParser(r.Context(), w, parserID) {
 		return
 	}
-	err := s.deps.Repo.UpdateSource(r.Context(), id, name, parserID, clear)
+	err := s.deps.Repo.UpdateSource(r.Context(), id, name, parserID, clear, parserNone)
 	switch {
 	case errors.Is(err, storage.ErrSourceNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -235,7 +257,9 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	src, _ := s.deps.Repo.GetSource(r.Context(), id)
 	if src != nil {
 		what := "changed the source " + src.Name
-		if parserID != nil {
+		if parserNone != nil && *parserNone {
+			what = "set " + src.Name + " to keep lines as they are (no parser)"
+		} else if parserID != nil {
 			what = "set the parser for " + src.Name + " to " + src.ParserName
 		} else if clear {
 			what = "set " + src.Name + " to automatic parsing"

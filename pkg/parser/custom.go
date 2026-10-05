@@ -329,7 +329,8 @@ func (p *Parser) Parse(line string, d Defaults) (*Result, error) {
 type syslogParts struct {
 	time       time.Time
 	host, app  string
-	body       string
+	body       string // the message, after the whole header
+	rest       string // everything after the host and time, tag included
 	sevFromPRI int
 }
 
@@ -343,14 +344,12 @@ func splitSyslog(line string, now time.Time) (syslogParts, bool) {
 		h.sevFromPRI = prioritySeverity(pri % 8)
 		body = body[len(m[0]):]
 	}
-	is5424 := false
-	if m := syslog5424.FindStringSubmatch(body); m != nil && m[1] != "" {
-		is5424 = true
-	}
+	is5424 := syslog5424.MatchString(body)
 	t, host, app, rest, ok := syslogHeader(body, now)
 	if !ok {
 		return h, false
 	}
+	h.rest = rest
 	if is5424 {
 		rest = rfc5424Rest.ReplaceAllString(rest, "")
 	} else if tag := syslogTag.FindStringSubmatch(rest); tag != nil && app != "" {

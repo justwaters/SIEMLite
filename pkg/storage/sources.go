@@ -27,18 +27,19 @@ type Source struct {
 	Kind       string `json:"kind"`
 	ParserID   *int64 `json:"parser_id,omitempty"`
 	ParserName string `json:"parser_name,omitempty"`
+	ParserNone bool   `json:"parser_none"` // lines are stored as they arrive, with no detection
 	CreatedAt  int64  `json:"created_at"`
 	RevokedAt  *int64 `json:"revoked_at,omitempty"`
 	LastUsedAt *int64 `json:"last_used_at,omitempty"`
 }
 
-const sourceCols = `s.id, s.name, s.kind, s.parser_id, COALESCE(p.name, ''), s.created_at, s.revoked_at, s.last_used_at
+const sourceCols = `s.id, s.name, s.kind, s.parser_id, COALESCE(p.name, ''), s.parser_none, s.created_at, s.revoked_at, s.last_used_at
 	FROM sources s LEFT JOIN parsers p ON p.id = s.parser_id`
 
 func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 	var s Source
 	var parser, revoked, used sql.NullInt64
-	if err := row.Scan(&s.ID, &s.Name, &s.Kind, &parser, &s.ParserName, &s.CreatedAt, &revoked, &used); err != nil {
+	if err := row.Scan(&s.ID, &s.Name, &s.Kind, &parser, &s.ParserName, &s.ParserNone, &s.CreatedAt, &revoked, &used); err != nil {
 		return nil, err
 	}
 	if parser.Valid {
@@ -54,10 +55,14 @@ func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 }
 
 // CreateTokenSource stores a new access token source and returns its id.
-func (r *Repository) CreateTokenSource(ctx context.Context, name, keyHash string, parserID *int64, nowMs int64) (int64, error) {
+// parserNone keeps its lines as they arrive; it can't be combined with a parser.
+func (r *Repository) CreateTokenSource(ctx context.Context, name, keyHash string, parserID *int64, parserNone bool, nowMs int64) (int64, error) {
+	if parserNone && parserID != nil {
+		return 0, errors.New("a source can't have a parser and parser_none together")
+	}
 	res, err := r.db.Write.ExecContext(ctx,
-		`INSERT INTO sources (name, kind, key_hash, parser_id, created_at) VALUES (?, 'token', ?, ?, ?)`,
-		name, keyHash, parserID, nowMs)
+		`INSERT INTO sources (name, kind, key_hash, parser_id, parser_none, created_at) VALUES (?, 'token', ?, ?, ?, ?)`,
+		name, keyHash, parserID, parserNone, nowMs)
 	if err != nil {
 		return 0, fmt.Errorf("create source: %w", err)
 	}
@@ -122,10 +127,19 @@ func (r *Repository) ListSources(ctx context.Context) ([]Source, error) {
 
 // UpdateSource renames a token source and/or sets any source's parser.
 // clearParser removes the parser (the source then uses automatic parsing).
-func (r *Repository) UpdateSource(ctx context.Context, id int64, name *string, parserID *int64, clearParser bool) error {
+// parserNone true keeps lines as they arrive (and drops any parser); choosing
+// a parser or clearParser turns it off again, as does parserNone false.
+func (r *Repository) UpdateSource(ctx context.Context, id int64, name *string, parserID *int64, clearParser bool, parserNone *bool) error {
 	s, err := r.GetSource(ctx, id)
 	if err != nil {
 		return err
+	}
+	none := parserNone != nil && *parserNone
+	if none && parserID != nil {
+		return errors.New("a source can't have a parser and parser_none together")
+	}
+	if none && s.Kind == SourceInternal {
+		return errors.New("the built-in INTERNAL source doesn't use a parser")
 	}
 	if name != nil {
 		if s.Kind != SourceToken {
@@ -135,8 +149,17 @@ func (r *Repository) UpdateSource(ctx context.Context, id int64, name *string, p
 			return fmt.Errorf("rename source: %w", err)
 		}
 	}
-	if parserID != nil || clearParser {
-		if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET parser_id = ? WHERE id = ?`, parserID, id); err != nil {
+	switch {
+	case none:
+		if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET parser_id = NULL, parser_none = 1 WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("set parser: %w", err)
+		}
+	case parserID != nil || clearParser:
+		if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET parser_id = ?, parser_none = 0 WHERE id = ?`, parserID, id); err != nil {
+			return fmt.Errorf("set parser: %w", err)
+		}
+	case parserNone != nil:
+		if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET parser_none = 0 WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("set parser: %w", err)
 		}
 	}

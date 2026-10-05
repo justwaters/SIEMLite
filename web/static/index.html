@@ -1561,21 +1561,28 @@ async function loadParsers() {
   try { parsersCache = await apiJSON("/api/v1/parsers"); } catch { parsersCache = []; }
   return parsersCache;
 }
-function parserOptions(selected) {
-  return [el("option", { value: "", textContent: "Automatic" }),
+// Automatic (value ""), None ("none"), then the saved parsers (their ids).
+function parserOptions(selected, none) {
+  return [el("option", { value: "", textContent: "Automatic", title: "Detects syslog and JSON, addresses, users and severity" }),
+    el("option", { value: "none", textContent: "None", title: "Keeps each line as it is, with no detection", selected: !!none }),
     ...parsersCache.map((p) => el("option", { value: String(p.id), textContent: p.name, selected: p.id === selected }))];
+}
+// The request fields that make a parser dropdown value stick.
+function parserChoice(value) {
+  if (value === "none") return { parser_none: true };
+  return { parser_id: value ? Number(value) : null };
 }
 async function openSources() {
   notice($("sources-msg"), "");
   try {
     await Promise.all([loadSources(), loadParsers()]);
     $("sources-body").replaceChildren(...sourcesCache.map((s) => {
-      const parserSel = el("select", { className: "select", "aria-label": `Parser for ${s.name}` }, ...parserOptions(s.parser_id));
+      const parserSel = el("select", { className: "select", "aria-label": `Parser for ${s.name}` }, ...parserOptions(s.parser_id, s.parser_none));
       parserSel.disabled = s.kind === "internal" || !!s.revoked_at;
       parserSel.onchange = async () => {
         try {
-          await apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: { parser_id: parserSel.value ? Number(parserSel.value) : null } });
-          notice($("sources-msg"), `${s.name} now uses ${parserSel.value ? parserSel.selectedOptions[0].textContent : "automatic parsing"}.`, true);
+          await apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: parserChoice(parserSel.value) });
+          notice($("sources-msg"), `${s.name} now uses ${parserSel.value === "" ? "automatic parsing" : parserSel.value === "none" ? "no parser" : parserSel.selectedOptions[0].textContent}.`, true);
         } catch (err) { notice($("sources-msg"), err.message); }
       };
       const fresh = s.last_used_at && Date.now() - s.last_used_at < 86400000;
@@ -1600,7 +1607,7 @@ function sourceDialog(s) {
   $("s-parser-wrap").hidden = editing;
   $("s-save").textContent = editing ? "Save" : "Create token";
   $("s-name").value = editing ? s.name : "";
-  $("s-parser").replaceChildren(...parserOptions(null));
+  $("s-parser").replaceChildren(...parserOptions(null, false));
   notice($("s-err"), "");
   const d = $("dlg-source");
   $("source-form").onsubmit = async (e) => {
@@ -1614,7 +1621,7 @@ function sourceDialog(s) {
         notice($("sources-msg"), `Renamed to ${name}.`, true);
         return;
       }
-      const res = await apiJSON("/api/v1/sources", { method: "POST", json: { name, parser_id: $("s-parser").value ? Number($("s-parser").value) : null } });
+      const res = await apiJSON("/api/v1/sources", { method: "POST", json: { name, ...parserChoice($("s-parser").value) } });
       d.close();
       await openSources();
       tokenDialog(res.token);

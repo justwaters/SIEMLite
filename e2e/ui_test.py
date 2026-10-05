@@ -108,6 +108,28 @@ def main(binary, loggen):
             chosen = sel.evaluate("s => s.options[s.selectedIndex].text") if sel.count() else ""
             check("Access token" in row.inner_text() and chosen == "Log generator",
                   f"the Log generator source is set up with its parser (parser: {chosen!r})")
+            # The parser dropdown offers Automatic and None before the parsers,
+            # and choosing None sticks across a reload.
+            ui_row = lambda: page.locator("#view-sources tbody tr").filter(
+                has=page.locator("td:first-child", has_text=re.compile(r"^\s*Added in the UI\s*$"))).first
+            ui_sel = ui_row().locator("select")
+            options = ui_sel.evaluate("s => [...s.options].map(o => o.text)")
+            check(options[:2] == ["Automatic", "None"] and "Log generator" in options[2:],
+                  f"the parser dropdown lists Automatic, None, then the parsers ({options})")
+            check(ui_sel.evaluate("s => s.options[s.selectedIndex].text") == "Automatic", "a source starts on Automatic")
+            ui_sel.select_option(label="None")
+            page.wait_for_selector("#sources-msg:not([hidden])")
+            check("no parser" in page.inner_text("#sources-msg"), "choosing None says so")
+            page.reload()
+            page.wait_for_selector("#view-sources tbody tr")
+            chosen = ui_row().locator("select").evaluate("s => s.options[s.selectedIndex].text")
+            check(chosen == "None", f"None is still chosen after a reload ({chosen!r})")
+            ui_row().locator("select").select_option(label="Automatic")
+            page.wait_for_selector("#sources-msg:not([hidden]):has-text('automatic')")
+            page.reload()
+            page.wait_for_selector("#view-sources tbody tr")
+            chosen = ui_row().locator("select").evaluate("s => s.options[s.selectedIndex].text")
+            check(chosen == "Automatic", f"choosing Automatic again clears it ({chosen!r})")
             for _ in range(15):
                 page.goto(url + "#/alerts")
                 page.wait_for_timeout(1500)

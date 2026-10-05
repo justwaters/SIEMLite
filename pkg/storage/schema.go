@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 11
+const schemaVersion = 12
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -262,6 +262,11 @@ var upgrades = map[int][]string{
 		`UPDATE alert_rules SET source_id = NULL WHERE source_id IN (SELECT id FROM sources WHERE kind = 'sample')`,
 		`UPDATE events SET source_id = NULL WHERE source_id IN (SELECT id FROM sources WHERE kind = 'sample')`,
 		`DELETE FROM sources WHERE kind = 'sample'`,
+	},
+	// v12: a source can be set to keep its lines as they arrive, with no
+	// parser and no detection (parser_none). It goes with a NULL parser_id.
+	11: {
+		`ALTER TABLE sources ADD COLUMN parser_none INTEGER NOT NULL DEFAULT 0`,
 	},
 }
 

@@ -125,8 +125,9 @@ func randomToken(prefix string) (string, error) {
 }
 
 // CreateKey creates an access token source (send-only) with an optional
-// parser. The plaintext token is only available from this call.
-func CreateKey(ctx context.Context, repo *storage.Repository, name string, parserID *int64) (id int64, plaintext string, err error) {
+// parser, or with parserNone to keep its lines as they arrive. The plaintext
+// token is only available from this call.
+func CreateKey(ctx context.Context, repo *storage.Repository, name string, parserID *int64, parserNone bool) (id int64, plaintext string, err error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 80 {
 		return 0, "", errors.New("source name must be 1-80 characters")
@@ -135,7 +136,7 @@ func CreateKey(ctx context.Context, repo *storage.Repository, name string, parse
 	if err != nil {
 		return 0, "", err
 	}
-	id, err = repo.CreateTokenSource(ctx, name, hash, parserID, time.Now().UnixMilli())
+	id, err = repo.CreateTokenSource(ctx, name, hash, parserID, parserNone, time.Now().UnixMilli())
 	return id, plaintext, err
 }
 
