@@ -37,6 +37,28 @@ services:
     volumes:
       - ollama-models:/root/.ollama
 
+  # Optional test logs, sent continuously at LOGGEN_EPS events a second (default
+  # 10) for as long as it runs, through a restart or an upgrade of SIEMLite.
+  # Turn it on with COMPOSE_PROFILES=testlogs (or ai,testlogs) in .env, then
+  # docker compose up -d. It sends with the Log generator token SIEMLite made
+  # on first start. See "Test logs" in the README.
+  loggen:
+    image: ${SIEMLITE_IMAGE:-siemlite:local}
+    profiles: [testlogs]
+    restart: unless-stopped
+    depends_on:
+      siemlite:
+        condition: service_healthy
+    entrypoint: [loggen]
+    # SIEMLite's certificate names localhost, so check it against that name.
+    # loggen finds the token and certificate in /data. If SIEMLite is down or
+    # restarting it keeps trying and carries on when it is back.
+    command: ["-eps=${LOGGEN_EPS:-10}", "-report=1m", "-to=https://siemlite:8443", "-servername=localhost"]
+    healthcheck:
+      disable: true
+    volumes:
+      - siemlite-data:/data:ro
+
 volumes:
   siemlite-data:
   ollama-models:

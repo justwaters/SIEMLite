@@ -303,9 +303,17 @@ loggen -eps 100 -to udp://siem:514   # to any SIEM over syslog
 loggen -eps 1 -to stdout             # just look at the lines
 ```
 
-- **Rate**: `-eps` takes 1, 10, 100, 1k, 10k, 100k or 1m events a second (any number works). It can make well over a
-  million lines a second; how many arrive depends on the receiver. When SIEMLite is busy it answers `503`, and loggen
-  waits as asked and sends the rest again, so nothing is lost and the rate it reports is what was stored.
+- **Rate**: `-eps` takes 1, 10, 100, 1k, 10k, 100k or 1m events a second (any number works). It keeps that rate for as
+  long as it runs (until you stop it, or `-for` ends it): a slow moment or a restart of the receiver is made up for, but
+  only up to a second's worth, so a long outage doesn't end in a flood. It can make well over a million lines a second;
+  how many arrive depends on the receiver. When SIEMLite is busy it answers `503`, and loggen waits as asked and sends the
+  rest again, so nothing is lost, and the progress line says when the rate it achieved is below the one you asked for.
+- **Keep it running in the background**: `docker compose exec` stops when your terminal does. To send continuously, turn
+  on the `loggen` service: add `testlogs` to `COMPOSE_PROFILES` in `.env` (`COMPOSE_PROFILES=testlogs`, or
+  `ai,testlogs`), set the rate with `LOGGEN_EPS=100` (default 10), and run `docker compose up -d`. It restarts with Docker,
+  carries on through restarts and upgrades of SIEMLite, and logs a progress line a minute. Remove `testlogs` and run
+  `docker compose up -d --remove-orphans` to stop it. Without Docker, run `nohup loggen -eps 10 > /dev/null 2>&1 &`, or
+  from systemd or any process manager.
 - **Set up for you**: on first start SIEMLite creates a **Log generator** parser and an access token source that uses
   it, and saves the token as `siemlite-loggen.token` next to the database. loggen reads that file and trusts
   `siemlite.crt`, looking in the current folder and in `/data`, so it needs no options on the same machine. With Docker
@@ -316,7 +324,7 @@ loggen -eps 1 -to stdout             # just look at the lines
   `2026-10-04T13:42:07.123Z|bastion-01|sshd|warning|auth.failure|203.0.113.7|51234|10.0.4.12|22|root|Failed password for root from 203.0.113.7`.
   Empty fields are `-`. Addresses outside the company are from documentation ranges only.
 - **For other SIEMs**: point `-to` at a syslog port (UDP or TCP, RFC 3164), or at any URL that takes lines like
-  SIEMLite's `/api/v1/logs`. It uses only Go's standard library, and `-seed` repeats the same logs.
+  SIEMLite's `/api/v1/logs` (`-servername` checks its certificate against another name, `-insecure` skips the check). It uses only Go's standard library, and `-seed` repeats the same logs.
 
 Binaries for loggen come with every release, next to `siemlite`. To build it: `go build -o loggen ./cmd/loggen`.
 

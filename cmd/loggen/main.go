@@ -50,6 +50,8 @@ func main() {
 	tokenFile := flag.String("token-file", "", "file holding the token (default: siemlite-loggen.token here or in /data)")
 	caFile := flag.String("cacert", "", "certificate to trust (default: siemlite.crt here or in /data)")
 	insecure := flag.Bool("insecure", false, "don't check the server's certificate")
+	serverName := flag.String("servername", "", "check the certificate against this name instead of the host in -to (SIEMLite's own certificate names localhost, so in Docker Compose use -to https://siemlite:8443 -servername localhost)")
+	every := flag.Duration("report", 5*time.Second, "how often to print progress (e.g. 1m for a long run)")
 	seed := flag.Uint64("seed", uint64(time.Now().UnixNano()), "random seed (the same seed gives the same logs)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "loggen sends random test logs at a steady rate.\n\nFormat: %s\n\n", loggen.Header)
@@ -61,7 +63,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	send, err := sender(*to, *token, *tokenFile, *caFile, *insecure)
+	send, err := sender(*to, *token, *tokenFile, *caFile, *insecure, *serverName)
 	if err != nil {
 		fail(err)
 	}
@@ -75,7 +77,7 @@ func main() {
 	if *to != "stdout" {
 		fmt.Fprintf(os.Stderr, "loggen: %s events a second to %s (Ctrl-C to stop)\n", humanEPS(rate), *to)
 	}
-	st := run(ctx, rate, *seed, send, *to == "stdout")
+	st := run(ctx, rate, *seed, send, *to == "stdout", max(*every, time.Second))
 	if *to != "stdout" {
 		fmt.Fprintln(os.Stderr, st.summary(true))
 	}
@@ -119,6 +121,7 @@ func humanEPS(r float64) string {
 // stats counts what happened.
 type stats struct {
 	start                 time.Time
+	target                float64      // events a second asked for
 	made, sent            atomic.Int64 // lines generated; lines the receiver accepted
 	busy, failed, batches atomic.Int64 // 503s, failed requests, requests
 	lastErr               atomic.Value
@@ -126,7 +129,11 @@ type stats struct {
 
 func (s *stats) summary(final bool) string {
 	el := time.Since(s.start).Seconds()
-	msg := fmt.Sprintf("%.0fs: %d sent (%.0f/s)", el, s.sent.Load(), float64(s.sent.Load())/el)
+	got := float64(s.sent.Load()) / el
+	msg := fmt.Sprintf("%.0fs: %d sent (%.0f/s)", el, s.sent.Load(), got)
+	if s.target > 0 && got < 0.95*s.target && el >= 5 {
+		msg += fmt.Sprintf(", below the %s/s asked for", humanEPS(s.target))
+	}
 	if q := s.made.Load() - s.sent.Load(); q > 0 && !final {
 		msg += fmt.Sprintf(", %d waiting", q)
 	}
@@ -144,8 +151,8 @@ func (s *stats) summary(final bool) string {
 type sendFunc func(ctx context.Context, lines []byte, n int) (taken int, wait time.Duration, err error)
 
 // run generates lines at rate and sends them in batches until ctx ends.
-func run(ctx context.Context, rate float64, seed uint64, send sendFunc, quiet bool) *stats {
-	st := &stats{start: time.Now()}
+func run(ctx context.Context, rate float64, seed uint64, send sendFunc, quiet bool, every time.Duration) *stats {
+	st := &stats{start: time.Now(), target: rate}
 	// Several generators at high rates; each makes its share.
 	workers := max(1, min(runtime.NumCPU(), int(rate/100_000)+1))
 	tick := 100 * time.Millisecond
@@ -164,7 +171,8 @@ func run(ctx context.Context, rate float64, seed uint64, send sendFunc, quiet bo
 			share := rate / float64(workers)
 			t := time.NewTicker(tick)
 			defer t.Stop()
-			var owed float64
+			var made float64 // events made so far, of those due
+			begin := time.Now()
 			var batch []byte
 			n := 0
 			flush := func() {
@@ -183,8 +191,14 @@ func run(ctx context.Context, rate float64, seed uint64, send sendFunc, quiet bo
 					flush()
 					return
 				case now := <-t.C:
-					owed += share * tick.Seconds()
-					for ; owed >= 1; owed-- {
+					// Pace by elapsed time, not by ticks: a tick that was
+					// late or missed (the receiver was slow, the machine was
+					// busy) is made up, so the long-run rate is the one asked
+					// for. At most a second's worth is made up, so a long
+					// outage doesn't end in a flood.
+					due := share * now.Sub(begin).Seconds()
+					made = max(made, due-share)
+					for ; made+1 <= due; made++ {
 						batch = append(append(batch, g.Next(now)...), '\n')
 						n++
 						st.made.Add(1)
@@ -231,7 +245,7 @@ func run(ctx context.Context, rate float64, seed uint64, send sendFunc, quiet bo
 			}
 		}()
 	}
-	report := time.NewTicker(5 * time.Second)
+	report := time.NewTicker(every)
 	defer report.Stop()
 	done := make(chan struct{})
 	go func() { sendWG.Wait(); close(done) }()
@@ -260,7 +274,7 @@ func cutLines(b []byte, n int) []byte {
 }
 
 // sender picks how to deliver lines.
-func sender(to, token, tokenFile, caFile string, insecure bool) (sendFunc, error) {
+func sender(to, token, tokenFile, caFile string, insecure bool, serverName string) (sendFunc, error) {
 	if to == "stdout" {
 		w := bufio.NewWriter(os.Stdout)
 		var mu sync.Mutex
@@ -279,7 +293,7 @@ func sender(to, token, tokenFile, caFile string, insecure bool) (sendFunc, error
 	case "udp", "tcp":
 		return syslogSender(u.Scheme, u.Host)
 	case "https", "http":
-		return siemliteSender(u, token, tokenFile, caFile, insecure)
+		return siemliteSender(u, token, tokenFile, caFile, insecure, serverName)
 	}
 	return nil, fmt.Errorf("-to must be an https:// URL, udp://host:port, tcp://host:port or stdout")
 }
@@ -298,7 +312,7 @@ func find(names ...string) string {
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-func siemliteSender(u *url.URL, token, tokenFile, caFile string, insecure bool) (sendFunc, error) {
+func siemliteSender(u *url.URL, token, tokenFile, caFile string, insecure bool, serverName string) (sendFunc, error) {
 	if token == "" {
 		if tokenFile == "" {
 			tokenFile = find("siemlite-loggen.token")
@@ -312,7 +326,7 @@ func siemliteSender(u *url.URL, token, tokenFile, caFile string, insecure bool) 
 		}
 		token = strings.TrimSpace(string(b))
 	}
-	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure}
+	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure, ServerName: serverName}
 	if caFile == "" && !insecure {
 		caFile = find("siemlite.crt")
 	}
