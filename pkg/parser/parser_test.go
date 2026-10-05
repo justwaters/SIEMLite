@@ -163,3 +163,46 @@ func parse(t *testing.T, line string, d Defaults) *ocsf.Event {
 	}
 	return ev
 }
+
+func TestPlainLine(t *testing.T) {
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+
+	if PlainLine("  \r\n", Defaults{Now: now}) != nil {
+		t.Fatal("blank line should yield nil")
+	}
+
+	for _, line := range []string{
+		"<38>Oct  3 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2",
+		"2026-10-04T13:42:07Z ERROR payment failed user=bob",
+		`{"level":"error","msg":"boom","user":"bob","src_ip":"198.51.100.9"}`,
+		"1 2026-10-03T11:58:01Z host app 1234 ID47 - fatal",
+	} {
+		ev := PlainLine(line+"\r\n", Defaults{Now: now})
+		if ev == nil {
+			t.Fatalf("nil event for %q", line)
+		}
+		if err := ev.Prepare(); err != nil {
+			t.Fatalf("event invalid: %v", err)
+		}
+		if ev.Message != line || ev.RawData != line {
+			t.Errorf("message = %q, raw = %q", ev.Message, ev.RawData)
+		}
+		if ev.Time != now.UnixMilli() || ev.SeverityID != ocsf.SeverityInformational {
+			t.Errorf("time = %d, severity = %d for %q", ev.Time, ev.SeverityID, line)
+		}
+		if ev.CategoryUID != ocsf.CategoryApplicationActivity || ev.ClassUID != 6003 {
+			t.Errorf("category = %d, class = %d", ev.CategoryUID, ev.ClassUID)
+		}
+		if ev.SrcEndpoint != nil || ev.DstEndpoint != nil || ev.Device != nil || ev.Actor != nil || ev.Unmapped != nil || ev.Metadata.Product != nil {
+			t.Errorf("detected something in %q: %+v", line, ev)
+		}
+	}
+
+	t.Run("explicit defaults apply", func(t *testing.T) {
+		sev := ocsf.SeverityLow
+		ev := PlainLine("fatal crash", Defaults{Now: now, Source: "myapp", SeverityID: &sev})
+		if ev.ProductName() != "myapp" || ev.SeverityID != ocsf.SeverityLow {
+			t.Errorf("product = %q, severity = %d", ev.ProductName(), ev.SeverityID)
+		}
+	})
+}

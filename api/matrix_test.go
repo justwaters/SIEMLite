@@ -54,7 +54,7 @@ func TestAuthMatrix(t *testing.T) {
 	e := newEnv(t)
 	e.user("root", auth.RoleAdmin)
 	e.user("sam", auth.RoleStandard)
-	_, key, _ := auth.CreateKey(context.Background(), e.repo, "app", nil)
+	_, key, _ := auth.CreateKey(context.Background(), e.repo, "app", nil, false)
 	bearer := map[string]string{"Authorization": "Bearer " + key}
 	sam, root := e.client(), e.client()
 	expect(t, "sam login", e.login(sam, "sam", password), 200)

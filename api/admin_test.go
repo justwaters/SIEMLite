@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"siemlite/pkg/auth"
 	"siemlite/pkg/parser"
@@ -42,7 +43,7 @@ func TestAdminPagesNeedAdmin(t *testing.T) {
 	e := newEnv(t)
 	e.user("root", auth.RoleAdmin)
 	e.user("sam", auth.RoleStandard)
-	_, key, _ := auth.CreateKey(context.Background(), e.repo, "app", nil)
+	_, key, _ := auth.CreateKey(context.Background(), e.repo, "app", nil, false)
 	sam := e.client()
 	e.login(sam, "sam", password)
 	bearer := map[string]string{"Authorization": "Bearer " + key}
@@ -270,5 +271,106 @@ func TestUserManagement(t *testing.T) {
 	}
 	if got := e.call(root, "POST", "/api/v1/parsers/suggest", map[string]any{"lines": []string{"x"}}, nil, nil); got != 404 {
 		t.Errorf("suggest without AI = %d, want 404", got)
+	}
+}
+
+// A source set to None stores each line as it arrives; switching it back to
+// Automatic (or choosing a parser) detects again.
+func TestSourceParserNone(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+
+	var created struct {
+		Source storage.Source `json:"source"`
+		Token  string         `json:"token"`
+	}
+	e.call(root, "POST", "/api/v1/sources", map[string]any{"name": "plain"}, &created, nil)
+	id, bearer := created.Source.ID, map[string]string{"Authorization": "Bearer " + created.Token}
+	path := fmt.Sprintf("/api/v1/sources/%d", id)
+	if created.Source.ParserNone {
+		t.Fatal("a new source should parse automatically")
+	}
+
+	// Both at once is refused, on create and on update.
+	expect(t, "create with both", e.do(root, "POST", "/api/v1/sources", `{"name":"x","parser_id":1,"parser_none":true}`, nil), 400)
+	expect(t, "update with both", e.do(root, "PATCH", path, `{"parser_id":1,"parser_none":true}`, nil), 400)
+	expect(t, "bad value", e.do(root, "PATCH", path, `{"parser_none":"yes"}`, nil), 400)
+
+	var src storage.Source
+	if got := e.call(root, "PATCH", path, map[string]any{"parser_none": true}, &src, nil); got != 200 || !src.ParserNone || src.ParserID != nil {
+		t.Fatalf("set None = %d %+v", got, src)
+	}
+	// The INTERNAL source never has a parser, None included.
+	internal, _ := e.repo.BuiltinSource(context.Background(), storage.SourceInternal)
+	expect(t, "internal none", e.do(root, "PATCH", fmt.Sprintf("/api/v1/sources/%d", internal.ID), `{"parser_none":true}`, nil), 400)
+	// A source created as None.
+	var made struct {
+		Source storage.Source `json:"source"`
+	}
+	if e.call(root, "POST", "/api/v1/sources", map[string]any{"name": "born plain", "parser_none": true}, &made, nil); !made.Source.ParserNone {
+		t.Errorf("source created with parser_none = %+v", made.Source)
+	}
+
+	syslogLine := "<38>Oct  3 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2"
+	jsonLine := `{"level":"error","msg":"login failed user=bob from 198.51.100.9","user":"bob"}`
+	send := func(lines ...string) {
+		t.Helper()
+		expect(t, "send", e.do(e.client(), "POST", "/api/v1/logs", strings.Join(lines, "\n"), bearer), 202)
+		e.worker.Drain(context.Background())
+	}
+	events := func() map[string]storage.Record {
+		t.Helper()
+		var res struct {
+			Events []storage.Record `json:"events"`
+		}
+		e.call(root, "GET", fmt.Sprintf("/api/v1/search?source_id=%d", id), nil, &res, nil)
+		out := map[string]storage.Record{}
+		for _, ev := range res.Events {
+			out[ev.RawData] = ev
+		}
+		return out
+	}
+
+	before := time.Now().Add(-time.Second).UnixMilli()
+	send(syslogLine, jsonLine)
+	after := time.Now().Add(time.Second).UnixMilli()
+	got := events()
+	for _, line := range []string{syslogLine, jsonLine} {
+		ev, ok := got[line]
+		if !ok {
+			t.Fatalf("no event for %q", line)
+		}
+		if ev.Message != line || ev.SrcIP != "" || ev.UserName != "" || ev.Host != "" || ev.Source != "" || len(ev.Fields) > 0 {
+			t.Errorf("None kept more than the line: %+v", ev)
+		}
+		if ev.SeverityID != 1 || ev.CategoryUID != 6 {
+			t.Errorf("severity = %d, category = %d", ev.SeverityID, ev.CategoryUID)
+		}
+		if ev.Timestamp < before || ev.Timestamp > after {
+			t.Errorf("timestamp %d isn't the arrival time (%d to %d)", ev.Timestamp, before, after)
+		}
+	}
+
+	// Back to Automatic: the same lines are detected again.
+	if got := e.call(root, "PATCH", path, map[string]any{"parser_id": nil}, &src, nil); got != 200 || src.ParserNone {
+		t.Fatalf("set Automatic = %d %+v", got, src)
+	}
+	send(syslogLine)
+	var parsed storage.Record
+	for _, ev := range events() {
+		if ev.RawData == syslogLine && ev.SrcIP != "" {
+			parsed = ev
+		}
+	}
+	if parsed.SrcIP != "203.0.113.7" || parsed.Host != "web1" || parsed.Message != "Failed password for root from 203.0.113.7 port 22 ssh2" {
+		t.Errorf("automatic parsing after None = %+v", parsed)
+	}
+
+	// And parser_none false on its own turns it off without touching the parser.
+	e.call(root, "PATCH", path, map[string]any{"parser_none": true}, &src, nil)
+	if e.call(root, "PATCH", path, map[string]any{"parser_none": false}, &src, nil); src.ParserNone {
+		t.Errorf("parser_none false left it on: %+v", src)
 	}
 }

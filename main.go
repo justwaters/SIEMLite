@@ -405,7 +405,7 @@ func bootstrapLogGenerator(ctx context.Context, repo *storage.Repository, dbPath
 	if err != nil {
 		return fmt.Errorf("log generator parser: %w", err)
 	}
-	_, token, err := auth.CreateKey(ctx, repo, "Log generator", &pid)
+	_, token, err := auth.CreateKey(ctx, repo, "Log generator", &pid, false)
 	if err != nil {
 		return fmt.Errorf("log generator source: %w", err)
 	}
@@ -454,7 +454,7 @@ func runKeys(args []string) error {
 
 	switch cmd {
 	case "create":
-		kid, key, err := auth.CreateKey(ctx, repo, *name, nil)
+		kid, key, err := auth.CreateKey(ctx, repo, *name, nil, false)
 		if err != nil {
 			return err
 		}

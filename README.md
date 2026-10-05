@@ -96,7 +96,7 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
   acknowledge it while you look into it, then close it. The **Rules** tab lists the rules; admins add, edit and switch them off.
   Users limited to some sources don't see alerts, since a rule looks at every source.
 - **Users** (admins): add people, set their role, limit what they can see, change passwords.
-- **Sources** (admins): create access tokens, see when each source last sent logs, choose its parser, add logs by hand.
+- **Sources** (admins): create access tokens, see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand.
 - **Parsers** (admins): build, upload, export and edit parsers.
 - **System** (admins): the version, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 
@@ -173,7 +173,7 @@ the raw text.
 | `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, 24 hours after the event arrived). |
 | `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
-| `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id"}`), rename or set the parser (`"parser_id": null` for automatic), revoke. |
+| `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id", "parser_none"}`), rename, set how its lines are read (`"parser_id": 3` for a parser, `"parser_id": null` for Automatic, `"parser_none": true` for None; not both together), revoke. A source shows `parser_none` in its JSON. |
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates` | admin | Manage parsers. |
 | `GET /api/v1/alerts?status=open` | any signed-in user not limited to some sources | Alerts (`open`, `acknowledged`, `closed` or `all`) and the count in each state. |
@@ -198,12 +198,25 @@ Others are refused and counted as rejected, with the reason, since each day's ev
 the first two IPv4 addresses become source and destination, a user is picked up from patterns like `for user alice`,
 and severity comes from the syslog priority or keywords (`error`, `failed`, `warning`, ...). JSON objects that already
 contain `category_uid` are stored as OCSF; other JSON uses its `message`, `level` and timestamp fields. The detection
-is heuristic; use `?severity=` to override it, or give the source a parser.
+is heuristic; use `?severity=` to override it, or give the source a parser. The message stored with an event is the
+text after the syslog header (the whole line when there isn't one). A line that only starts with a timestamp, such as
+`2026-10-04T13:42:07Z ERROR payment failed`, gets its time from it but no hostname.
+
+This is the **Automatic** setting of a source. **None** skips detection: each line is stored as it is, with the line as
+its message, the time it arrived, Informational severity and no addresses, user or host. `?source=` and `?severity=`
+still apply, and [threat intel](#threat-intel) still checks the line.
 
 ## Parsers
 
 A parser tells SIEMLite how to read one source's lines: where the time, IPs, user and severity are, and which other
-values to keep. Choose a parser for a source on the Sources page; sources without one are parsed automatically.
+values to keep. Choose how a source's lines are read on the Sources page:
+
+- **Automatic** (the default): SIEMLite detects syslog and JSON, addresses, users and severity, as described under
+  [Log parsing](#log-parsing).
+- **None**: no detection. Each line is stored as it is, with the arrival time and Informational severity (`parser_none`
+  in the API).
+- **A parser** you built, as below.
+
 Build one on the Parsers page: paste a few sample lines, describe them, and the preview shows how each line is read.
 
 - **Text with a fixed layout**: write one line out with `{name}` where values change, e.g.
@@ -217,7 +230,7 @@ Build one on the Parsers page: paste a few sample lines, describe them, and the 
 - **Severity**: detected from the line, always the same, or decided by rules on a field (e.g. status `^5` -> High).
 - **Templates** for web server access logs, JSON application logs and key=value firewall logs.
 - **Upload and export** parsers as small JSON files to share them or keep them in version control.
-- A line that doesn't match its source's parser is still stored, parsed automatically, with a `parse_error` field.
+- A line that doesn't match its source's parser is still stored, parsed as Automatic would, with a `parse_error` field.
 
 ### AI help
 
@@ -410,7 +423,7 @@ and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is 
 
 Every event belongs to a source: an **access token** an application sends with, the **Syslog** listener, **Added in
 the UI** (logs pasted or uploaded on the Sources page) or **INTERNAL** (SIEMLite's own audit log). Each shows when it
-was last used, so you can see which are active, and each (except INTERNAL) can have a parser. A new install also has a
+was last used, so you can see which are active, and each (except INTERNAL) can have a parser, or be set to Automatic or None. A new install also has a
 **Log generator** token source for [test logs](#test-logs).
 
 Access tokens can only post to `/api/v1/logs` and `/api/v1/events`. Revoking one stops it immediately; its events are

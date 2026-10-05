@@ -122,6 +122,37 @@ func ParseLine(line string, d Defaults) *ocsf.Event {
 	return ev
 }
 
+// PlainLine stores one line exactly as it arrived, with no detection: the
+// message is the whole line, the time is when it arrived and the severity is
+// Informational. Only the explicit defaults (product name, severity) apply.
+// Blank lines return nil.
+func PlainLine(line string, d Defaults) *ocsf.Event {
+	line = strings.TrimRight(line, "\r\n")
+	if strings.TrimSpace(line) == "" {
+		return nil
+	}
+	if d.Now.IsZero() {
+		d.Now = time.Now()
+	}
+	ev := &ocsf.Event{
+		Time:        d.Now.UnixMilli(),
+		CategoryUID: ocsf.CategoryApplicationActivity,
+		ClassUID:    6003,
+		ActivityID:  99,
+		SeverityID:  ocsf.SeverityInformational,
+		Message:     line,
+		RawData:     line,
+		Metadata:    ocsf.Metadata{},
+	}
+	if d.Source != "" {
+		ev.Metadata.Product = &ocsf.Product{Name: d.Source}
+	}
+	if d.SeverityID != nil {
+		ev.SeverityID = *d.SeverityID
+	}
+	return ev
+}
+
 // ParseLines parses every non-blank line of text.
 func ParseLines(lines []string, d Defaults) []*ocsf.Event {
 	out := make([]*ocsf.Event, 0, len(lines))

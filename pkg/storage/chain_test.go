@@ -91,7 +91,9 @@ func TestUpgradeChainFromEveryVersion(t *testing.T) {
 	want := schemaOf(t, fresh.Read)
 	fresh.Close()
 
-	for k := 3; k < schemaVersion; k++ {
+	// Databases at v11 or later have already moved their events (see
+	// TestUpgradeFromV11); the rest of this test follows the move.
+	for k := 3; k < 11; k++ {
 		t.Run(fmt.Sprintf("v%d", k), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "old.db")
 			buildAt(t, path, k)
@@ -128,6 +130,19 @@ func TestUpgradeChainFromEveryVersion(t *testing.T) {
 				}
 				if k >= 8 {
 					check(`SELECT COUNT(*) FROM settings WHERE key = 'backup_schedule'`, 1)
+				}
+				{
+					// The parser_none column (v12) starts off for every source and
+					// keeps a value set after the upgrade across a restart.
+					want := 0
+					if open > 0 {
+						want = 1
+					}
+					check(`SELECT parser_none FROM sources WHERE id = 7`, want)
+					check(`SELECT COUNT(*) FROM sources WHERE parser_none <> 0 AND id <> 7`, 0)
+					if _, err := db.Write.Exec(`UPDATE sources SET parser_none = 1, parser_id = NULL WHERE id = 7`); err != nil {
+						t.Fatal(err)
+					}
 				}
 				count := func(where string, want int64) {
 					t.Helper()
@@ -187,5 +202,59 @@ func TestUpgradeChainFromEveryVersion(t *testing.T) {
 				db.Close()
 			}
 		})
+	}
+}
+
+// TestUpgradeFromV11 adds parser_none to a v11 database: every source starts
+// with it off, a source's parser is kept, and the value set afterwards
+// survives another open.
+func TestUpgradeFromV11(t *testing.T) {
+	ctx := context.Background()
+	fresh, err := Open(ctx, Options{Path: filepath.Join(t.TempDir(), "fresh.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := schemaOf(t, fresh.Read)
+	fresh.Close()
+
+	path := filepath.Join(t.TempDir(), "old.db")
+	buildAt(t, path, 11)
+	raw, err := sql.Open("sqlite", dsn(path, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO parsers (id, name, definition, created_at, updated_at) VALUES (3, 'nginx', '{}', 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`UPDATE sources SET parser_id = 3 WHERE id = 7`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	for open := 0; open < 2; open++ { // the second open must change nothing
+		db, err := Open(ctx, Options{Path: path})
+		if err != nil {
+			t.Fatalf("open %d: %v", open, err)
+		}
+		if got := schemaOf(t, db.Read); got != want {
+			t.Errorf("schema differs from a new database:\n got: %s\nwant: %s", got, want)
+		}
+		var version, none, parserID int
+		db.Write.QueryRow(`PRAGMA user_version`).Scan(&version)
+		db.Write.QueryRow(`SELECT parser_none, COALESCE(parser_id, 0) FROM sources WHERE id = 7`).Scan(&none, &parserID)
+		if version != schemaVersion || none != open || parserID != 3-open*3 {
+			t.Errorf("open %d: version %d, parser_none %d, parser_id %d", open, version, none, parserID)
+		}
+		var others int
+		db.Write.QueryRow(`SELECT COUNT(*) FROM sources WHERE parser_none <> 0 AND id <> 7`).Scan(&others)
+		if others != 0 {
+			t.Errorf("other sources have parser_none set: %d", others)
+		}
+		if open == 0 {
+			if _, err := db.Write.Exec(`UPDATE sources SET parser_none = 1, parser_id = NULL WHERE id = 7`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		db.Close()
 	}
 }

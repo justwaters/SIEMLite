@@ -179,7 +179,7 @@ func TestUpgradeToV9KeepsUserSources(t *testing.T) {
 	}
 	repo := NewRepository(db)
 	uid, _ := repo.CreateUser(ctx, "lim", "x", "standard", 1)
-	tok, _ := repo.CreateTokenSource(ctx, "web", "hash-web", nil, 1)
+	tok, _ := repo.CreateTokenSource(ctx, "web", "hash-web", nil, false, 1)
 	if err := repo.UpdateUserAccess(ctx, uid, "standard", true, []int64{tok}); err != nil {
 		t.Fatal(err)
 	}

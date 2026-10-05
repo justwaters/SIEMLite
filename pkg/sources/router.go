@@ -30,6 +30,7 @@ type Router struct {
 type cached struct {
 	p       *parser.Parser
 	name    string
+	none    bool // keep lines as they arrive, with no detection
 	expires time.Time
 }
 
@@ -63,24 +64,28 @@ func (r *Router) Builtin(ctx context.Context, kind string) (int64, error) {
 	return s.ID, nil
 }
 
-// parserFor returns the source's parser, or nil for automatic parsing.
-func (r *Router) parserFor(ctx context.Context, sourceID int64) (*parser.Parser, string, error) {
+// parserFor returns the source's parser, or nil for automatic parsing. none
+// is true when the source keeps its lines as they arrive instead.
+func (r *Router) parserFor(ctx context.Context, sourceID int64) (p *parser.Parser, name string, none bool, err error) {
 	now := time.Now()
 	r.mu.Lock()
 	c, ok := r.cache[sourceID]
 	r.mu.Unlock()
 	if ok && now.Before(c.expires) {
-		return c.p, c.name, nil
+		return c.p, c.name, c.none, nil
 	}
 	c = cached{expires: now.Add(cacheTTL)}
 	src, err := r.repo.GetSource(ctx, sourceID)
 	if err != nil && !errors.Is(err, storage.ErrSourceNotFound) {
-		return nil, "", err
+		return nil, "", false, err
+	}
+	if src != nil && src.ParserNone {
+		c.none = true
 	}
 	if src != nil && src.ParserID != nil {
 		sp, err := r.repo.GetParser(ctx, *src.ParserID)
 		if err != nil && !errors.Is(err, storage.ErrParserNotFound) {
-			return nil, "", err
+			return nil, "", false, err
 		}
 		if sp != nil {
 			var def parser.Definition
@@ -95,16 +100,19 @@ func (r *Router) parserFor(ctx context.Context, sourceID int64) (*parser.Parser,
 	r.mu.Lock()
 	r.cache[sourceID] = c
 	r.mu.Unlock()
-	return c.p, c.name, nil
+	return c.p, c.name, c.none, nil
 }
 
 // Parse turns one line from a source into an event plus any extra fields.
-// A line the source's parser can't read is parsed automatically and marked
+// A source set to None keeps each line as it is. A line the source's parser can't read is parsed automatically and marked
 // with a parse_error field, so nothing is lost. Blank lines return nil.
 func (r *Router) Parse(ctx context.Context, sourceID int64, line string, d parser.Defaults) (*ocsf.Event, map[string]string, error) {
-	p, name, err := r.parserFor(ctx, sourceID)
+	p, name, none, err := r.parserFor(ctx, sourceID)
 	if err != nil {
 		return nil, nil, err
+	}
+	if none {
+		return parser.PlainLine(line, d), nil, nil
 	}
 	if p == nil {
 		return parser.ParseLine(line, d), nil, nil
