@@ -23,7 +23,7 @@ type Defaults struct {
 
 var (
 	syslogPRI  = regexp.MustCompile(`^<(\d{1,3})>`)
-	syslog5424 = regexp.MustCompile(`^(\d)?\s*(\d{4}-\d{2}-\d{2}T[^\s]+)\s+(\S+)`)
+	syslog5424 = regexp.MustCompile(`^(\d)\s+(\d{4}-\d{2}-\d{2}T[^\s]+)\s+(\S+)`)
 	syslog3164 = regexp.MustCompile(`^([A-Z][a-z]{2}\s+\d{1,2}\s\d{2}:\d{2}:\d{2})\s+(\S+)`)
 	syslogTag  = regexp.MustCompile(`^([A-Za-z0-9_./-]{1,48})(?:\[\d+\])?:\s`)
 	isoPrefix  = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)`)
@@ -64,25 +64,33 @@ func ParseLine(line string, d Defaults) *ocsf.Event {
 		ev.Metadata.Product = &ocsf.Product{Name: d.Source}
 	}
 
+	// Addresses, users and severity are looked for after the header, tag
+	// included; the stored message drops the tag too.
 	body := line
 	sevFromPRI := -1
-	if m := syslogPRI.FindStringSubmatch(body); m != nil {
-		pri, _ := strconv.Atoi(m[1])
-		sevFromPRI = prioritySeverity(pri % 8)
-		body = body[len(m[0]):]
-	}
-	if t, host, app, rest, ok := syslogHeader(body, d.Now); ok {
-		ev.Time = t.UnixMilli()
-		if host != "" {
-			ev.Device = &ocsf.Endpoint{Hostname: host}
+	if h, ok := splitSyslog(line, d.Now); ok {
+		sevFromPRI = h.sevFromPRI
+		ev.Time = h.time.UnixMilli()
+		if h.host != "" {
+			ev.Device = &ocsf.Endpoint{Hostname: h.host}
 		}
-		if app != "" && ev.Metadata.Product == nil {
-			ev.Metadata.Product = &ocsf.Product{Name: app}
+		if h.app != "" && ev.Metadata.Product == nil {
+			ev.Metadata.Product = &ocsf.Product{Name: h.app}
 		}
-		body = rest
-	} else if m := isoPrefix.FindString(body); m != "" {
-		if t, ok := parseISO(m); ok {
-			ev.Time = t.UnixMilli()
+		body = h.rest
+		if h.body != "" {
+			ev.Message = h.body
+		}
+	} else {
+		if m := syslogPRI.FindStringSubmatch(body); m != nil {
+			pri, _ := strconv.Atoi(m[1])
+			sevFromPRI = prioritySeverity(pri % 8)
+			body = body[len(m[0]):]
+		}
+		if m := isoPrefix.FindString(body); m != "" {
+			if t, ok := parseISO(m); ok {
+				ev.Time = t.UnixMilli()
+			}
 		}
 	}
 
@@ -231,12 +239,9 @@ func syslogHeader(s string, now time.Time) (t time.Time, host, app, rest string,
 				host = ""
 			}
 			rest = strings.TrimSpace(s[len(m[0]):])
-			// RFC5424: APP-NAME PROCID MSGID ... ("-" when absent). Only
-			// trust it when the version digit says this really is 5424.
-			if m[1] != "" {
-				if first, _, _ := strings.Cut(rest, " "); first != "-" && len(first) <= 48 {
-					app = first
-				}
+			// RFC5424: APP-NAME PROCID MSGID ... ("-" when absent).
+			if first, _, _ := strings.Cut(rest, " "); first != "-" && len(first) <= 48 {
+				app = first
 			}
 			return ts, host, app, rest, true
 		}
