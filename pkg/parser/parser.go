@@ -24,11 +24,16 @@ type Defaults struct {
 var (
 	syslogPRI  = regexp.MustCompile(`^<(\d{1,3})>`)
 	syslog5424 = regexp.MustCompile(`^(\d)\s+(\d{4}-\d{2}-\d{2}T[^\s]+)\s+(\S+)`)
-	syslog3164 = regexp.MustCompile(`^([A-Z][a-z]{2}\s+\d{1,2}\s\d{2}:\d{2}:\d{2})\s+(\S+)`)
-	syslogTag  = regexp.MustCompile(`^([A-Za-z0-9_./-]{1,48})(?:\[\d+\])?:\s`)
-	isoPrefix  = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)`)
-	ipv4       = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	userField  = regexp.MustCompile(`(?i)\b(?:user(?:name)?[=:]\s*|for (?:invalid user )?|user )([A-Za-z0-9_.\-]+)`)
+	// rsyslog's default file format: an RFC 3339 time, the host, then "tag:" or
+	// "tag[pid]:". The tag is required: without it, a line that merely starts
+	// with a timestamp and a level word ("... ERROR payment failed") would be
+	// read as a host.
+	syslogRFC3339 = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\S+)\s+(\S+)\s+([A-Za-z0-9_./-]{1,48})(?:\[\d+\])?:\s`)
+	syslog3164    = regexp.MustCompile(`^([A-Z][a-z]{2}\s+\d{1,2}\s\d{2}:\d{2}:\d{2})\s+(\S+)`)
+	syslogTag     = regexp.MustCompile(`^([A-Za-z0-9_./-]{1,48})(?:\[\d+\])?:\s`)
+	isoPrefix     = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)`)
+	ipv4          = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	userField     = regexp.MustCompile(`(?i)\b(?:user(?:name)?[=:]\s*|for (?:invalid user )?|user )([A-Za-z0-9_.\-]+)`)
 
 	critical = regexp.MustCompile(`(?i)\b(fatal|panic|critical|emerg(ency)?|alert)\b`)
 	high     = regexp.MustCompile(`(?i)\b(error|err|denied|blocked|attack|exploit|injection)\b`)
@@ -275,6 +280,12 @@ func syslogHeader(s string, now time.Time) (t time.Time, host, app, rest string,
 				app = first
 			}
 			return ts, host, app, rest, true
+		}
+	}
+	if idx := syslogRFC3339.FindStringSubmatchIndex(s); idx != nil {
+		timeText, hostText, tag := s[idx[2]:idx[3]], s[idx[4]:idx[5]], s[idx[6]:idx[7]]
+		if ts, err := time.Parse(time.RFC3339Nano, timeText); err == nil && !levelRe.MatchString(hostText) {
+			return ts, hostText, tag, strings.TrimSpace(s[idx[6]:]), true
 		}
 	}
 	if m := syslog3164.FindStringSubmatch(s); m != nil {

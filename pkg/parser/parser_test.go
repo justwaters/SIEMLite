@@ -206,3 +206,32 @@ func TestPlainLine(t *testing.T) {
 		}
 	})
 }
+
+// rsyslog's default file format (RFC 3339 time, host, tag) is a syslog header:
+// the host and program are read and the message is what follows the tag. A
+// level word after a timestamp is not a host.
+func TestParseLineRsyslogFormat(t *testing.T) {
+	for _, tc := range []struct {
+		line, host, app, message string
+		hostKnown                bool
+	}{
+		{`2026-10-03T11:58:01.123456+00:00 web1 sshd[311]: Failed password for root from 203.0.113.7`, "web1", "sshd", "Failed password for root from 203.0.113.7", true},
+		{`2026-10-03T11:58:01Z web1 CRON[9]: (root) CMD (run-parts /etc/cron.hourly)`, "web1", "CRON", "(root) CMD (run-parts /etc/cron.hourly)", true},
+		{`2026-10-04T13:42:07Z ERROR payment failed user=bob`, "", "", `2026-10-04T13:42:07Z ERROR payment failed user=bob`, false},
+		{`2026-10-04T13:42:07Z ERROR payment: card declined`, "", "", `2026-10-04T13:42:07Z ERROR payment: card declined`, false},
+	} {
+		ev := ParseLine(tc.line, Defaults{Now: time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)})
+		if (ev.Device != nil) != tc.hostKnown || (tc.hostKnown && ev.Device.Hostname != tc.host) {
+			t.Errorf("%q: host %+v, want %q", tc.line, ev.Device, tc.host)
+		}
+		if tc.app != "" && (ev.Metadata.Product == nil || ev.Metadata.Product.Name != tc.app) {
+			t.Errorf("%q: program %+v, want %q", tc.line, ev.Metadata.Product, tc.app)
+		}
+		if ev.Message != tc.message {
+			t.Errorf("%q: message %q, want %q", tc.line, ev.Message, tc.message)
+		}
+		if ev.Time == 0 || time.UnixMilli(ev.Time).UTC().Year() != 2026 {
+			t.Errorf("%q: time %d", tc.line, ev.Time)
+		}
+	}
+}
