@@ -380,8 +380,8 @@ func LoggenTokenPath(dbPath string) string {
 // bootstrapLogGenerator sets up, once per database, a "Log generator" parser
 // and an access token source that uses it, and saves the token where loggen
 // finds it, so a new install has test data one command away. The token can
-// only send logs; revoke the source to turn it off. Deleting the source or
-// parser doesn't bring them back.
+// only send logs; disable the source (Manage on the Sources page) to turn it
+// off. Deleting the source or parser doesn't bring them back.
 func bootstrapLogGenerator(ctx context.Context, repo *storage.Repository, dbPath string) error {
 	if done, err := repo.Setting(ctx, "loggen_setup", ""); err != nil || done != "" {
 		return err
@@ -430,18 +430,18 @@ func openForCLI(dbPath string) (*storage.DB, *storage.Repository, error) {
 	return db, storage.NewRepository(db), nil
 }
 
-// runKeys implements `siemlite keys create|list|revoke`. API keys are for
+// runKeys implements `siemlite keys create|list|enable|disable|delete`. API keys are for
 // applications that send logs; they cannot search or sign in.
 func runKeys(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: siemlite keys <create|list|revoke> [flags]")
+		return fmt.Errorf("usage: siemlite keys <create|list|enable|disable|delete> [flags]")
 	}
 	cmd, rest := args[0], args[1:]
 
 	fs := flag.NewFlagSet("keys "+cmd, flag.ContinueOnError)
 	dbPath := fs.String("db", "siemlite.db", "SQLite database path")
 	name := fs.String("name", "", "key name, e.g. the app it belongs to (create)")
-	id := fs.Int64("id", 0, "key id (revoke)")
+	id := fs.Int64("id", 0, "key id (enable, disable, delete)")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -471,8 +471,8 @@ func runKeys(args []string) error {
 				continue
 			}
 			status, used := "active", "never"
-			if k.RevokedAt != nil {
-				status = "revoked"
+			if !k.Enabled {
+				status = "disabled"
 			}
 			if k.LastUsedAt != nil {
 				used = time.UnixMilli(*k.LastUsedAt).Format("2006-01-02 15:04:05")
@@ -480,20 +480,52 @@ func runKeys(args []string) error {
 			fmt.Printf("%-4d %-24s %-20s %-20s %s\n", k.ID, k.Name,
 				time.UnixMilli(k.CreatedAt).Format("2006-01-02 15:04:05"), used, status)
 		}
-	case "revoke":
-		ok, err := repo.RevokeSource(ctx, *id, time.Now().UnixMilli())
+	case "enable", "disable", "revoke": // revoke is the old name for disable
+		src, err := cliTokenSource(ctx, repo, *id)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return fmt.Errorf("no active key with id %d", *id)
+		on := cmd == "enable"
+		if err := repo.SetSourceEnabled(ctx, *id, on, time.Now().UnixMilli()); err != nil {
+			return err
 		}
-		fmt.Printf("Revoked key %d\n", *id)
-		cliAudit(repo, audit.Entry{Action: "source.revoke", Severity: 3, Message: fmt.Sprintf("%s revoked access token %d", cliActor(), *id)})
+		if on {
+			fmt.Printf("Enabled key %d (%s)\n", *id, src.Name)
+			cliAudit(repo, audit.Entry{Action: "source.enable", Message: cliActor() + " enabled the access token " + src.Name, Fields: map[string]string{"target": src.Name}})
+		} else {
+			fmt.Printf("Disabled key %d (%s)\n", *id, src.Name)
+			cliAudit(repo, audit.Entry{Action: "source.disable", Severity: 3, Message: cliActor() + " disabled the access token " + src.Name, Fields: map[string]string{"target": src.Name}})
+		}
+	case "delete":
+		src, err := cliTokenSource(ctx, repo, *id)
+		if err != nil {
+			return err
+		}
+		if err := repo.DeleteSource(ctx, *id); err != nil {
+			return err
+		}
+		fmt.Printf("Deleted key %d (%s). Its logs stay in the database as \"Deleted source\".\n", *id, src.Name)
+		cliAudit(repo, audit.Entry{Action: "source.delete", Severity: 3, Message: cliActor() + " deleted the access token " + src.Name, Fields: map[string]string{"target": src.Name}})
 	default:
-		return fmt.Errorf("unknown keys command %q (want create, list or revoke)", cmd)
+		return fmt.Errorf("unknown keys command %q (want create, list, enable, disable or delete)", cmd)
 	}
 	return nil
+}
+
+// cliTokenSource finds the access token source with this id, with plain
+// messages for a missing id or a built-in source.
+func cliTokenSource(ctx context.Context, repo *storage.Repository, id int64) (*storage.Source, error) {
+	src, err := repo.GetSource(ctx, id)
+	if errors.Is(err, storage.ErrSourceNotFound) {
+		return nil, fmt.Errorf("no key with id %d", id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if src.Kind != storage.SourceToken {
+		return nil, fmt.Errorf("%s is a built-in source; only access tokens can be enabled, disabled or deleted", src.Name)
+	}
+	return src, nil
 }
 
 // runUsers implements `siemlite users create|list|passwd|delete`.
