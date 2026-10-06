@@ -96,7 +96,7 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
   acknowledge it while you look into it, then close it. The **Rules** tab lists the rules; admins add, edit and switch them off.
   Users limited to some sources don't see alerts, since a rule looks at every source.
 - **Users** (admins): add people, set their role, limit what they can see, change passwords.
-- **Sources** (admins): create access tokens, see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand.
+- **Sources** (admins): create access tokens, see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
 - **Parsers** (admins): build, upload, export and edit parsers.
 - **System** (admins): the version, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 
@@ -173,7 +173,7 @@ the raw text.
 | `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, 24 hours after the event arrived). |
 | `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
-| `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id", "parser_none"}`), rename, set how its lines are read (`"parser_id": 3` for a parser, `"parser_id": null` for Automatic, `"parser_none": true` for None; not both together), revoke. A source shows `parser_none` in its JSON. |
+| `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id", "parser_none"}`), rename, set how its lines are read (`"parser_id": 3` for a parser, `"parser_id": null` for Automatic, `"parser_none": true` for None; not both together), and switch a token on or off (`"enabled": true` or `false`; to disable a token use `PATCH`, not `DELETE`). `DELETE` removes the source and its token for good (it used to revoke the token); it returns `409` naming the alert rules that are scoped to the source, and `400` for built-in sources. Only access tokens can be enabled, disabled or deleted. A source shows `parser_none` and `enabled` in its JSON (`revoked_at` is set while it's disabled). |
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates` | admin | Manage parsers. |
 | `GET /api/v1/alerts?status=open` | any signed-in user not limited to some sources | Alerts (`open`, `acknowledged`, `closed` or `all`) and the count in each state. |
@@ -186,7 +186,7 @@ the raw text.
 | `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session. |
 | `GET /health` | public | Up/down only. When signed in it also returns event count, database size, ingest queue state, indicator count and syslog counters. |
 
-Applications authenticate with `Authorization: Bearer <token>`. A missing or revoked token returns `401`; a token used
+Applications authenticate with `Authorization: Bearer <token>`. A missing or disabled token, or one whose source was deleted, returns `401`; a token used
 for anything but sending logs returns `403`.
 
 Events must be dated within the retention period and no more than a day ahead (a sender's clock can run a little fast).
@@ -330,8 +330,11 @@ loggen -eps 1 -to stdout             # just look at the lines
 - **Set up for you**: on first start SIEMLite creates a **Log generator** parser and an access token source that uses
   it, and saves the token as `siemlite-loggen.token` next to the database. loggen reads that file and trusts
   `siemlite.crt`, looking in the current folder and in `/data`, so it needs no options on the same machine. With Docker
-  it's in the image: `docker compose exec siemlite loggen -eps 10`. The token can only send logs; revoke the source on
-  the Sources page to turn it off. It isn't created again.
+  it's in the image: `docker compose exec siemlite loggen -eps 10`. The token can only send logs. To turn it off,
+  choose **Manage** on its row on the Sources page, then **Disable**. While it's disabled loggen keeps retrying and
+  carries on by itself once you choose **Enable**. **Delete** removes its token for good; then create a new access
+  token with the Log generator parser and give it to loggen with `-token` or `LOGGEN_TOKEN`. The source isn't created
+  again.
 - **Its own format**, not syslog, JSON or key=value, so it shows a parser at work:
   `time|host|app|level|action|src_ip|src_port|dst_ip|dst_port|user|message`, for example
   `2026-10-04T13:42:07.123Z|bastion-01|sshd|warning|auth.failure|203.0.113.7|51234|10.0.4.12|22|root|Failed password for root from 203.0.113.7`.
@@ -426,13 +429,24 @@ the UI** (logs pasted or uploaded on the Sources page) or **INTERNAL** (SIEMLite
 was last used, so you can see which are active, and each (except INTERNAL) can have a parser, or be set to Automatic or None. A new install also has a
 **Log generator** token source for [test logs](#test-logs).
 
-Access tokens can only post to `/api/v1/logs` and `/api/v1/events`. Revoking one stops it immediately; its events are
-kept. From the command line:
+Access tokens can only post to `/api/v1/logs` and `/api/v1/events`. Choose **Manage** on a token's row to open a popup
+with three options:
+
+- **Enable**: the token is accepted. This is how a new token starts.
+- **Disable**: the token is rejected straight away. The source, its token and its logs are kept, and choosing Enable
+  makes the same token work again.
+- **Delete**: removes the source and its token for good; the token can't be restored. Its logs stay in the Database,
+  shown as "Deleted source". SIEMLite asks again before it deletes, and refuses while an alert rule is scoped to the
+  source (it names the rules; change them first).
+
+The built-in sources can't be disabled or deleted. Each change is recorded in the audit log. From the command line:
 
 ```sh
 ./siemlite keys create -name <name>
-./siemlite keys list      # with last used times
-./siemlite keys revoke -id <id>
+./siemlite keys list      # with last used times; a disabled token shows "disabled"
+./siemlite keys disable -id <id>   # revoke is the same thing
+./siemlite keys enable -id <id>
+./siemlite keys delete -id <id>
 ```
 
 Tokens look like `slk_...`. Only a SHA-256 hash is stored, so a token is shown once at creation. The `keys` and `users`
