@@ -130,6 +130,60 @@ def main(binary, loggen):
             page.wait_for_selector("#view-sources tbody tr")
             chosen = ui_row().locator("select").evaluate("s => s.options[s.selectedIndex].text")
             check(chosen == "Automatic", f"choosing Automatic again clears it ({chosen!r})")
+
+            # An access token is managed in a popup: Enable, Disable or Delete.
+            gen_row = lambda: page.locator("#view-sources tbody tr").filter(
+                has=page.locator("td:first-child", has_text=re.compile(r"^\s*Log generator\s*$"))).first
+            buttons = gen_row().locator("button").all_inner_texts()
+            check("Manage" in buttons and "Revoke" not in buttons, f"the Log generator row has Manage and no Revoke ({buttons})")
+            gen_row().get_by_role("button", name="Manage").click()
+            dlg = page.locator("#dlg-manage")
+            dlg.wait_for(state="visible")
+            names = dlg.locator(".manage-choices button").all_inner_texts()
+            check(dlg.locator("#manage-title").inner_text() == "Manage Log generator" and names == ["Enable", "Disable", "Delete"],
+                  f"the Manage popup offers Enable, Disable and Delete ({names})")
+            check("Enabled" in dlg.locator("#manage-state").inner_text(), "the popup says the source is enabled")
+            check(dlg.locator("#manage-enable").is_disabled() and dlg.locator("#manage-disable").is_enabled(),
+                  "Enable is greyed out while the source is enabled")
+            page.keyboard.press("Escape")
+            check(not dlg.is_visible(), "Escape closes the Manage popup")
+
+            gen_row().get_by_role("button", name="Manage").click()
+            dlg.locator("#manage-disable").click()
+            page.wait_for_selector("#sources-msg:has-text('Disabled Log generator.')")
+            check("disabled" in gen_row().locator("td.kind").inner_text() and not dlg.is_visible(),
+                  "Disable closes the popup and the row says disabled")
+            gen_buttons = gen_row().locator("button").all_inner_texts()
+            check("Manage" in gen_buttons and "Rename" not in gen_buttons, f"a disabled source keeps Manage, not Rename ({gen_buttons})")
+            gen_row().get_by_role("button", name="Manage").click()
+            dlg.wait_for(state="visible")
+            check("Disabled" in dlg.locator("#manage-state").inner_text() and dlg.locator("#manage-disable").is_disabled()
+                  and dlg.locator("#manage-enable").is_enabled(), "Disable is greyed out while the source is disabled")
+            dlg.locator("#manage-enable").click()
+            page.wait_for_selector("#sources-msg:has-text('Enabled Log generator.')")
+            check("disabled" not in gen_row().locator("td.kind").inner_text(), "Enable puts the row back")
+
+            # Delete asks again first; cancelling keeps the source.
+            gen_row().get_by_role("button", name="Manage").click()
+            dlg.locator("#manage-delete").click()
+            check("Delete Log generator?" in dlg.locator("#manage-confirm-title").inner_text()
+                  and "Deleted source" in dlg.locator("#manage-confirm-body").inner_text(), "Delete asks for confirmation")
+            dlg.locator("#manage-cancel").click()
+            check(dlg.locator("#manage-main").is_visible() and gen_row().count() == 1, "cancelling the delete keeps the source")
+            page.keyboard.press("Escape")
+
+            # A throwaway source shows deleting end to end.
+            page.evaluate("""() => fetch('/api/v1/sources', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: 'Throwaway'})})""")
+            page.reload()
+            throw_row = lambda: page.locator("#view-sources tbody tr").filter(
+                has=page.locator("td:first-child", has_text=re.compile(r"^\s*Throwaway\s*$")))
+            throw_row().get_by_role("button", name="Manage").click()
+            dlg.locator("#manage-delete").click()
+            dlg.locator("#manage-delete-ok").click()
+            page.wait_for_selector("#sources-msg:has-text('Deleted Throwaway.')")
+            check(throw_row().count() == 0 and not dlg.is_visible(), "deleting a source removes its row")
+
             for _ in range(15):
                 page.goto(url + "#/alerts")
                 page.wait_for_timeout(1500)

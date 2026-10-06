@@ -120,10 +120,7 @@ func (r *Repository) Overview(ctx context.Context, startMs, endMs, bucketMs int6
 		return nil, err
 	}
 	for id, n := range bySource {
-		name, ok := names[id]
-		if !ok {
-			name = "Unknown"
-		}
+		name := SourceLabel(names, id)
 		ov.TopSources = append(ov.TopSources, NamedCount{ID: id, Name: name, Count: n})
 	}
 	for cc, n := range byCountry {

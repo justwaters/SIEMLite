@@ -109,7 +109,7 @@ func TestAPIKeysCanOnlySendLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	revokedID, revoked, _ := auth.CreateKey(ctx, e.repo, "old", nil, false)
-	e.repo.RevokeSource(ctx, revokedID, time.Now().UnixMilli())
+	e.repo.SetSourceEnabled(ctx, revokedID, false, time.Now().UnixMilli())
 	bearer := func(k string) map[string]string { return map[string]string{"Authorization": "Bearer " + k} }
 	c := e.client()
 

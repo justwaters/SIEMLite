@@ -234,6 +234,15 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 		}
 		parserNone = &b
 	}
+	var enabled *bool
+	if v, ok := raw["enabled"]; ok {
+		var b bool
+		if json.Unmarshal(v, &b) != nil {
+			writeError(w, http.StatusBadRequest, "enabled must be true or false")
+			return
+		}
+		enabled = &b
+	}
 	if parserNone != nil && *parserNone && parserID != nil {
 		writeError(w, http.StatusBadRequest, "choose a parser or parser_none, not both")
 		return
@@ -241,8 +250,18 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	if !s.checkParser(r.Context(), w, parserID) {
 		return
 	}
-	err := s.deps.Repo.UpdateSource(r.Context(), id, name, parserID, clear, parserNone)
+	var err error
+	if enabled != nil {
+		// Checked first so a built-in source is refused before anything else changes.
+		err = s.deps.Repo.SetSourceEnabled(r.Context(), id, *enabled, time.Now().UnixMilli())
+	}
+	if err == nil && (name != nil || parserID != nil || clear || parserNone != nil) {
+		err = s.deps.Repo.UpdateSource(r.Context(), id, name, parserID, clear, parserNone)
+	}
 	switch {
+	case errors.Is(err, storage.ErrBuiltinSource):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	case errors.Is(err, storage.ErrSourceNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -255,7 +274,15 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.Router.Invalidate()
 	src, _ := s.deps.Repo.GetSource(r.Context(), id)
-	if src != nil {
+	if src != nil && enabled != nil {
+		action, sev, what := "source.enable", 0, "enabled"
+		if !*enabled {
+			action, sev, what = "source.disable", 3, "disabled"
+		}
+		s.audit(r, audit.Entry{Action: action, Severity: sev, Message: auth.FromContext(r.Context()).Name + " " + what + " the access token " + src.Name,
+			Fields: map[string]string{"target": src.Name}})
+	}
+	if src != nil && (name != nil || parserID != nil || clear || parserNone != nil) {
 		what := "changed the source " + src.Name
 		if parserNone != nil && *parserNone {
 			what = "set " + src.Name + " to keep lines as they are (no parser)"
@@ -271,7 +298,9 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, src)
 }
 
-func (s *Server) handleRevokeSource(w http.ResponseWriter, r *http.Request) {
+// handleDeleteSource removes an access token source and its token for good.
+// To switch a token off and keep it, PATCH enabled false instead.
+func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
@@ -285,18 +314,27 @@ func (s *Server) handleRevokeSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if src.Kind != storage.SourceToken {
-		writeError(w, http.StatusBadRequest, "built-in sources can't be revoked")
+		writeError(w, http.StatusBadRequest, "built-in sources can't be deleted")
 		return
 	}
-	if _, err := s.deps.Repo.RevokeSource(r.Context(), id, time.Now().UnixMilli()); err != nil {
-		s.internal(w, "revoke source", err)
+	var inUse *storage.SourceInUseError
+	err = s.deps.Repo.DeleteSource(r.Context(), id)
+	switch {
+	case errors.As(err, &inUse):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case errors.Is(err, storage.ErrSourceNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	case err != nil:
+		s.internal(w, "delete source", err)
 		return
 	}
-	s.deps.Logger.Info("source revoked", "source", src.Name, "by", auth.FromContext(r.Context()).Name)
-	s.audit(r, audit.Entry{Action: "source.revoke", Severity: 3, Message: auth.FromContext(r.Context()).Name + " revoked the access token " + src.Name,
+	s.deps.Router.Invalidate()
+	s.deps.Logger.Info("source deleted", "source", src.Name, "by", auth.FromContext(r.Context()).Name)
+	s.audit(r, audit.Entry{Action: "source.delete", Severity: 3, Message: auth.FromContext(r.Context()).Name + " deleted the access token " + src.Name,
 		Fields: map[string]string{"target": src.Name}})
-	src, _ = s.deps.Repo.GetSource(r.Context(), id)
-	writeJSON(w, http.StatusOK, src)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // --- Users ---

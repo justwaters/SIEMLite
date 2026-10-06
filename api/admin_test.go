@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"siemlite/pkg/auth"
 	"siemlite/pkg/parser"
+	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
 
@@ -213,12 +215,12 @@ func TestSourcesParsersAndRestrictions(t *testing.T) {
 		t.Errorf("unrestricted search = %d log events", logs)
 	}
 
-	// Revoking a token stops it sending; deleting the parser returns the
+	// Deleting a source removes its token; deleting the parser returns the
 	// source to automatic parsing.
-	expect(t, "revoke", e.do(root, "DELETE", fmt.Sprintf("/api/v1/sources/%d", other.Source.ID), "", nil), 200)
-	expect(t, "revoked token", e.do(e.client(), "POST", "/api/v1/logs", "x", map[string]string{"Authorization": "Bearer " + other.Token}), 401)
+	expect(t, "delete", e.do(root, "DELETE", fmt.Sprintf("/api/v1/sources/%d", other.Source.ID), "", nil), 200)
+	expect(t, "deleted token", e.do(e.client(), "POST", "/api/v1/logs", "x", map[string]string{"Authorization": "Bearer " + other.Token}), 401)
 	syslog, _ := e.repo.BuiltinSource(context.Background(), storage.SourceSyslog)
-	expect(t, "revoke built-in", e.do(root, "DELETE", fmt.Sprintf("/api/v1/sources/%d", syslog.ID), "", nil), 400)
+	expect(t, "delete built-in", e.do(root, "DELETE", fmt.Sprintf("/api/v1/sources/%d", syslog.ID), "", nil), 400)
 	expect(t, "delete parser", e.do(root, "DELETE", fmt.Sprintf("/api/v1/parsers/%d", saved.ID), "", nil), 200)
 	src, _ := e.repo.GetSource(context.Background(), web.Source.ID)
 	if src.ParserID != nil {
@@ -372,5 +374,201 @@ func TestSourceParserNone(t *testing.T) {
 	e.call(root, "PATCH", path, map[string]any{"parser_none": true}, &src, nil)
 	if e.call(root, "PATCH", path, map[string]any{"parser_none": false}, &src, nil); src.ParserNone {
 		t.Errorf("parser_none false left it on: %+v", src)
+	}
+}
+
+// TestManageSource follows a token source through disabling, enabling and
+// deleting, as the Manage popup does.
+func TestManageSource(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	ctx := context.Background()
+
+	var gen struct {
+		Source storage.Source `json:"source"`
+		Token  string         `json:"token"`
+	}
+	e.call(root, "POST", "/api/v1/sources", map[string]any{"name": "gen"}, &gen, nil)
+	if !gen.Source.Enabled {
+		t.Errorf("new source isn't enabled: %+v", gen.Source)
+	}
+	path := fmt.Sprintf("/api/v1/sources/%d", gen.Source.ID)
+	send := func() *http.Response {
+		return e.do(e.client(), "POST", "/api/v1/logs", "hello", map[string]string{"Authorization": "Bearer " + gen.Token})
+	}
+	expect(t, "logs when enabled", send(), 202)
+
+	var src storage.Source
+	if got := e.call(root, "PATCH", path, map[string]any{"enabled": false}, &src, nil); got != 200 || src.Enabled || src.RevokedAt == nil {
+		t.Fatalf("disable = %d %+v", got, src)
+	}
+	expect(t, "logs when disabled", send(), 401)
+	var list []storage.Source
+	e.call(root, "GET", "/api/v1/sources", nil, &list, nil)
+	found := false
+	for _, s := range list {
+		if s.ID == gen.Source.ID {
+			found = !s.Enabled
+		}
+	}
+	if !found {
+		t.Errorf("the disabled source is missing or shows enabled: %+v", list)
+	}
+
+	src = storage.Source{} // a field left out of the JSON would keep its old value
+	if got := e.call(root, "PATCH", path, map[string]any{"enabled": true}, &src, nil); got != 200 || !src.Enabled || src.RevokedAt != nil {
+		t.Fatalf("enable = %d %+v", got, src)
+	}
+	expect(t, "logs when enabled again", send(), 202)
+	e.worker.Drain(ctx)
+
+	// Bad input and built-in sources.
+	expect(t, "enabled as a string", e.do(root, "PATCH", path, `{"enabled": "no"}`, nil), 400)
+	syslog, _ := e.repo.BuiltinSource(ctx, storage.SourceSyslog)
+	builtin := fmt.Sprintf("/api/v1/sources/%d", syslog.ID)
+	expect(t, "disable built-in", e.do(root, "PATCH", builtin, `{"enabled": false}`, nil), 400)
+	expect(t, "delete built-in", e.do(root, "DELETE", builtin, "", nil), 400)
+	expect(t, "disable missing", e.do(root, "PATCH", "/api/v1/sources/9999", `{"enabled": false}`, nil), 404)
+	expect(t, "delete missing", e.do(root, "DELETE", "/api/v1/sources/9999", "", nil), 404)
+
+	// An alert rule scoped to the source blocks the delete, and says which.
+	ruleID, err := e.repo.SaveRule(ctx, storage.Rule{Name: "Gen failures", Enabled: true, Severity: 3, SourceID: &gen.Source.ID, Threshold: 1, WindowMinutes: 5}, time.Now().UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errBody struct {
+		Error string `json:"error"`
+	}
+	if got := e.call(root, "DELETE", path, nil, &errBody, nil); got != 409 || !strings.Contains(errBody.Error, "Gen failures") {
+		t.Fatalf("delete with a rule = %d %q", got, errBody.Error)
+	}
+	expect(t, "logs after a refused delete", send(), 202)
+	if err := e.repo.DeleteRule(ctx, ruleID); err != nil {
+		t.Fatal(err)
+	}
+
+	expect(t, "delete", e.do(root, "DELETE", path, "", nil), 200)
+	expect(t, "logs after delete", send(), 401)
+	e.call(root, "GET", "/api/v1/sources", nil, &list, nil)
+	for _, s := range list {
+		if s.ID == gen.Source.ID {
+			t.Errorf("deleted source still listed: %+v", s)
+		}
+	}
+	expect(t, "enable deleted", e.do(root, "PATCH", path, `{"enabled": true}`, nil), 404)
+
+	// Its logs stay, under a plain name.
+	var res search.Result
+	e.call(root, "GET", "/api/v1/search?q=hello", nil, &res, nil)
+	if len(res.Events) == 0 || res.Events[0].SourceName != "Deleted source" {
+		t.Errorf("events after delete = %+v", res.Events)
+	}
+
+	// Each change is recorded in the INTERNAL log with who did it.
+	e.worker.Drain(ctx)
+	for action, severity := range map[string]int{"source.disable": 3, "source.enable": 1, "source.delete": 3} {
+		var res search.Result
+		e.call(root, "GET", "/api/v1/search?q="+url.QueryEscape(`"`+action+`"`), nil, &res, nil)
+		if len(res.Events) != 1 {
+			t.Errorf("%s events = %d, want 1", action, len(res.Events))
+			continue
+		}
+		ev := res.Events[0]
+		if ev.SourceName != "INTERNAL" || ev.UserName != "root" ||
+			!strings.Contains(string(ev.Fields), `"target":"gen"`) || ev.SeverityID != severity {
+			t.Errorf("%s event = severity %d, fields %s", action, ev.SeverityID, ev.Fields)
+		}
+	}
+}
+
+// Deleting a source never widens anyone's access: a limited user whose only
+// source is deleted sees nothing (an empty allow-list means no access, not
+// all), and a source made afterwards gets a new id, so the deleted source's
+// events can't show up under it.
+func TestDeletedSourceDoesNotWidenAccess(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+
+	newSource := func(name string) (storage.Source, string) {
+		var res struct {
+			Source storage.Source `json:"source"`
+			Token  string         `json:"token"`
+		}
+		if got := e.call(root, "POST", "/api/v1/sources", map[string]any{"name": name}, &res, nil); got != 201 {
+			t.Fatalf("create %s = %d", name, got)
+		}
+		return res.Source, res.Token
+	}
+	send := func(token, text string) {
+		expect(t, "send "+text, e.do(e.client(), "POST", "/api/v1/logs", text, map[string]string{"Authorization": "Bearer " + token}), 202)
+	}
+	limitedUser := func(name string, src int64) *http.Client {
+		if got := e.call(root, "POST", "/api/v1/users", map[string]any{
+			"username": name, "password": password, "role": "standard", "sources": []int64{src}}, nil, nil); got != 201 {
+			t.Fatalf("create user %s = %d", name, got)
+		}
+		c := e.client()
+		e.login(c, name, password)
+		return c
+	}
+	events := func(c *http.Client) []string {
+		var res search.Result
+		e.call(c, "GET", "/api/v1/search?limit=1000&q=marker", nil, &res, nil)
+		var out []string
+		for _, ev := range res.Events {
+			out = append(out, ev.SourceName+": "+ev.Message)
+		}
+		return out
+	}
+
+	a, tokenA := newSource("old")
+	send(tokenA, "marker from the old source")
+	sam := limitedUser("sam", a.ID)
+	e.worker.Drain(ctx)
+	if got := events(sam); len(got) != 1 {
+		t.Fatalf("before the delete sam sees %v", got)
+	}
+
+	expect(t, "delete the source", e.do(root, "DELETE", fmt.Sprintf("/api/v1/sources/%d", a.ID), "", nil), 200)
+
+	// Sam is still limited, now to nothing: no events, no figures, no sources.
+	if got := events(sam); len(got) != 0 {
+		t.Errorf("after the delete sam sees %v", got)
+	}
+	var stats struct {
+		Overview storage.Overview `json:"overview"`
+	}
+	e.call(sam, "GET", "/api/v1/stats", nil, &stats, nil)
+	if stats.Overview.Total != 0 {
+		t.Errorf("after the delete sam's dashboard counts %d events", stats.Overview.Total)
+	}
+	var visible []map[string]any
+	e.call(sam, "GET", "/api/v1/sources", nil, &visible, nil)
+	if len(visible) != 0 {
+		t.Errorf("after the delete sam sees sources %v", visible)
+	}
+	// The admin still has the events, under a name that says what happened.
+	if got := events(root); len(got) != 1 || !strings.HasPrefix(got[0], "Deleted source: ") {
+		t.Errorf("admin sees %v", got)
+	}
+
+	// A source made now has a new id, and its user doesn't inherit the old events.
+	b, tokenB := newSource("new")
+	if b.ID == a.ID {
+		t.Fatalf("the new source reused id %d", a.ID)
+	}
+	send(tokenB, "marker from the new source")
+	kim := limitedUser("kim", b.ID)
+	e.worker.Drain(ctx)
+	if got := events(kim); len(got) != 1 || !strings.HasPrefix(got[0], "new: ") {
+		t.Errorf("kim, limited to the new source, sees %v", got)
+	}
+	if got := events(sam); len(got) != 0 {
+		t.Errorf("sam, whose source was deleted, now sees %v", got)
 	}
 }
