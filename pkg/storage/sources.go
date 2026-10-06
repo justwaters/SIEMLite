@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Source kinds. Tokens are created by admins; the others exist once each.
@@ -18,7 +19,15 @@ const (
 var (
 	ErrSourceNotFound = errors.New("source not found")
 	ErrParserNotFound = errors.New("parser not found")
+	ErrBuiltinSource  = errors.New("built-in sources can't be disabled, enabled or deleted")
 )
+
+// SourceInUseError says alert rules are scoped to a source, so it can't be deleted.
+type SourceInUseError struct{ Rules []string }
+
+func (e *SourceInUseError) Error() string {
+	return "Alert rules use this source: " + strings.Join(e.Rules, ", ") + ". Change those rules first."
+}
 
 // Source is somewhere events come from. Only a SHA-256 of a token is stored.
 type Source struct {
@@ -29,7 +38,8 @@ type Source struct {
 	ParserName string `json:"parser_name,omitempty"`
 	ParserNone bool   `json:"parser_none"` // lines are stored as they arrive, with no detection
 	CreatedAt  int64  `json:"created_at"`
-	RevokedAt  *int64 `json:"revoked_at,omitempty"`
+	RevokedAt  *int64 `json:"revoked_at,omitempty"` // set while the token is disabled
+	Enabled    bool   `json:"enabled"`              // false while a token is disabled
 	LastUsedAt *int64 `json:"last_used_at,omitempty"`
 }
 
@@ -48,6 +58,7 @@ func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 	if revoked.Valid {
 		s.RevokedAt = &revoked.Int64
 	}
+	s.Enabled = !revoked.Valid
 	if used.Valid {
 		s.LastUsedAt = &used.Int64
 	}
@@ -166,16 +177,79 @@ func (r *Repository) UpdateSource(ctx context.Context, id int64, name *string, p
 	return nil
 }
 
-// RevokeSource revokes a token so it can no longer send logs. It reports
-// whether an active token was found. Its events are kept.
-func (r *Repository) RevokeSource(ctx context.Context, id, nowMs int64) (bool, error) {
-	res, err := r.db.Write.ExecContext(ctx,
-		`UPDATE sources SET revoked_at = ? WHERE id = ? AND kind = 'token' AND revoked_at IS NULL`, nowMs, id)
+// tokenSource returns the source with this id, or an error if it is missing
+// or isn't an access token.
+func (r *Repository) tokenSource(ctx context.Context, id int64) (*Source, error) {
+	s, err := r.GetSource(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("revoke source: %w", err)
+		return nil, err
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	if s.Kind != SourceToken {
+		return nil, ErrBuiltinSource
+	}
+	return s, nil
+}
+
+// SetSourceEnabled enables or disables an access token. A disabled token is
+// rejected but the source, its token and its events are kept; enabling it
+// makes the same token work again.
+func (r *Repository) SetSourceEnabled(ctx context.Context, id int64, enabled bool, nowMs int64) error {
+	s, err := r.tokenSource(ctx, id)
+	if err != nil {
+		return err
+	}
+	if enabled == s.Enabled {
+		return nil
+	}
+	var revoked any
+	if !enabled {
+		revoked = nowMs
+	}
+	if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET revoked_at = ? WHERE id = ?`, revoked, id); err != nil {
+		return fmt.Errorf("set source enabled: %w", err)
+	}
+	return nil
+}
+
+// DeleteSource removes an access token source and its token for good. Its
+// events stay in the day files. It refuses (with a *SourceInUseError) while
+// an alert rule is scoped to the source, as the rule would then match every
+// source.
+func (r *Repository) DeleteSource(ctx context.Context, id int64) error {
+	if _, err := r.tokenSource(ctx, id); err != nil {
+		return err
+	}
+	rows, err := r.db.Read.QueryContext(ctx, `SELECT name FROM alert_rules WHERE source_id = ? ORDER BY name COLLATE NOCASE`, id)
+	if err != nil {
+		return fmt.Errorf("check alert rules: %w", err)
+	}
+	var rules []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		rules = append(rules, n)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(rules) > 0 {
+		return &SourceInUseError{Rules: rules}
+	}
+	// A rule added between the check and here would lose its source (SET
+	// NULL); the guard in the statement keeps that from happening.
+	res, err := r.db.Write.ExecContext(ctx, `DELETE FROM sources WHERE id = ? AND kind = 'token'
+		AND NOT EXISTS (SELECT 1 FROM alert_rules WHERE source_id = ?)`, id, id)
+	if err != nil {
+		return fmt.Errorf("delete source: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return &SourceInUseError{Rules: []string{"a rule that was just added"}}
+	}
+	return nil
 }
 
 // TouchSource records that a source was just used.

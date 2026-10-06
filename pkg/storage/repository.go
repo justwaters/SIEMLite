@@ -301,7 +301,9 @@ func (r *Repository) records(ctx context.Context, hits []hit) ([]Record, error) 
 		}
 		for _, rec := range recs {
 			rec.ID = s.globalID(rec.ID)
-			rec.SourceName = names[rec.SourceID]
+			if rec.SourceID != 0 {
+				rec.SourceName = SourceLabel(names, rec.SourceID)
+			}
 			found[rec.ID] = rec
 		}
 	}
@@ -312,6 +314,18 @@ func (r *Repository) records(ctx context.Context, hits []hit) ([]Record, error) 
 		}
 	}
 	return out, nil
+}
+
+// SourceLabel is the name to show for a source id: "Unknown" for no source,
+// "Deleted source" when the source has been removed.
+func SourceLabel(names map[int64]string, id int64) string {
+	if n, ok := names[id]; ok {
+		return n
+	}
+	if id == 0 {
+		return "Unknown"
+	}
+	return "Deleted source"
 }
 
 // sourceNames maps source ids to names.
