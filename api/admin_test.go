@@ -482,3 +482,93 @@ func TestManageSource(t *testing.T) {
 		}
 	}
 }
+
+// Deleting a source never widens anyone's access: a limited user whose only
+// source is deleted sees nothing (an empty allow-list means no access, not
+// all), and a source made afterwards gets a new id, so the deleted source's
+// events can't show up under it.
+func TestDeletedSourceDoesNotWidenAccess(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+
+	newSource := func(name string) (storage.Source, string) {
+		var res struct {
+			Source storage.Source `json:"source"`
+			Token  string         `json:"token"`
+		}
+		if got := e.call(root, "POST", "/api/v1/sources", map[string]any{"name": name}, &res, nil); got != 201 {
+			t.Fatalf("create %s = %d", name, got)
+		}
+		return res.Source, res.Token
+	}
+	send := func(token, text string) {
+		expect(t, "send "+text, e.do(e.client(), "POST", "/api/v1/logs", text, map[string]string{"Authorization": "Bearer " + token}), 202)
+	}
+	limitedUser := func(name string, src int64) *http.Client {
+		if got := e.call(root, "POST", "/api/v1/users", map[string]any{
+			"username": name, "password": password, "role": "standard", "sources": []int64{src}}, nil, nil); got != 201 {
+			t.Fatalf("create user %s = %d", name, got)
+		}
+		c := e.client()
+		e.login(c, name, password)
+		return c
+	}
+	events := func(c *http.Client) []string {
+		var res search.Result
+		e.call(c, "GET", "/api/v1/search?limit=1000&q=marker", nil, &res, nil)
+		var out []string
+		for _, ev := range res.Events {
+			out = append(out, ev.SourceName+": "+ev.Message)
+		}
+		return out
+	}
+
+	a, tokenA := newSource("old")
+	send(tokenA, "marker from the old source")
+	sam := limitedUser("sam", a.ID)
+	e.worker.Drain(ctx)
+	if got := events(sam); len(got) != 1 {
+		t.Fatalf("before the delete sam sees %v", got)
+	}
+
+	expect(t, "delete the source", e.do(root, "DELETE", fmt.Sprintf("/api/v1/sources/%d", a.ID), "", nil), 200)
+
+	// Sam is still limited, now to nothing: no events, no figures, no sources.
+	if got := events(sam); len(got) != 0 {
+		t.Errorf("after the delete sam sees %v", got)
+	}
+	var stats struct {
+		Overview storage.Overview `json:"overview"`
+	}
+	e.call(sam, "GET", "/api/v1/stats", nil, &stats, nil)
+	if stats.Overview.Total != 0 {
+		t.Errorf("after the delete sam's dashboard counts %d events", stats.Overview.Total)
+	}
+	var visible []map[string]any
+	e.call(sam, "GET", "/api/v1/sources", nil, &visible, nil)
+	if len(visible) != 0 {
+		t.Errorf("after the delete sam sees sources %v", visible)
+	}
+	// The admin still has the events, under a name that says what happened.
+	if got := events(root); len(got) != 1 || !strings.HasPrefix(got[0], "Deleted source: ") {
+		t.Errorf("admin sees %v", got)
+	}
+
+	// A source made now has a new id, and its user doesn't inherit the old events.
+	b, tokenB := newSource("new")
+	if b.ID == a.ID {
+		t.Fatalf("the new source reused id %d", a.ID)
+	}
+	send(tokenB, "marker from the new source")
+	kim := limitedUser("kim", b.ID)
+	e.worker.Drain(ctx)
+	if got := events(kim); len(got) != 1 || !strings.HasPrefix(got[0], "new: ") {
+		t.Errorf("kim, limited to the new source, sees %v", got)
+	}
+	if got := events(sam); len(got) != 0 {
+		t.Errorf("sam, whose source was deleted, now sees %v", got)
+	}
+}
