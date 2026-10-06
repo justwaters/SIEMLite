@@ -235,7 +235,7 @@
   .kind { color: var(--ink-2); font-size: 13.5px; }
   .pill { display: inline-block; font-size: 12.5px; padding: 1px 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
   .pill.on { box-shadow: inset 0 0 0 1px var(--sev-2); color: var(--sev-2); }
-  .revoked td:not(.actions) { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--rule); }
+  .disabled td:not(.actions) { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--rule); }
 
   /* Dialogs */
   dialog { border: 1px solid var(--rule); border-radius: 12px; padding: 0; background: var(--surface); color: var(--ink);
@@ -250,6 +250,9 @@
   .token-box { display: flex; gap: 8px; }
   .token-box input { flex: 1; font-family: var(--mono); font-size: 13px; }
   pre.example { margin: 0; padding: 12px; border-radius: 8px; background: var(--raised); font: 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
+  .manage-view { display: grid; gap: 14px; }
+  .manage-view[hidden] { display: none; }
+  .manage-choices { display: flex; flex-wrap: wrap; gap: 8px; }
   dialog.wide { width: min(760px, calc(100vw - 32px)); }
 
   /* Parser editor */
@@ -807,10 +810,35 @@
   </form>
 </dialog>
 
+<dialog id="dlg-manage">
+  <form method="dialog" id="manage-form">
+    <div class="manage-view" id="manage-main">
+      <h2 id="manage-title"></h2>
+      <p id="manage-state"></p>
+      <div class="manage-choices">
+        <button type="button" class="btn" id="manage-enable">Enable</button>
+        <button type="button" class="btn" id="manage-disable">Disable</button>
+        <button type="button" class="btn btn-danger" id="manage-delete">Delete</button>
+      </div>
+      <p class="notice bad" id="manage-err" role="alert" hidden></p>
+      <div class="dialog-actions"><button class="btn" id="manage-close" value="close">Close</button></div>
+    </div>
+    <div class="manage-view" id="manage-confirm" hidden>
+      <h2 id="manage-confirm-title"></h2>
+      <p id="manage-confirm-body"></p>
+      <p class="notice bad" id="manage-confirm-err" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="manage-cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="manage-delete-ok">Delete source</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-token" class="wide">
   <form method="dialog">
     <h2>Copy the access token now</h2>
-    <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, revoke it and create another.</p>
+    <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, disable or delete it and create another.</p>
     <div class="token-box"><input class="input" id="t-token" readonly aria-label="Access token"><button type="button" class="btn" id="t-copy">Copy</button></div>
     <p>Send logs with it, one per line:</p>
     <pre class="example" id="t-example"></pre>
@@ -1292,7 +1320,7 @@ async function fillSourceFilter() {
   const list = await loadSources();
   const sel = $("f-source"), keep = sel.value;
   sel.replaceChildren(el("option", { value: "", textContent: "Any source" }),
-    ...list.map((s) => el("option", { value: String(s.id), textContent: s.name + (s.revoked_at ? " (revoked)" : "") })));
+    ...list.map((s) => el("option", { value: String(s.id), textContent: s.name + (s.revoked_at ? " (disabled)" : "") })));
   sel.value = keep;
 }
 function activeFilters() {
@@ -1586,9 +1614,9 @@ async function openSources() {
         } catch (err) { notice($("sources-msg"), err.message); }
       };
       const fresh = s.last_used_at && Date.now() - s.last_used_at < 86400000;
-      return el("tr", { className: s.revoked_at ? "revoked" : "" },
+      return el("tr", { className: s.revoked_at ? "disabled" : "" },
         el("td", {}, el("b", { textContent: s.name })),
-        el("td", { className: "kind", textContent: KIND[s.kind] + (s.revoked_at ? ", revoked" : "") }),
+        el("td", { className: "kind", textContent: KIND[s.kind] + (s.revoked_at ? ", disabled" : "") }),
         el("td", {}, s.kind === "internal" ? el("span", { className: "muted", textContent: "Built in" }) : parserSel),
         el("td", {}, el("span", { className: "pill" + (fresh ? " on" : ""), textContent: ago(s.last_used_at), title: s.last_used_at ? new Date(s.last_used_at).toString() : "" })),
         el("td", { className: "muted", textContent: shortDate(s.created_at) }),
@@ -1596,7 +1624,7 @@ async function openSources() {
           el("a", { className: "btn btn-small", href: `#/database?source=${s.id}`, textContent: "View logs" }),
           s.kind === "upload" ? el("button", { className: "btn btn-small", textContent: "Add logs", onclick: logsDialog }) : "",
           s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) }) : "",
-          s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small btn-danger", textContent: "Revoke", onclick: () => revokeSource(s) }) : "")));
+          s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) }) : "")));
     }));
   } catch (err) { notice($("sources-msg"), err.message); }
 }
@@ -1641,10 +1669,44 @@ $("t-copy").onclick = async () => {
   catch { $("t-token").select(); document.execCommand("copy"); $("t-copy").textContent = "Copied"; }
 };
 $("add-source").onclick = () => sourceDialog(null);
-async function revokeSource(s) {
-  if (!(await confirmAction(`Revoke ${s.name}?`, "Its access token stops working straight away. Logs it already sent are kept.", "Revoke token"))) return;
-  try { await apiJSON(`/api/v1/sources/${s.id}`, { method: "DELETE" }); await openSources(); notice($("sources-msg"), `Revoked ${s.name}.`, true); }
-  catch (err) { notice($("sources-msg"), err.message); }
+// Manage: enable, disable or delete an access token. Delete asks again
+// inside the dialog before it does anything.
+function manageDialog(s) {
+  const d = $("dlg-manage");
+  const on = !s.revoked_at;
+  $("manage-title").textContent = `Manage ${s.name}`;
+  $("manage-state").textContent = on ? "Enabled: its token is accepted." : "Disabled: its token is rejected. Its logs are kept.";
+  for (const b of d.querySelectorAll("button")) b.disabled = false;
+  $("manage-enable").disabled = on;
+  $("manage-disable").disabled = !on;
+  notice($("manage-err"), ""); notice($("manage-confirm-err"), "");
+  const view = (confirming) => { $("manage-main").hidden = confirming; $("manage-confirm").hidden = !confirming; };
+  view(false);
+  // Runs one change; on success the dialog closes and the table refreshes.
+  const act = async (errNode, request, done) => {
+    notice(errNode, "");
+    for (const b of d.querySelectorAll("button")) b.disabled = true;
+    try { await request(); d.close(); await openSources(); notice($("sources-msg"), done, true); }
+    catch (err) {
+      notice(errNode, err.message);
+      for (const b of d.querySelectorAll("button")) b.disabled = false;
+      $("manage-enable").disabled = on; $("manage-disable").disabled = !on;
+    }
+  };
+  const setEnabled = (enabled) => () => act($("manage-err"),
+    () => apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: { enabled } }), `${enabled ? "Enabled" : "Disabled"} ${s.name}.`);
+  $("manage-enable").onclick = setEnabled(true);
+  $("manage-disable").onclick = setEnabled(false);
+  $("manage-delete").onclick = () => {
+    $("manage-confirm-title").textContent = `Delete ${s.name}?`;
+    $("manage-confirm-body").textContent = "Its token is removed for good and can\u2019t be restored. Its logs stay in the Database as \u201cDeleted source\u201d.";
+    notice($("manage-confirm-err"), "");
+    view(true); $("manage-cancel").focus();
+  };
+  $("manage-cancel").onclick = () => { view(false); $("manage-delete").focus(); };
+  $("manage-delete-ok").onclick = () => act($("manage-confirm-err"),
+    () => apiJSON(`/api/v1/sources/${s.id}`, { method: "DELETE" }), `Deleted ${s.name}.`);
+  d.showModal(); $("manage-close").focus();
 }
 
 // --- Add logs ---
