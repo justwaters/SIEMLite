@@ -96,14 +96,28 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
   acknowledge it while you look into it, then close it. The **Rules** tab lists the rules; admins add, edit and switch them off.
   Users limited to some sources don't see alerts, since a rule looks at every source.
 - **Users** (admins): add people, set their role, limit what they can see, change passwords.
-- **Sources** (admins): create access tokens, see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
+- **Sources** (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
 - **Parsers** (admins): build, upload, export and edit parsers.
 - **System** (admins): the version, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 
 ### Send logs from an app
 
-On the **Sources** page, choose **New access token**, name it after the app and optionally pick a parser. The token is
-shown once. Tokens can only send logs; they can't search or sign in. From the command line:
+On the **Sources** page, choose **Add source**, name it after the app and optionally pick a parser. The next screen,
+**Connect**, shows the address to send logs to (`<address>/api/v1/logs`), the access token, which is shown once, and a
+snippet that sends a log in curl, Python, Go, JavaScript or React, with the address and token already filled in. The
+address starts as the one in your browser; change it to the address your apps use to reach SIEMLite if that differs.
+Tokens can only send logs; they can't search or sign in.
+
+The snippets trust `siemlite.crt`, since the certificate is self-signed unless you supplied your own. Copy it next to
+the code (`docker compose cp siemlite:/data/siemlite.crt .` with Docker) and remove those lines if your certificate is
+already trusted. A log sent returns `202` when accepted, `401` if the token is wrong or the source is disabled, and
+`503` with `Retry-After` when SIEMLite is busy: wait that many seconds, then send again.
+
+The React example goes through your own backend. A token in front-end code is public, and SIEMLite doesn't allow
+cross-origin browser calls (it answers a browser's preflight request with `405`, so the browser blocks the call). The
+page sends the log to a route on your server, such as `/api/log`, and the server adds the token and forwards it.
+
+From the command line:
 
 ```sh
 ./siemlite keys create -name myapp
