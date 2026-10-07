@@ -8,6 +8,7 @@ Exits non-zero, listing every failure, if a check fails.
 
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -53,6 +54,112 @@ def start(binary, workdir):
         proc.kill()
         sys.exit("server did not start")
     return proc, f"https://127.0.0.1:{port}/", password
+
+
+EXPRESS_STUB = """const http = require("http");
+function express() {
+  const routes = {};
+  return {
+    post(path, parse, handler) { routes["POST " + path] = handler; },
+    listen(port) {
+      http.createServer((req, res) => {
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", async () => {
+          const h = routes[req.method + " " + req.url];
+          if (!h) { res.statusCode = 404; return res.end(); }
+          req.body = body;
+          res.status = (c) => { res.statusCode = c; return res; };
+          res.send = (t) => res.end(t);
+          try { await h(req, res); } catch (e) { res.statusCode = 500; res.end(String(e)); }
+        });
+      }).listen(port, "127.0.0.1");
+    },
+  };
+}
+express.text = () => null;
+module.exports = express;
+"""
+
+
+def run(cmd, cwd, env=None, timeout=120):
+    e = dict(os.environ)
+    e.update(env or {})
+    return subprocess.run(cmd, cwd=cwd, env=e, capture_output=True, text=True, timeout=timeout)
+
+
+def run_snippets(snips, workdir, base_url):
+    """Run each snippet the dialog showed against the test server. Returns how many ran."""
+    ran = 0
+    work = Path(tempfile.mkdtemp(prefix="siemlite-snippets-"))
+    shutil.copy(os.path.join(workdir, "siemlite.crt"), work / "siemlite.crt")
+    cert = str(work / "siemlite.crt")
+
+    def report(lang, r, want_status=True):
+        nonlocal ran
+        ran += 1
+        out = (r.stdout + r.stderr).strip()
+        ok = r.returncode == 0 and (("202" in r.stdout and "accepted" in r.stdout) if want_status else '"accepted"' in r.stdout)
+        check(ok, f"the {lang} snippet sends a log and gets 202: {out[:120]!r}")
+
+    if shutil.which("curl"):
+        report("curl", run(["sh", "-c", snips["curl"]], work), want_status=False)
+    else:
+        print("skip  curl is not installed")
+    if shutil.which("python3"):
+        (work / "send.py").write_text(snips["python"])
+        report("Python", run(["python3", "send.py"], work))
+    else:
+        print("skip  python3 is not installed")
+    if shutil.which("node"):
+        (work / "app.mjs").write_text(snips["javascript"])
+        report("JavaScript", run(["node", "app.mjs"], work, {"NODE_EXTRA_CA_CERTS": cert}))
+    else:
+        print("skip  node is not installed")
+    if shutil.which("go"):
+        gdir = work / "gosnip"
+        gdir.mkdir()
+        (gdir / "go.mod").write_text("module snippet\n\ngo 1.21\n")
+        (gdir / "main.go").write_text(snips["go"])
+        shutil.copy(cert, gdir / "siemlite.crt")
+        report("Go", run(["go", "run", "main.go"], gdir, {"GOFLAGS": "-mod=mod"}, timeout=300))
+    else:
+        print("skip  go is not installed")
+
+    # React: the hook and the Express handler are in the text; the hook parses as JSX;
+    # the handler forwards a log to SIEMLite (run with a small stand-in for express).
+    react = snips["react"]
+    client, _, server = react.partition("// On your server")
+    check("export function useSiemLog()" in client and 'fetch("/api/log"' in client and "<button" in client
+          and "express.text()" in server and 'app.post("/api/log"' in server, "the React tab has the useSiemLog hook and the Express /api/log handler")
+    if shutil.which("npx"):
+        (work / "Hook.jsx").write_text(client)
+        r = run(["npx", "--yes", "esbuild", "Hook.jsx", "--loader:.jsx=jsx", "--log-level=warning"], work, timeout=180)
+        if r.returncode == 0:
+            check(True, "the React snippet parses as JSX (esbuild)")
+        else:
+            print("skip  esbuild could not run here: " + r.stderr.strip()[:100])
+    if shutil.which("node"):
+        (work / "node_modules" / "express").mkdir(parents=True)
+        (work / "node_modules" / "express" / "index.js").write_text(EXPRESS_STUB)
+        port = free_port()
+        (work / "server.mjs").write_text("import express from \"express\";" + server.split('import express from "express";', 1)[1].replace("app.listen(3000)", f"app.listen({port})"))
+        srv = subprocess.Popen(["node", "server.mjs"], cwd=work, env={**os.environ, "NODE_EXTRA_CA_CERTS": cert},
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            out = ""
+            for _ in range(50):
+                time.sleep(0.2)
+                r = run(["curl", "-s", "-X", "POST", f"http://127.0.0.1:{port}/api/log", "-H", "Content-Type: text/plain",
+                         "--data-binary", "ERROR payment failed user=bob order=1042"], work)
+                if r.returncode == 0:
+                    out = r.stdout
+                    break
+            ran += 1
+            check('"accepted"' in out, f"the React tab's Express handler forwards a log to SIEMLite: {out[:80]!r}")
+        finally:
+            srv.kill()
+    return ran
 
 
 def main(binary, loggen):
@@ -184,6 +291,105 @@ def main(binary, loggen):
             page.wait_for_selector("#sources-msg:has-text('Deleted Throwaway.')")
             check(throw_row().count() == 0 and not dlg.is_visible(), "deleting a source removes its row")
 
+            # Add source: the button, the form, then the Connect screen.
+            page.goto(url + "#/sources")
+            page.wait_for_selector("#view-sources tbody tr")
+            check(page.inner_text("#add-source").strip() == "Add source", "the Sources button reads Add source")
+            page.click("#add-source")
+            add = page.locator("#dlg-source")
+            add.wait_for(state="visible")
+            check(add.locator("h2").inner_text() == "Add source" and add.locator("#s-save").inner_text() == "Add source",
+                  "the form is titled Add source and submits with Add source")
+            check("application or device" in add.locator("#source-dlg-sub").inner_text(), "the form says what a source is")
+            page.fill("#s-name", "Snippet app")
+            page.click("#s-save")
+            conn = page.locator("#dlg-token")
+            conn.wait_for(state="visible")
+            check(conn.locator("#t-title").inner_text() == "Connect Snippet app", "the Connect screen is titled Connect <name>")
+            origin = url.rstrip("/")
+            check(page.input_value("#t-address") == origin, f"the SIEMLite address is prefilled with the browser's ({page.input_value('#t-address')})")
+            check(page.input_value("#t-url") == origin + "/api/v1/logs", "the full URL to send logs to is shown")
+            token = page.input_value("#t-token")
+            check(len(token) >= 20, "the one-time access token is shown")
+            tabs = conn.get_by_role("tab")
+            check(tabs.all_inner_texts() == ["curl", "Python", "Go", "JavaScript", "React"], f"the five language tabs are there ({tabs.all_inner_texts()})")
+            check(conn.get_by_role("tablist").count() == 1 and conn.get_by_role("tabpanel").count() == 1, "one tablist and one visible tab panel")
+            for sel in ["#t-url-copy", "#t-copy", "#copy-curl"]:
+                check(page.locator(sel).count() == 1, f"a Copy button exists ({sel})")
+            check("Copy" == page.inner_text("#copy-curl") and token in page.text_content("#code-curl"), "the curl snippet has the token filled in")
+
+            # Keyboard: arrows, Home and End move between tabs.
+            selected = lambda: page.evaluate("[...document.querySelectorAll('#t-tabs [role=tab]')].filter(t => t.getAttribute('aria-selected') === 'true').map(t => t.textContent)")
+            page.locator("#tab-curl").focus()
+            page.keyboard.press("ArrowRight")
+            check(selected() == ["Python"] and page.evaluate("document.activeElement.id") == "tab-python", "Right arrow moves to the next tab")
+            page.keyboard.press("End")
+            check(selected() == ["React"], "End moves to the last tab")
+            page.keyboard.press("ArrowRight")
+            check(selected() == ["curl"], "Right arrow wraps around to the first tab")
+            page.keyboard.press("ArrowLeft")
+            check(selected() == ["React"], "Left arrow wraps around to the last tab")
+            page.keyboard.press("Home")
+            check(selected() == ["curl"], "Home moves to the first tab")
+            check(page.evaluate("[...document.querySelectorAll('#t-tabs [role=tab]')].map(t => t.tabIndex)") == [0, -1, -1, -1, -1], "only the chosen tab is in the tab order")
+            page.click("#tab-go")
+            page.reload()
+            page.wait_for_selector("#view-sources tbody tr")
+            check(page.evaluate("localStorage.getItem('siemlite.connect-tab')") == "go", "the chosen tab is remembered")
+
+            # Editing the address changes every snippet.
+            page.click("#add-source")
+            page.fill("#s-name", "Second app")
+            page.click("#s-save")
+            conn.wait_for(state="visible")
+            check(selected() == ["Go"], "the last chosen tab is open next time")
+            page.fill("#t-address", "http://logs.example.test:9000///")
+            check(page.input_value("#t-url") == "http://logs.example.test:9000/api/v1/logs", "editing the address updates the URL and trims slashes")
+            texts = {}
+            for lang in ["curl", "python", "go", "javascript", "react"]:
+                page.click("#tab-" + lang)
+                texts[lang] = page.text_content("#code-" + lang)
+            check(all("http://logs.example.test:9000/api/v1/logs" in t for t in texts.values()), "every snippet follows the address")
+            page.fill("#t-address", "not a url")
+            check(page.input_value("#t-url") == "https://siemlite.example.com/api/v1/logs", "an invalid address falls back to the placeholder")
+            page.fill("#t-address", "")
+            check("https://siemlite.example.com/api/v1/logs" in page.text_content("#code-react"), "an empty address falls back to the placeholder")
+            page.fill("#t-address", "https://a.test/it's \"x\" $(id)")
+            odd = page.input_value("#t-url")
+            page.click("#tab-curl")
+            echoed = run(["sh", "-c", page.text_content("#code-curl").replace("curl --cacert siemlite.crt -X POST", "printf '%s\\n'", 1)], ".").stdout.splitlines()
+            check(odd.startswith("https://a.test/") and echoed[:1] == [odd], f"an address with quotes and $() reaches the shell as one plain word ({odd!r})")
+            page.keyboard.press("Escape")
+
+            # The snippets themselves work: read them from a fresh Connect screen with
+            # the test server's address and run them.
+            page.click("#add-source")
+            page.fill("#s-name", "Runnable app")
+            page.click("#s-save")
+            conn.wait_for(state="visible")
+            page.fill("#t-address", origin)
+            snips = {}
+            for lang in ["curl", "python", "go", "javascript", "react"]:
+                page.click("#tab-" + lang)
+                snips[lang] = page.text_content("#code-" + lang)
+            check(all(snips.values()), "every tab shows a snippet")
+            page.keyboard.press("Escape")
+            ran = run_snippets(snips, workdir, url)
+            print(f"      ran {ran} snippet check(s) against {origin}")
+            sources = page.evaluate("fetch('/api/v1/sources').then(r => r.json())")
+            sources = sources.get("sources", sources) if isinstance(sources, dict) else sources
+            sid = [x["id"] for x in sources if x["name"] == "Runnable app"][0]
+            page.goto(url + f"#/database?source={sid}")
+            got = 0
+            for _ in range(20):
+                page.goto(url + f"#/database?source={sid}")
+                page.reload()
+                page.wait_for_timeout(700)
+                got = page.locator("tr.ev").count()
+                if got >= ran:
+                    break
+            check(got == ran, f"the Runnable app source shows {got} events in the Database from {ran} snippet runs (React included)")
+
             for _ in range(15):
                 page.goto(url + "#/alerts")
                 page.wait_for_timeout(1500)
@@ -229,6 +435,23 @@ def main(binary, loggen):
                 phone.wait_for_timeout(300)
                 wide = phone.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
                 check(wide <= 0, f"{name} page fits a phone screen (overflow {wide}px)")
+
+            # The Connect screen fits a phone, and its code scrolls inside itself.
+            phone.goto(url + "#/sources")
+            phone.wait_for_selector("#view-sources tbody tr")
+            phone.click("#add-source")
+            phone.fill("#s-name", "Phone app")
+            phone.click("#s-save")
+            phone.wait_for_selector("#dlg-token", state="visible")
+            for lang in ["curl", "go", "react"]:
+                phone.click("#tab-" + lang)
+                if lang == "go":
+                    check(phone.evaluate("(() => { const p = document.getElementById('code-go'); return p.scrollWidth > p.clientWidth && getComputedStyle(p).overflowX === 'auto'; })()"),
+                          "a long code block scrolls sideways inside itself")
+                over = phone.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+                dlg_over = phone.evaluate("(() => { const d = document.getElementById('dlg-token'); return d.scrollWidth - d.clientWidth; })()")
+                check(over <= 0 and dlg_over <= 0, f"the Connect screen fits a phone on the {lang} tab (page {over}px, dialog {dlg_over}px)")
+            phone.keyboard.press("Escape")
 
             check(not errors, "no script errors" + ("" if not errors else ": " + "; ".join(errors[:5])))
             browser.close()
