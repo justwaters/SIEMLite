@@ -143,7 +143,7 @@
   .dash-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
   .seg { display: inline-grid; grid-auto-flow: column; padding: 2px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
   .seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; color: var(--ink-2); cursor: pointer; font-size: 13.5px; }
-  .seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+  .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--raised); color: var(--ink); }
   .figures { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
   .figure { background: var(--surface); padding: 18px 20px; }
   .figure .label { font-size: 13px; color: var(--ink-2); }
@@ -250,6 +250,17 @@
   .token-box { display: flex; gap: 8px; }
   .token-box input { flex: 1; font-family: var(--mono); font-size: 13px; }
   pre.example { margin: 0; padding: 12px; border-radius: 8px; background: var(--raised); font: 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
+  .connect { display: grid; gap: 8px; min-width: 0; }
+  .connect-section { display: grid; gap: 8px; min-width: 0; }
+  .connect h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .connect .hint { font-size: 13px; color: var(--ink-2); }
+  .connect .token-box input { min-width: 0; }
+  #t-address { font-family: var(--mono); font-size: 13px; }
+  .code-tabs { max-width: 100%; overflow-x: auto; justify-self: start; }
+  .code-tabs button { white-space: nowrap; }
+  pre.code { margin: 0; padding: 12px; border-radius: 8px; background: var(--raised); font: 12px/1.6 var(--mono); white-space: pre; overflow-x: auto; max-width: 100%; tab-size: 4; }
+  .code-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .code-bar p { flex: 1 1 260px; min-width: 0; }
   .manage-view { display: grid; gap: 14px; }
   .manage-view[hidden] { display: none; }
   .manage-choices { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -590,7 +601,7 @@
         <div><h1 id="sources-title">Sources</h1><p>Everywhere logs come from. Applications send logs with an access token; choose a parser to make a source&rsquo;s logs readable.</p></div>
         <div class="page-actions">
           <button class="btn" id="add-logs-btn">Add logs</button>
-          <button class="btn btn-primary" id="add-source">New access token</button>
+          <button class="btn btn-primary" id="add-source">Add source</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -798,14 +809,14 @@
 
 <dialog id="dlg-source">
   <form method="dialog" id="source-form">
-    <h2 id="source-dlg-title">New access token</h2>
-    <p id="source-dlg-sub">An application uses the token to send its logs to SIEMLite. The token can only send logs.</p>
+    <h2 id="source-dlg-title">Add source</h2>
+    <p id="source-dlg-sub">A source is an application or device that sends logs to SIEMLite. The next screen shows how to connect it.</p>
     <label class="field-label">Name <input class="input" id="s-name" maxlength="80" placeholder="e.g. web shop, office firewall" autocomplete="off"></label>
     <label class="field-label" id="s-parser-wrap">Parser <select class="select" id="s-parser"></select></label>
     <p class="notice bad" id="s-err" role="alert" hidden></p>
     <div class="dialog-actions">
       <button class="btn" value="cancel" formnovalidate>Cancel</button>
-      <button class="btn btn-primary" id="s-save" value="save">Create token</button>
+      <button class="btn btn-primary" id="s-save" value="save">Add source</button>
     </div>
   </form>
 </dialog>
@@ -836,12 +847,27 @@
 </dialog>
 
 <dialog id="dlg-token" class="wide">
-  <form method="dialog">
-    <h2>Copy the access token now</h2>
-    <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, disable or delete it and create another.</p>
-    <div class="token-box"><input class="input" id="t-token" readonly aria-label="Access token"><button type="button" class="btn" id="t-copy">Copy</button></div>
-    <p>Send logs with it, one per line:</p>
-    <pre class="example" id="t-example"></pre>
+  <form method="dialog" class="connect">
+    <h2 id="t-title">Connect source</h2>
+    <p>Point the application at SIEMLite and give it the access token below. The token can only send logs.</p>
+    <div class="connect-section">
+      <h3>Send logs to</h3>
+      <label class="field-label">SIEMLite address <input class="input" id="t-address" autocomplete="off" spellcheck="false" inputmode="url"></label>
+      <p class="hint">Change this to the address your apps use to reach SIEMLite if it differs from the one in your browser.</p>
+      <div class="token-box"><input class="input" id="t-url" readonly aria-label="Address to send logs to"><button type="button" class="btn" id="t-url-copy">Copy</button></div>
+    </div>
+    <div class="connect-section">
+      <h3>Access token</h3>
+      <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, disable or delete the source and add another.</p>
+      <div class="token-box"><input class="input" id="t-token" readonly aria-label="Access token"><button type="button" class="btn" id="t-copy">Copy</button></div>
+    </div>
+    <div class="connect-section">
+      <h3>Send a log</h3>
+      <div class="seg code-tabs" role="tablist" aria-label="Language" id="t-tabs"></div>
+      <div id="t-panels"></div>
+    </div>
+    <p class="hint">SIEMLite&rsquo;s certificate is self-signed unless you supplied your own, so clients must trust <code>siemlite.crt</code>, as the snippets show. With Docker the file is <code>/data/siemlite.crt</code>; copy it out with <code>docker compose cp siemlite:/data/siemlite.crt .</code> and remove the lines about it if the certificate is already trusted.</p>
+    <p class="hint">What comes back: <code>202</code> accepted; <code>401</code> the token is wrong or the source is disabled; <code>503</code> busy, so wait <code>Retry-After</code> seconds, then send again.</p>
     <div class="dialog-actions"><button class="btn btn-primary" value="done">Done</button></div>
   </form>
 </dialog>
@@ -1630,10 +1656,10 @@ async function openSources() {
 }
 function sourceDialog(s) {
   const editing = !!s;
-  $("source-dlg-title").textContent = editing ? `Rename ${s.name}` : "New access token";
+  $("source-dlg-title").textContent = editing ? `Rename ${s.name}` : "Add source";
   $("source-dlg-sub").hidden = editing;
   $("s-parser-wrap").hidden = editing;
-  $("s-save").textContent = editing ? "Save" : "Create token";
+  $("s-save").textContent = editing ? "Save" : "Add source";
   $("s-name").value = editing ? s.name : "";
   $("s-parser").replaceChildren(...parserOptions(null, false));
   notice($("s-err"), "");
@@ -1652,22 +1678,212 @@ function sourceDialog(s) {
       const res = await apiJSON("/api/v1/sources", { method: "POST", json: { name, ...parserChoice($("s-parser").value) } });
       d.close();
       await openSources();
-      tokenDialog(res.token);
+      tokenDialog(res.token, name);
     } catch (err) { notice($("s-err"), err.message); }
   };
   d.showModal(); $("s-name").focus();
 }
-function tokenDialog(token) {
+// Snippets for sending one log line, all built from the same address and
+// token so they stay in step. Each string is escaped for its language.
+const SAMPLE_LOG = "ERROR payment failed user=bob order=1042";
+const PLACEHOLDER_ADDRESS = "https://siemlite.example.com";
+function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }
+function snippets({ url, token }) {
+  const q = JSON.stringify; // a double-quoted string that Python, Go and JavaScript all read the same way
+  const authHeader = "Bearer " + token;
+  const jsFetch = `const res = await fetch(${q(url)}, {
+  method: "POST",
+  headers: { Authorization: ${q(authHeader)} },
+  body: ${q(SAMPLE_LOG)},
+});
+console.log(res.status, await res.text());`;
+  return {
+    curl: {
+      about: "Run it in a shell, with siemlite.crt in the same folder.",
+      code: `curl --cacert siemlite.crt -X POST ${shq(url)} \\\n  -H ${shq("Authorization: " + authHeader)} \\\n  --data-binary ${shq(SAMPLE_LOG)}`,
+    },
+    python: {
+      about: "Standard library only. Save it as send.py and run python3 send.py.",
+      code: `import ssl
+import urllib.request
+
+# Trust SIEMLite's certificate. Use ssl.create_default_context() if it is already trusted.
+context = ssl.create_default_context(cafile="siemlite.crt")
+
+request = urllib.request.Request(
+    ${q(url)},
+    data=${q(SAMPLE_LOG)}.encode(),
+    headers={"Authorization": ${q(authHeader)}},
+    method="POST",
+)
+with urllib.request.urlopen(request, context=context) as response:
+    print(response.status, response.read().decode())`,
+    },
+    go: {
+      about: "Standard library only. Save it as main.go and run go run main.go.",
+      code: `package main
+
+import (
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+)
+
+func main() {
+	// Trust SIEMLite's certificate. Drop the Transport if it is already trusted.
+	cert, err := os.ReadFile("siemlite.crt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(cert)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}}
+
+	req, err := http.NewRequest("POST", ${q(url)}, strings.NewReader(${q(SAMPLE_LOG)}))
+	if err != nil {
+		log.Fatal(err)
+	}
+	req.Header.Set("Authorization", ${q(authHeader)})
+	res, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	fmt.Println(res.StatusCode, string(body))
+}`,
+    },
+    javascript: {
+      about: "Needs Node 18 or newer. Save it as app.mjs, an ES module, so top-level await works.",
+      code: `// With SIEMLite's self-signed certificate, run it as:
+//   NODE_EXTRA_CA_CERTS=siemlite.crt node app.mjs
+${jsFetch}`,
+    },
+    react: {
+      about: "A token in front-end code is public, and SIEMLite does not allow cross-origin browser calls, so the page sends to your own backend and the backend adds the token.",
+      code: `// In your React app: a hook that posts a log line to your own backend.
+import { useCallback, useState } from "react";
+
+export function useSiemLog() {
+  const [status, setStatus] = useState(null);
+  const log = useCallback(async (line) => {
+    const res = await fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: line,
+    });
+    setStatus(res.status);
+    return res.ok;
+  }, []);
+  return { log, status };
+}
+
+export function PayButton() {
+  const { log, status } = useSiemLog();
+  return (
+    <button onClick={() => log(${q(SAMPLE_LOG)})}>
+      Pay {status && "(" + status + ")"}
+    </button>
+  );
+}
+
+// On your server (Node with Express): adds the token and forwards to SIEMLite.
+// Run it as: NODE_EXTRA_CA_CERTS=siemlite.crt node server.mjs
+import express from "express";
+
+const app = express();
+app.post("/api/log", express.text(), async (req, res) => {
+  const upstream = await fetch(${q(url)}, {
+    method: "POST",
+    headers: { Authorization: ${q(authHeader)} },
+    body: req.body,
+  });
+  res.status(upstream.status).send(await upstream.text());
+});
+app.listen(3000);`,
+    },
+  };
+}
+const LANGS = [["curl", "curl"], ["python", "Python"], ["go", "Go"], ["javascript", "JavaScript"], ["react", "React"]];
+// The address field as a clean origin plus any path, without trailing slashes.
+function connectAddress(raw) {
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error();
+    return u.origin + u.pathname.replace(/\/+$/, "");
+  } catch { return PLACEHOLDER_ADDRESS; }
+}
+async function copyText(button, text, input) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const box = input || el("textarea", { value: text, readOnly: true });
+    if (!input) { box.style.position = "fixed"; box.style.opacity = "0"; document.body.append(box); }
+    box.select(); document.execCommand("copy");
+    if (!input) box.remove();
+  }
+  button.textContent = "Copied";
+}
+function tokenDialog(token, name) {
+  $("t-title").textContent = `Connect ${name}`;
   $("t-token").value = token;
-  $("t-example").textContent = `curl --cacert siemlite.crt -X POST '${location.origin}/api/v1/logs' \\\n  -H 'Authorization: Bearer ${token}' \\\n  --data-binary @app.log`;
+  $("t-address").value = location.origin;
+  let chosen = "curl";
+  try { const saved = localStorage.getItem("siemlite.connect-tab"); if (LANGS.some(([id]) => id === saved)) chosen = saved; } catch {}
+  const tabs = $("t-tabs"), panels = $("t-panels");
+  const code = {};
+  const pick = (id, focus) => {
+    chosen = id;
+    try { localStorage.setItem("siemlite.connect-tab", id); } catch {}
+    for (const [lang] of LANGS) {
+      const on = lang === id, tab = $("tab-" + lang);
+      tab.setAttribute("aria-selected", on);
+      tab.tabIndex = on ? 0 : -1;
+      $("panel-" + lang).hidden = !on;
+      if (on && focus) tab.focus();
+    }
+  };
+  const render = () => {
+    const url = connectAddress($("t-address").value) + "/api/v1/logs";
+    const all = snippets({ url, token });
+    $("t-url").value = url;
+    $("t-url-copy").textContent = "Copy";
+    for (const [lang] of LANGS) {
+      code[lang] = all[lang].code;
+      $("code-" + lang).textContent = all[lang].code;
+      $("about-" + lang).textContent = all[lang].about;
+      $("copy-" + lang).textContent = "Copy";
+    }
+  };
+  tabs.replaceChildren(...LANGS.map(([lang, label]) => el("button", {
+    type: "button", id: "tab-" + lang, textContent: label, role: "tab", "aria-controls": "panel-" + lang,
+    onclick: () => pick(lang),
+  })));
+  tabs.onkeydown = (e) => {
+    const ids = LANGS.map(([id]) => id), at = ids.indexOf(chosen);
+    const next = { ArrowRight: (at + 1) % ids.length, ArrowLeft: (at + ids.length - 1) % ids.length, Home: 0, End: ids.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault(); pick(ids[next], true);
+  };
+  panels.replaceChildren(...LANGS.map(([lang, label]) => {
+    const copy = el("button", { type: "button", className: "btn btn-small", id: "copy-" + lang, textContent: "Copy", "aria-label": `Copy the ${label} snippet` });
+    copy.onclick = () => copyText(copy, code[lang]);
+    return el("div", { id: "panel-" + lang, role: "tabpanel", "aria-labelledby": "tab-" + lang, className: "connect-section", hidden: true },
+      el("div", { className: "code-bar" }, el("p", { id: "about-" + lang }), copy),
+      el("pre", { className: "code", id: "code-" + lang, tabIndex: 0 }));
+  }));
+  $("t-address").oninput = render;
+  render(); pick(chosen);
   $("t-copy").textContent = "Copy";
   $("dlg-token").showModal();
   $("t-token").select();
 }
-$("t-copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("t-token").value); $("t-copy").textContent = "Copied"; }
-  catch { $("t-token").select(); document.execCommand("copy"); $("t-copy").textContent = "Copied"; }
-};
+$("t-copy").onclick = () => copyText($("t-copy"), $("t-token").value, $("t-token"));
+$("t-url-copy").onclick = () => copyText($("t-url-copy"), $("t-url").value, $("t-url"));
 $("add-source").onclick = () => sourceDialog(null);
 // Manage: enable, disable or delete an access token. Delete asks again
 // inside the dialog before it does anything.

@@ -9,3 +9,5 @@ siemlite.key
 /geoip/
 /dist/
 *-events/
+__pycache__/
+*.pyc
