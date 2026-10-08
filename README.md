@@ -52,7 +52,7 @@ sends ten realistic test events a second, attacks included. See [Test logs](#tes
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.9.2` in `.env` and run `docker compose pull && docker compose up -d`.
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.10` in `.env` and run `docker compose pull && docker compose up -d`.
 Or build from the checkout, and deploy and upgrade with one command:
 
 ```sh
@@ -421,11 +421,19 @@ From the command line (works while the server runs; a restore is applied at the 
 The **System** page shows the version you're running and checks GitHub for a newer release (at most every six hours,
 or when you choose **Check now**). When one is out, **Update and restart** downloads the build for your platform,
 checks it against the release's `SHA256SUMS`, swaps it in for the running program and restarts, usually within
-seconds. Nothing changes if the download or check fails. The button appears when SIEMLite runs as a plain program
-it can write to; under Docker the page shows `docker compose pull && docker compose up -d` instead. Updates are
-recorded in the audit log. Make a backup first if you might want to go back: a newer version can upgrade the
-database in ways older versions can't read. Pass `-update-check=false` (or `SIEMLITE_UPDATE_CHECK=false`) to stop
-SIEMLite contacting GitHub at all.
+seconds. Nothing changes if the download or check fails. Updates are recorded in the audit log. Make a backup
+first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
+Pass `-update-check=false` (or `SIEMLITE_UPDATE_CHECK=false`) to stop SIEMLite contacting GitHub at all.
+
+- **A plain program** is replaced in place. The button appears when SIEMLite can write to its own folder.
+- **Docker** can't replace the program inside the image, so the update is saved in the data volume
+  (`/data/bin`) and the image's program hands over to it each time it starts. It survives restarts and
+  `docker compose up -d`. When you later rebuild or pull an image that is as new, the saved copy is removed
+  automatically. If a saved update doesn't come up after two starts, it is removed and the image's own version runs,
+  so a bad update can't stop the container from starting. This needs no access to the Docker socket.
+  `docker compose exec siemlite siemlite ...` commands (and `siemlite version`) still run the image's own version
+  until the image is rebuilt or pulled.
+- If SIEMLite can't write where it needs to, the card says so and shows `docker compose pull && docker compose up -d`.
 
 ## Users
 

@@ -123,6 +123,21 @@ func run() error {
 		*keyFile = filepath.Join(filepath.Dir(*dbPath), "siemlite.key")
 	}
 
+	// In a container, an update chosen on the System page is saved in the data
+	// volume; hand over to it before anything is opened.
+	dataDir := filepath.Dir(*dbPath)
+	if abs, err := filepath.Abs(dataDir); err == nil {
+		dataDir = abs
+	}
+	if path, note := update.Override(dataDir, version(), startExe); note != "" {
+		slog.Warn("update", "detail", note)
+	} else if path != "" {
+		slog.Info("starting the update saved in the data folder", "program", path)
+		if err := execProgram(path); err != nil {
+			slog.Error("couldn't start the saved update; carrying on with this version", "err", err)
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -314,6 +329,7 @@ func run() error {
 	var updates *update.Checker
 	if *updateCheck {
 		updates = update.New(version(), startExe)
+		updates.DataDir = dataDir
 	}
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine,
@@ -328,6 +344,14 @@ func run() error {
 	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Start(*certFile, *keyFile) }()
+	// A saved update counts as working once it has stayed up for a few seconds.
+	go func() {
+		select {
+		case <-time.After(5 * time.Second):
+			update.MarkHealthy(dataDir)
+		case <-ctx.Done():
+		}
+	}()
 	slog.Info("SIEMLite listening (HTTPS only)", "version", version(), "url", "https://"+*addr, "db", *dbPath,
 		"retention_days", *retentionDays, "cert_sha256", fingerprint)
 

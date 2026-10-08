@@ -54,12 +54,16 @@ type Status struct {
 	// what to do instead.
 	CanApply bool   `json:"can_apply"`
 	WhyNot   string `json:"why_not,omitempty"`
+	// InContainer is set when SIEMLite runs in a container, where an update is
+	// kept in the data volume instead of replacing the program file.
+	InContainer bool `json:"in_container,omitempty"`
 }
 
 // Checker looks for releases and installs them.
 type Checker struct {
 	Current   string // e.g. "v0.9"
 	Exe       string // the running binary, resolved when SIEMLite started
+	DataDir   string // the folder holding the database; in a container updates are saved under it
 	API       string
 	Downloads string
 	Client    *http.Client
@@ -105,6 +109,7 @@ func (c *Checker) Check(ctx context.Context, force bool) Status {
 
 func (c *Checker) withApply(st Status) Status {
 	st.CanApply, st.WhyNot = c.canApply()
+	st.InContainer = c.inContainer()
 	return st
 }
 
@@ -182,21 +187,50 @@ func (c *Checker) inContainer() bool {
 	return err == nil
 }
 
-// canApply says whether this install can replace its own binary.
+// target is where an update is written: the program file itself, or in a
+// container (whose program file is part of the image) a copy in the data
+// volume that the image's program hands over to when it starts.
+func (c *Checker) target() string {
+	if c.inContainer() {
+		return OverridePath(c.DataDir)
+	}
+	return c.Exe
+}
+
+const containerAdvice = "update by pulling the new image: docker compose pull && docker compose up -d"
+
+// canApply says whether this install can update itself.
 func (c *Checker) canApply() (bool, string) {
 	if c.inContainer() {
-		return false, "SIEMLite is running in a container, so update by pulling the new image: docker compose pull && docker compose up -d"
+		if c.DataDir == "" {
+			return false, "SIEMLite is running in a container with no data folder to save an update in, so " + containerAdvice
+		}
+		if !writable(filepath.Dir(OverridePath(c.DataDir))) {
+			return false, "SIEMLite can't write to its data folder " + c.DataDir + ", so " + containerAdvice
+		}
+		return true, ""
 	}
 	if c.Exe == "" {
 		return false, "SIEMLite can't tell where its program file is"
 	}
-	probe, err := os.CreateTemp(filepath.Dir(c.Exe), ".siemlite-write-test-*")
-	if err != nil {
+	if !writable(filepath.Dir(c.Exe)) {
 		return false, "SIEMLite can't write to " + filepath.Dir(c.Exe) + ", so download the new release and replace the program yourself"
+	}
+	return true, ""
+}
+
+// writable reports whether files can be created in dir, making it if needed.
+func writable(dir string) bool {
+	if os.MkdirAll(dir, 0o755) != nil {
+		return false
+	}
+	probe, err := os.CreateTemp(dir, ".siemlite-write-test-*")
+	if err != nil {
+		return false
 	}
 	probe.Close()
 	os.Remove(probe.Name())
-	return true, ""
+	return true
 }
 
 // Apply downloads the latest release, checks it against the release's
@@ -248,7 +282,10 @@ func (c *Checker) install(ctx context.Context, tag string) error {
 		return fmt.Errorf("release %s has no build for %s/%s", tag, runtime.GOOS, runtime.GOARCH)
 	}
 
-	dir := filepath.Dir(c.Exe)
+	dir := filepath.Dir(c.target())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	archive, err := os.CreateTemp(dir, ".siemlite-download-*")
 	if err != nil {
 		return err
@@ -275,6 +312,9 @@ func (c *Checker) install(ctx context.Context, tag string) error {
 	}
 	if err := os.Chmod(next.Name(), 0o755); err != nil {
 		return err
+	}
+	if c.inContainer() {
+		return saveOverride(c.DataDir, next.Name(), tag)
 	}
 	return swap(c.Exe, next.Name())
 }

@@ -20,3 +20,9 @@ func restartSelf() error {
 	slog.Info("restarting SIEMLite")
 	return syscall.Exec(exe, os.Args, os.Environ())
 }
+
+// execProgram replaces this process with the program at path, with the same
+// arguments and environment.
+func execProgram(path string) error {
+	return syscall.Exec(path, append([]string{path}, os.Args[1:]...), os.Environ())
+}
