@@ -120,6 +120,8 @@
   .steps > li { counter-increment: s; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 16px; }
   .steps > li::before { content: counter(s); grid-row: span 3; font: 600 15px/34px var(--sans); text-align: center; width: 34px; height: 34px;
                         border: 1px solid var(--rule); border-radius: 50%; background: var(--surface); }
+  /* Keep every step child beside the badge: a 4th child otherwise lands in the 44px badge column */
+  .steps > li > * { grid-column: 2; }
   .steps h3 { margin: 4px 0 6px; font-size: 19px; font-weight: 600; }
   .steps p { margin: 0 0 12px; color: var(--ink-2); }
   pre { margin: 0 0 14px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px;
