@@ -2394,7 +2394,9 @@ async function loadUpdate(refresh) {
 }
 async function applyUpdate(u) {
   if (!(await confirmAction(`Update SIEMLite to ${u.latest}?`,
-    "SIEMLite downloads the release, checks it, replaces its program file and restarts, which takes a few seconds. " +
+    (u.in_container
+      ? "SIEMLite downloads the release, checks it, saves it in its data volume and restarts on it, which takes a few seconds. Rebuilding or pulling a newer image later replaces it. "
+      : "SIEMLite downloads the release, checks it, replaces its program file and restarts, which takes a few seconds. ") +
     "Collection pauses meanwhile. A newer version can upgrade the database in a way older versions can't read, so make a backup first if you might want to go back.",
     "Update and restart"))) return;
   notice($("system-msg"), `Downloading ${u.latest}…`, true);

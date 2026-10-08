@@ -110,13 +110,94 @@ func TestApplyRefusals(t *testing.T) {
 		t.Errorf("up to date: %v", err)
 	}
 
+	// In a container with no data folder there is nowhere to save an update.
 	c = fakeRelease(t, "v0.10", "new", false)
 	c.InContainer = func() bool { return true }
-	if st := c.Check(context.Background(), false); st.CanApply || !strings.Contains(st.WhyNot, "docker compose") {
-		t.Errorf("container: %+v", st)
+	if st := c.Check(context.Background(), false); st.CanApply || !strings.Contains(st.WhyNot, "docker compose") || !st.InContainer {
+		t.Errorf("container without a data folder: %+v", st)
 	}
 	if _, err := c.Apply(context.Background()); err == nil {
-		t.Error("applied inside a container")
+		t.Error("applied inside a container with no data folder")
+	}
+}
+
+func TestContainerUpdateIsSavedInTheDataFolder(t *testing.T) {
+	c := fakeRelease(t, "v0.10", "new program", false)
+	c.InContainer = func() bool { return true }
+	c.DataDir = t.TempDir()
+	if st := c.Check(context.Background(), false); !st.CanApply || !st.InContainer {
+		t.Fatalf("status = %+v", st)
+	}
+	if got, err := c.Apply(context.Background()); err != nil || got != "v0.10" {
+		t.Fatalf("Apply = %q, %v", got, err)
+	}
+	if b, _ := os.ReadFile(c.Exe); string(b) != "old" {
+		t.Errorf("the image's program was changed to %q", b)
+	}
+	if b, _ := os.ReadFile(OverridePath(c.DataDir)); string(b) != "new program" {
+		t.Errorf("saved program is %q", b)
+	}
+	if fi, err := os.Stat(OverridePath(c.DataDir)); err != nil || fi.Mode()&0o111 == 0 {
+		t.Errorf("saved program isn't executable: %v %v", fi, err)
+	}
+
+	// The image's program (v0.9) hands over, and a start that never comes up is counted.
+	self := c.Exe
+	if p, note := Override(c.DataDir, "v0.9", self); p != OverridePath(c.DataDir) || note != "" {
+		t.Fatalf("first start: %q %q", p, note)
+	}
+	if p, _ := Override(c.DataDir, "v0.9", self); p == "" {
+		t.Fatal("second start didn't hand over")
+	}
+	if p, note := Override(c.DataDir, "v0.9", self); p != "" || note == "" {
+		t.Errorf("third start should drop the saved update: %q %q", p, note)
+	}
+	if _, err := os.Stat(OverridePath(c.DataDir)); err == nil {
+		t.Error("the failed update was kept")
+	}
+}
+
+func TestOverrideRules(t *testing.T) {
+	dir := t.TempDir()
+	self := filepath.Join(t.TempDir(), "siemlite")
+	os.WriteFile(self, []byte("image"), 0o755)
+	if p, note := Override(dir, "v0.9", self); p != "" || note != "" {
+		t.Errorf("nothing saved: %q %q", p, note)
+	}
+	save := func(tag string) {
+		next := filepath.Join(dir, "next")
+		os.WriteFile(next, []byte("saved"), 0o755)
+		os.MkdirAll(binDir(dir), 0o755)
+		if err := saveOverride(dir, next, tag); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A healthy start clears the attempts, so later restarts are never blocked.
+	save("v0.10")
+	for i := 0; i < 5; i++ {
+		if p, _ := Override(dir, "v0.9", self); p == "" {
+			t.Fatalf("restart %d didn't hand over", i)
+		}
+		MarkHealthy(dir)
+	}
+	// Running as the saved program itself never hands over or deletes itself.
+	if p, note := Override(dir, "v0.10", OverridePath(dir)); p != "" || note != "" {
+		t.Errorf("saved program running: %q %q", p, note)
+	}
+	if _, err := os.Stat(OverridePath(dir)); err != nil {
+		t.Error("the running saved program was removed")
+	}
+	// Once the image catches up (rebuilt or pulled), the saved copy goes.
+	if p, note := Override(dir, "v0.10", self); p != "" || note == "" {
+		t.Errorf("image caught up: %q %q", p, note)
+	}
+	if _, err := os.Stat(binDir(dir)); err == nil {
+		t.Error("stale saved update kept")
+	}
+	// An older saved update never overrides a newer image.
+	save("v0.8")
+	if p, _ := Override(dir, "v0.9", self); p != "" {
+		t.Error("an older saved update took over")
 	}
 }
 

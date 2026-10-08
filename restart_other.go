@@ -25,3 +25,8 @@ func restartSelf() error {
 	os.Exit(0)
 	return nil
 }
+
+// execProgram is only used for updates saved in a Linux container's data volume.
+func execProgram(path string) error {
+	return fmt.Errorf("handing over to %s isn't supported on this system", path)
+}
