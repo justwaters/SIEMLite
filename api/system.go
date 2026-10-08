@@ -11,6 +11,7 @@ import (
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/storage"
+	"siemlite/pkg/update"
 )
 
 // maxUpload bounds an uploaded backup.
@@ -205,6 +206,49 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 	// Restart after the reply has gone out.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		s.deps.Restart()
+	}()
+}
+
+// handleUpdateStatus reports the running version and whether a newer release
+// exists. ?refresh=1 checks GitHub now instead of using the cached answer.
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Updates == nil {
+		writeJSON(w, http.StatusOK, update.Status{Current: s.deps.Version, WhyNot: "Update checks are turned off on this server."})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.deps.Updates.Check(r.Context(), r.URL.Query().Get("refresh") == "1"))
+}
+
+// handleApplyUpdate installs the latest release over the running program,
+// then restarts SIEMLite so the new one takes over.
+func (s *Server) handleApplyUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Updates == nil || s.deps.Restart == nil {
+		writeError(w, http.StatusNotImplemented, "this server can't update itself")
+		return
+	}
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(15 * time.Minute))
+	who := auth.FromContext(r.Context()).Name
+	from := s.deps.Version
+	to, err := s.deps.Updates.Apply(r.Context())
+	switch {
+	case errors.Is(err, update.ErrNotAvailable):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		s.deps.Logger.Warn("update failed", "err", err, "by", who)
+		writeError(w, http.StatusBadGateway, "Nothing was changed: "+err.Error())
+		return
+	}
+	s.deps.Logger.Warn("update installed", "from", from, "to", to, "by", who)
+	s.audit(r, audit.Entry{Action: "system.update", Severity: 3, Message: fmt.Sprintf("%s updated SIEMLite from %s to %s", who, from, to),
+		Fields: map[string]string{"from": from, "to": to}})
+	writeJSON(w, http.StatusAccepted, map[string]any{"restarting": true, "version": to})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		s.deps.Restart()

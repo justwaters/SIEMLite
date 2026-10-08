@@ -13,9 +13,9 @@ import (
 // same arguments and environment, once everything has shut down. It works
 // the same under Docker, systemd or a plain shell.
 func restartSelf() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("restart: %w", err)
+	exe := startExe
+	if exe == "" {
+		return fmt.Errorf("restart: can't tell where SIEMLite's program file is")
 	}
 	slog.Info("restarting SIEMLite")
 	return syscall.Exec(exe, os.Args, os.Environ())

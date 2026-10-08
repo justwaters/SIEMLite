@@ -732,6 +732,14 @@
         <div class="figure"><div class="label">Running</div><div class="value" id="sys-up">–</div><div class="sub" id="sys-started"></div></div>
         <div class="figure"><div class="label">Free space for backups</div><div class="value" id="sys-free">–</div><div class="sub mono" id="sys-dir"></div></div>
       </div>
+      <div class="panel sched" id="update-card">
+        <div><h2>Software update</h2><p class="hint" id="update-text">Checking for updates…</p><p class="hint" id="update-why" hidden></p></div>
+        <div class="sched-fields">
+          <button class="btn" type="button" id="update-check">Check now</button>
+          <a class="btn" id="update-notes" target="_blank" rel="noopener" hidden>Release notes</a>
+          <button class="btn btn-primary" type="button" id="update-apply" hidden>Update and restart</button>
+        </div>
+      </div>
       <form class="panel sched" id="sched-form">
         <div><h2>Automatic backups</h2><p class="hint">Older automatic backups are removed as new ones are made. Backups you make,
           upload, or that are made before a restore are only removed by you.</p></div>
@@ -2362,7 +2370,37 @@ async function openSystem() {
       $("sys-dir").textContent = sys.backups.dir; $("sys-dir").title = sys.backups.dir;
     }
   } catch (err) { notice($("system-msg"), err.message); }
+  loadUpdate(false);
   await loadBackups(true);
+}
+async function loadUpdate(refresh) {
+  const text = $("update-text"), why = $("update-why"), apply = $("update-apply"), notes = $("update-notes");
+  if (refresh) text.textContent = "Checking for updates…";
+  let u;
+  try { u = await apiJSON("/api/v1/system/update" + (refresh ? "?refresh=1" : "")); }
+  catch (err) { text.textContent = err.message; return; }
+  const cur = u.current || "this build";
+  if (u.available) text.textContent = `You're running ${cur}. ${u.latest} is available.`;
+  else if (u.error) text.textContent = `You're running ${cur}. ${u.error}`;
+  else if (u.latest) text.textContent = `You're running ${cur}, which is the latest release.` + (u.checked_at ? ` Checked ${new Date(u.checked_at).toLocaleTimeString()}.` : "");
+  else text.textContent = `You're running ${cur}.`;
+  why.hidden = !(u.available && !u.can_apply && u.why_not) && !(!u.latest && !u.error && u.why_not);
+  why.textContent = u.why_not || "";
+  apply.hidden = !(u.available && u.can_apply);
+  apply.textContent = `Update to ${u.latest || ""} and restart`;
+  notes.hidden = !(u.available && u.url);
+  if (u.url) notes.href = u.url;
+  apply.onclick = () => applyUpdate(u);
+}
+async function applyUpdate(u) {
+  if (!(await confirmAction(`Update SIEMLite to ${u.latest}?`,
+    "SIEMLite downloads the release, checks it, replaces its program file and restarts, which takes a few seconds. " +
+    "Collection pauses meanwhile. A newer version can upgrade the database in a way older versions can't read, so make a backup first if you might want to go back.",
+    "Update and restart"))) return;
+  notice($("system-msg"), `Downloading ${u.latest}…`, true);
+  try { await apiJSON("/api/v1/system/update", { method: "POST" }); }
+  catch (err) { notice($("system-msg"), err.message); return; }
+  waitForRestart("Updating SIEMLite", "SIEMLite is restarting on the new version. This page reloads when it\u2019s back.");
 }
 async function loadBackups(fillSettings) {
   clearTimeout(backupPoll);
@@ -2390,6 +2428,7 @@ async function loadBackups(fillSettings) {
   if (data.status.running) backupPoll = setTimeout(() => loadBackups(false), 1500);
   else if (data.status.last_error) notice($("system-msg"), "The last backup failed: " + data.status.last_error);
 }
+$("update-check").onclick = () => loadUpdate(true);
 $("backup-now").onclick = async () => {
   try { await apiJSON("/api/v1/backups", { method: "POST" }); notice($("system-msg"), ""); }
   catch (err) { notice($("system-msg"), err.message); }
@@ -2427,6 +2466,11 @@ async function restoreBackup(b) {
   notice($("system-msg"), "Checking the backup and saving the current database…", true);
   try { await apiJSON("/api/v1/backups/" + encodeURIComponent(b.name) + "/restore", { method: "POST" }); }
   catch (err) { notice($("system-msg"), err.message); return; }
+  waitForRestart();
+}
+function waitForRestart(title, text) {
+  $("restarting-title").textContent = title || "Restoring the backup";
+  $("restarting-text").textContent = text || "SIEMLite is restarting with the restored database. This page reloads when it\u2019s back.";
   $("restarting").hidden = false;
   clearInterval(healthTimer);
   // Wait for the server to go away and come back, then reload.

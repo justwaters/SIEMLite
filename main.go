@@ -40,6 +40,7 @@ import (
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
 	"siemlite/pkg/syslogd"
+	"siemlite/pkg/update"
 )
 
 // versionFile is the release this build is, from the VERSION file.
@@ -49,6 +50,10 @@ var versionFile string
 
 // version returns the release, e.g. "v0.7".
 func version() string { return strings.TrimSpace(versionFile) }
+
+// startExe is this program's path, read before an update can replace it (on
+// Linux the path of a replaced program reads back as "... (deleted)").
+var startExe, _ = os.Executable()
 
 func main() {
 	var err error
@@ -99,6 +104,7 @@ func run() error {
 	syslogAllow := flag.String("syslog-allow", "", "comma-separated networks allowed to send syslog (default: loopback and private ranges)")
 	aiURL := flag.String("ai-url", "", "Ollama server for AI parser help, e.g. http://ollama:11434 (off when empty)")
 	aiModel := flag.String("ai-model", ai.DefaultModel, "Ollama model for AI parser help")
+	updateCheck := flag.Bool("update-check", true, "check GitHub for new releases and offer updates on the System page")
 	backupDir := flag.String("backup-dir", "", "folder for database backups (default: <db dir>/backups)")
 	if err := flagsFromEnv(flag.CommandLine); err != nil {
 		return err
@@ -305,10 +311,14 @@ func run() error {
 		slog.Info("syslog listening", "udp", *syslogUDP, "tcp", *syslogTCP, "tls", *syslogTLS, "allow", allowed)
 	}
 
+	var updates *update.Checker
+	if *updateCheck {
+		updates = update.New(version(), startExe)
+	}
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine,
 		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiClient,
-		Backups: backups, Started: started, Version: version(), Audit: auditLog, Alerts: alertEngine,
+		Backups: backups, Started: started, Version: version(), Updates: updates, Audit: auditLog, Alerts: alertEngine,
 		Restart: func() {
 			select {
 			case restartCh <- struct{}{}:
@@ -327,7 +337,7 @@ func run() error {
 		slog.Info("shutting down")
 	case runErr = <-serveErr:
 	case <-restartCh:
-		slog.Info("restarting to apply a restore")
+		slog.Info("restarting to apply a restore or update")
 		runErr = errRestart
 	}
 
