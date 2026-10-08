@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoIP and ASN · SIEMLite docs</title>
+<meta name="description" content="Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a aria-current="page" href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="geoip-and-asn">GeoIP and ASN</h1>
+<p>Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,
+coordinates and autonomous system as it is stored:</p>
+<pre><code class="language-sh">./siemlite -geoip-city GeoLite2-City.mmdb -geoip-asn GeoLite2-ASN.mmdb
+</code></pre>
+<ul>
+<li>Works with MaxMind <a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data">GeoLite2</a> (free with an account;
+  keep it fresh with <code>geoipupdate</code>) or GeoIP2, and the <a href="https://db-ip.com/db/lite.php">DB-IP lite</a> databases (free, no
+  account, CC BY 4.0). A Country database works in place of City. Either flag can be used alone.</li>
+<li>Files are checked hourly and reloaded when they change, so <code>geoipupdate</code> needs no restart.</li>
+<li>Private, loopback and other non-public addresses are skipped.</li>
+<li>Search with <code>country=CN</code> or <code>asn=AS4134</code> (either endpoint). The country code shows next to each IP in the UI; the
+  full location and AS name are in the event detail.</li>
+</ul>
+<p>Only events stored after GeoIP is enabled are enriched.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

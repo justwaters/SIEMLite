@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parsers · SIEMLite docs</title>
+<meta name="description" content="A parser tells SIEMLite how to read one source&#x27;s lines: where the time, IPs, user and severity are, and which other">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a aria-current="page" href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="parsers">Parsers</h1>
+<p>A parser tells SIEMLite how to read one source's lines: where the time, IPs, user and severity are, and which other
+values to keep. Choose how a source's lines are read on the Sources page:</p>
+<ul>
+<li><strong>Automatic</strong> (the default): SIEMLite detects syslog and JSON, addresses, users and severity, as described under
+  <a href="api-reference.html#log-parsing">Log parsing</a>.</li>
+<li><strong>None</strong>: no detection. Each line is stored as it is, with the arrival time and Informational severity (<code>parser_none</code>
+  in the API).</li>
+<li><strong>A parser</strong> you built, as below.</li>
+</ul>
+<p>Build one on the Parsers page: paste a few sample lines, describe them, and the preview shows how each line is read.</p>
+<ul>
+<li><strong>Text with a fixed layout</strong>: write one line out with <code>{name}</code> where values change, e.g.
+  <code>{src_ip} - {user} [{time}] "{method} {path} {protocol}" {status}</code>. Spaces match any run of spaces, <code>{}</code> skips text,
+  and <code>{name:regex}</code> sets exactly what to match (<code>{status:\d+}</code>).</li>
+<li><strong>JSON objects</strong> and <strong>key=value pairs</strong>: every field is picked up; nested JSON keys read as <code>client.ip</code>.</li>
+<li><strong>Fields</strong>: values named like <code>time</code>, <code>src_ip</code>, <code>dst_port</code>, <code>user</code>, <code>host</code>, <code>message</code> or <code>level</code> fill the event
+  automatically; map any other name in the Fields table. Everything else is kept as an extra field, shown in the
+  event's details.</li>
+<li><strong>Syslog</strong>: tick "Lines start with a syslog header" and the pattern only needs to describe the message.</li>
+<li><strong>Severity</strong>: detected from the line, always the same, or decided by rules on a field (e.g. status <code>^5</code> -&gt; High).</li>
+<li><strong>Templates</strong> for web server access logs, JSON application logs and key=value firewall logs.</li>
+<li><strong>Upload and export</strong> parsers as small JSON files to share them or keep them in version control.</li>
+<li>A line that doesn't match its source's parser is still stored, parsed as Automatic would, with a <code>parse_error</code> field.</li>
+</ul>
+<h2 id="ai-help">AI help</h2>
+<p>With a local model running in <a href="https://ollama.com">Ollama</a>, the editor gets a <strong>Suggest a parser</strong> button. SIEMLite
+removes syslog headers and recognises JSON and key=value lines itself, drafts a pattern that matches every sample
+line, and asks the model to name the fields and pick severity and category. It keeps the model's answer only when it
+still reads every sample line. Nothing leaves your network.</p>
+<p>With Docker, add to <code>.env</code> and run <code>docker compose up -d</code> (the model, about 2 GB, downloads once on first start):</p>
+<pre><code class="language-sh">COMPOSE_PROFILES=ai
+SIEMLITE_AI_URL=http://ollama:11434
+</code></pre>
+<p>Without Docker, run Ollama yourself and start SIEMLite with <code>-ai-url http://localhost:11434</code>. The default model is
+<code>qwen2.5-coder:3b</code>, which runs on a CPU; a suggestion takes about 10-40 seconds there. Choose another with <code>-ai-model</code>.</p>
+<h2 id="automatic-parsing">Automatic parsing</h2>
+<p><code>/api/v1/logs</code> converts each line into an OCSF event: syslog (RFC 3164 and 5424) headers give the time and hostname,
+the first two IPv4 addresses become source and destination, a user is picked up from patterns like <code>for user alice</code>,
+and severity comes from the syslog priority or keywords (<code>error</code>, <code>failed</code>, <code>warning</code>, ...). JSON objects that already
+contain <code>category_uid</code> are stored as OCSF; other JSON uses its <code>message</code>, <code>level</code> and timestamp fields. The detection
+is heuristic; use <code>?severity=</code> to override it, or give the source a parser. The message stored with an event is the
+text after the syslog header (the whole line when there isn't one). A line that only starts with a timestamp, such as
+<code>2026-10-04T13:42:07Z ERROR payment failed</code>, gets its time from it but no hostname.</p>
+<p>This is the <strong>Automatic</strong> setting of a source. <strong>None</strong> skips detection: each line is stored as it is, with the line as
+its message, the time it arrived, Informational severity and no addresses, user or host. <code>?source=</code> and <code>?severity=</code>
+still apply, and <a href="threat-intel.html">threat intel</a> still checks the line.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

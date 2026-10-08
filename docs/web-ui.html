@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The web UI · SIEMLite docs</title>
+<meta name="description" content="Sign in at https://&lt;your-server&gt;:8443. Admins see every page; standard users see the Dashboard, Database and (unless limited to some sources) Alerts.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a aria-current="page" href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="the-web-ui">The web UI</h1>
+<p>Sign in at <code>https://&lt;your-server&gt;:8443</code>. Admins see every page; standard users see the Dashboard, Database and (unless limited to some sources) Alerts.</p>
+<ul>
+<li><strong>Dashboard</strong>: a search field and the last 24 hours, 7 days or 30 days at a glance: events, threat intel matches,
+  high-severity events, events over time, severity, busiest sources and the IPs on threat lists. Type a search and press
+  Enter to open the results in the Database.</li>
+<li><strong>Database</strong>: every event, newest first, with full-text search, a <strong>From mm/dd/yy to mm/dd/yy</strong> date range and filters
+  for source, severity, category, IPs, user, program, country and threat matches. Open an event for its details.
+  The address bar keeps the search, so it can be bookmarked or shared.</li>
+<li><strong>Alerts</strong>: alerts raised by the rules, by severity, with how many events and when. Open the events behind an alert,
+  acknowledge it while you look into it, then close it. The <strong>Rules</strong> tab lists the rules; admins add, edit and switch them off.
+  Users limited to some sources don't see alerts, since a rule looks at every source.</li>
+<li><strong>Users</strong> (admins): add people, set their role, limit what they can see, change passwords.</li>
+<li><strong>Sources</strong> (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).</li>
+<li><strong>Parsers</strong> (admins): build, upload, export and edit parsers.</li>
+<li><strong>System</strong> (admins): the version and whether a newer release is out (with an update button), database size and uptime, and backups: create, schedule, download, upload, restore and delete.</li>
+</ul>
+<p>The light and dark themes can follow your system or be set from the menu. Fonts are bundled in the binary, so the UI never contacts a font service.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

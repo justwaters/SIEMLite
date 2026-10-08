@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users and security · SIEMLite docs</title>
+<meta name="description" content="People sign in with a username and password. Manage them on the Users page or from the command line. There are two roles:">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a aria-current="page" href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="users-and-security">Users and security</h1>
+<p>People sign in with a username and password. Manage them on the Users page or from the command line. There are two roles:</p>
+<ul>
+<li><strong>Admin</strong>: everything, including the Users, Sources, Parsers and System pages.</li>
+<li><strong>Standard</strong>: the Dashboard and Database. A standard user can be limited to the events from chosen sources; they then
+  see only those sources' events, in search and on the dashboard.</li>
+</ul>
+<p>There must always be at least one admin, and admins can't delete themselves.</p>
+<pre><code class="language-sh">./siemlite users create -username alice -role standard  # prompts for a password (min 12 characters)
+./siemlite users list
+./siemlite users passwd -username alice                 # also signs alice out everywhere
+./siemlite users delete -username alice
+</code></pre>
+<p>Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code> cookie,
+and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window.</p>
+<h2 id="transport-and-tokens">Transport and tokens</h2>
+<ul>
+<li>HTTPS only: there is no plain-HTTP listener. A self-signed certificate is generated on first start, or bring your own with <code>-tls-cert</code> / <code>-tls-key</code>.</li>
+<li>Access tokens can only send logs. Only a SHA-256 hash is stored.</li>
+<li>Syslog has no authentication, so only <a href="sending-logs.html#syslog">allowed senders</a> are accepted.</li>
+<li>Client-certificate (mTLS) verification and per-key rate limiting are not implemented yet.</li>
+<li>Sign-ins, changes and backups are recorded in the <a href="audit-log.html">audit log</a>.</li>
+</ul>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

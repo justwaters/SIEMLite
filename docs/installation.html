@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installation · SIEMLite docs</title>
+<meta name="description" content="Two ways to run SIEMLite: a prebuilt binary (or built from source), or Docker. The web UI is built into the binary, so there is nothing else to install.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a aria-current="page" href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="installation">Installation</h1>
+<p>Two ways to run SIEMLite: a prebuilt binary (or built from source), or Docker. The web UI is built into the binary, so there is nothing else to install.</p>
+<h2 id="run-the-binary">Run the binary</h2>
+<p>Download a prebuilt binary for Linux, macOS or Windows (x86-64 or ARM64) from the
+<a href="https://github.com/justwaters/SIEMLite/releases/latest">latest release</a>, check it against <code>SHA256SUMS</code>, unpack it and run
+<code>./siemlite</code>. Or build it yourself (requires Go):</p>
+<pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git
+cd SIEMLite
+go build -o siemlite .
+./siemlite
+</code></pre>
+<p>On first start SIEMLite creates <code>siemlite.db</code> (users, sources, rules, alerts and settings) and a <code>siemlite-events</code>
+folder for the events, generates <code>siemlite.crt</code> / <code>siemlite.key</code>, and creates an <code>admin</code> user
+with a random password that is printed <strong>once</strong>. Copy it. Open <a href="https://localhost:8443">https://localhost:8443</a> and sign in; your browser will
+warn about the self-signed certificate unless you trust <code>siemlite.crt</code> or supply your own with <code>-tls-cert</code> / <code>-tls-key</code>.</p>
+<p>Nothing to look at yet? Run the log generator next to it, which SIEMLite sets up on first start: <code>loggen -eps 10</code>
+sends ten realistic test events a second, attacks included. See <a href="test-logs.html">Test logs</a>.</p>
+<h2 id="run-with-docker">Run with Docker</h2>
+<p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.9.1</code> in <code>.env</code> and run <code>docker compose pull &amp;&amp; docker compose up -d</code>.
+Or build from the checkout, and deploy and upgrade with one command:</p>
+<pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
+cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
+git pull &amp;&amp; docker compose up -d --build
+docker compose logs siemlite | grep -A1 'username: admin'   # the admin password, printed on first start
+</code></pre>
+<p>The password is printed only by the first container. Rebuilding replaces the container and its logs, so if you
+missed it, set a new one: <code>docker compose exec siemlite siemlite users passwd -username admin</code>.</p>
+<ul>
+<li>The database and certificate live in the <code>siemlite-data</code> volume, so rebuilds and upgrades keep every event,
+  account and key. <code>docker compose down</code> keeps the volume; <code>docker compose down -v</code> deletes it.</li>
+<li>Ports: HTTPS on 8443, syslog on 514 (UDP and TCP) and syslog over TLS on 6514. Change the host ports in <code>.env</code>.</li>
+<li>Settings: every server flag can be set in <code>.env</code> as <code>SIEMLITE_&lt;FLAG&gt;</code>, e.g. <code>SIEMLITE_RETENTION_DAYS=90</code>
+  for <code>-retention-days</code>. <code>.env.example</code> lists the useful ones.</li>
+<li>Set <code>SIEMLITE_TLS_HOSTS</code> to the names or IPs people use to reach the server <strong>before the first start</strong>: the
+  certificate is generated once. To regenerate it later, delete it from the volume and restart (the image has no
+  shell, so use a throwaway container; the volume is named after the checkout folder):
+  <code>docker run --rm -v siemlite_siemlite-data:/data alpine rm /data/siemlite.crt /data/siemlite.key &amp;&amp; docker compose restart</code>.
+  To trust the certificate on a client, copy it out with <code>docker compose cp siemlite:/data/siemlite.crt .</code>.</li>
+<li>GeoIP: put the <code>.mmdb</code> files in <code>./geoip/</code> and set <code>SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb</code> (and <code>_ASN</code>).</li>
+<li>Management commands run inside the container:
+  <code>docker compose exec siemlite siemlite users create -username alice -role standard</code>, and the same for <code>keys</code>
+  and <code>intel</code>. To import a feed file, pipe it in: <code>docker compose exec -T siemlite siemlite intel import -source x -file - &lt; iocs.txt</code>.</li>
+<li>Syslog senders keep their real IP through Docker's port mapping, so <code>-syslog-allow</code> works. The exception is a
+  sender on the Docker host itself, which appears as the Docker network's gateway address.</li>
+<li>The image is about 25 MB, has no shell, and runs as an unprivileged user. Docker restarts it if <code>/health</code> stops
+  answering.</li>
+</ul>
+<h2 id="upgrading">Upgrading</h2>
+<p>SIEMLite upgrades its database automatically on first start. On the System page you can <a href="backups-and-updates.html#updates">update in place</a> for plain-binary installs. Under Docker, pull the new image. Notes for each older version:</p>
+<h3 id="from-v08">From v0.8</h3>
+<p>Each day file is upgraded once, when the server (or a command) first opens it: the stored line
+becomes the event's message and the search index is rebuilt over the parsed event, which can take a little while on a
+large history. Original lines from before the upgrade are removed about 24 hours later, like any other. Backups made
+before the upgrade can still be restored; backups made after it can't be restored by 0.8.</p>
+<h3 id="from-v07-or-earlier">From v0.7 or earlier</h3>
+<p>Sample data is gone: its events, alerts and source are deleted, and the <a href="test-logs.html">log
+generator</a> takes its place. Events move from <code>siemlite.db</code> into one file per day in the background after the
+first start (the log shows progress, and a restart resumes where it stopped). Search, the dashboard and alerts work
+throughout. When it finishes, <code>siemlite.db</code> shrinks to just users, sources, rules, alerts and settings. Make a backup
+first if you like; backups made by 0.8 can't be restored by 0.7.</p>
+<h3 id="from-v04">From v0.4</h3>
+<p>The database is upgraded automatically and keeps every event. API keys become access token
+sources and keep working; analysts become Standard users who can see every source. Everyone is signed out once
+during the upgrade. Events stored before it have no source except sample data.</p>
+<h3 id="from-v02">From v0.2</h3>
+<p>the database is upgraded automatically on first start and keeps every event. Events stored
+before the upgrade have no source, host or enrichment.</p>
+<h3 id="from-v01">From v0.1</h3>
+<p>Read and admin API keys no longer exist and are revoked on first start. Sign in with the
+<code>admin</code> account created for you (or create users with <code>siemlite users create</code>). Write keys keep working.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

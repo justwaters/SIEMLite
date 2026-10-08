@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test logs (loggen) · SIEMLite docs</title>
+<meta name="description" content="out or load-testing it. It describes a small company: a firewall, two web servers, an SSH bastion, VPN, DNS, a database,">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a aria-current="page" href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="test-logs-loggen">Test logs (loggen)</h1>
+<p><code>loggen</code> (in <a href="https://github.com/justwaters/SIEMLite/blob/main/cmd/loggen/main.go"><code>cmd/loggen</code></a>) sends random, realistic test logs at a steady rate, for trying SIEMLite
+out or load-testing it. It describes a small company: a firewall, two web servers, an SSH bastion, VPN, DNS, a database,
+mail, backups and workstation antivirus, with attacks mixed in (SSH brute force, port scans, malware calling home and
+password spraying against the VPN), so the alert rules have something to find.</p>
+<pre><code class="language-sh">loggen -eps 10                       # to SIEMLite on this machine
+loggen -eps 1k -for 10m              # a load test
+loggen -eps 100 -to udp://siem:514   # to any SIEM over syslog
+loggen -eps 1 -to stdout             # just look at the lines
+</code></pre>
+<ul>
+<li><strong>Rate</strong>: <code>-eps</code> takes 1, 10, 100, 1k, 10k, 100k or 1m events a second (any number works). It keeps that rate for as
+  long as it runs (until you stop it, or <code>-for</code> ends it): a slow moment or a restart of the receiver is made up for, but
+  only up to a second's worth, so a long outage doesn't end in a flood. It can make well over a million lines a second;
+  how many arrive depends on the receiver. When SIEMLite is busy it answers <code>503</code>, and loggen waits as asked and sends the
+  rest again, so nothing is lost, and the progress line says when the rate it achieved is below the one you asked for.</li>
+<li><strong>Keep it running in the background</strong>: <code>docker compose exec</code> stops when your terminal does. To send continuously, turn
+  on the <code>loggen</code> service: add <code>testlogs</code> to <code>COMPOSE_PROFILES</code> in <code>.env</code> (<code>COMPOSE_PROFILES=testlogs</code>, or
+  <code>ai,testlogs</code>), set the rate with <code>LOGGEN_EPS=100</code> (default 10), and run <code>docker compose up -d</code>. It restarts with Docker,
+  carries on through restarts and upgrades of SIEMLite, and logs a progress line a minute. Remove <code>testlogs</code> and run
+  <code>docker compose up -d --remove-orphans</code> to stop it. Without Docker, run <code>nohup loggen -eps 10 &gt; /dev/null 2&gt;&amp;1 &amp;</code>, or
+  from systemd or any process manager.</li>
+<li><strong>Set up for you</strong>: on first start SIEMLite creates a <strong>Log generator</strong> parser and an access token source that uses
+  it, and saves the token as <code>siemlite-loggen.token</code> next to the database. loggen reads that file and trusts
+  <code>siemlite.crt</code>, looking in the current folder and in <code>/data</code>, so it needs no options on the same machine. With Docker
+  it's in the image: <code>docker compose exec siemlite loggen -eps 10</code>. The token can only send logs. To turn it off,
+  choose <strong>Manage</strong> on its row on the Sources page, then <strong>Disable</strong>. While it's disabled loggen keeps retrying and
+  carries on by itself once you choose <strong>Enable</strong>. <strong>Delete</strong> removes its token for good; then create a new access
+  token with the Log generator parser and give it to loggen with <code>-token</code> or <code>LOGGEN_TOKEN</code>. The source isn't created
+  again.</li>
+<li><strong>Its own format</strong>, not syslog, JSON or key=value, so it shows a parser at work:
+  <code>time|host|app|level|action|src_ip|src_port|dst_ip|dst_port|user|message</code>, for example
+  <code>2026-10-04T13:42:07.123Z|bastion-01|sshd|warning|auth.failure|203.0.113.7|51234|10.0.4.12|22|root|Failed password for root from 203.0.113.7</code>.
+  Empty fields are <code>-</code>. Addresses outside the company are from documentation ranges only.</li>
+<li><strong>For other SIEMs</strong>: point <code>-to</code> at a syslog port (UDP or TCP, RFC 3164), or at any URL that takes lines like
+  SIEMLite's <code>/api/v1/logs</code> (<code>-servername</code> checks its certificate against another name, <code>-insecure</code> skips the check). It uses only Go's standard library, and <code>-seed</code> repeats the same logs.</li>
+</ul>
+<p>Binaries for loggen come with every release, next to <code>siemlite</code>. To build it: <code>go build -o loggen ./cmd/loggen</code>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

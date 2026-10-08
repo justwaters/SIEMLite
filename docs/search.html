@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search · SIEMLite docs</title>
+<meta name="description" content="Sign in to the UI and search from the Dashboard or the Database. Searching is for signed-in users only; access tokens">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a aria-current="page" href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="search">Search</h1>
+<p>Sign in to the UI and search from the Dashboard or the Database. Searching is for signed-in users only; access tokens
+are refused. Standard users limited to some sources only ever see events from those sources.
+The search API uses the same browser session (an <code>HttpOnly</code> cookie), so it is meant for the UI rather than scripts.</p>
+<p><code>q</code> uses <a href="https://www.sqlite.org/fts5.html#full_text_query_syntax">FTS5 query syntax</a>: <code>failed AND ssh</code>,
+<code>"invalid user"</code>, <code>admin*</code>.</p>
+<p>Full-text search covers the parsed event: its message, program, host, user, source and destination addresses and the
+extra fields a parser picked out. The original line is kept for 24 hours after it arrives (shown in an event's details),
+then removed; the parsed event stays for the whole retention period and is what the Database page shows. Searching works
+the same before and after the original goes, so search for what the parser understood rather than for a stray piece of
+the raw text.</p>
+<h2 id="filters">Filters</h2>
+<p>Beyond the text query, the Database page and the search API filter by time range (<code>start</code>, <code>end</code>), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000) and <code>offset</code>. Results are newest first. See the <a href="api-reference.html">API reference</a>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources and tokens · SIEMLite docs</title>
+<meta name="description" content="Every event belongs to a source: an access token an application sends with, the Syslog listener, Added in">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a aria-current="page" href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="sources-and-tokens">Sources and tokens</h1>
+<p>Every event belongs to a source: an <strong>access token</strong> an application sends with, the <strong>Syslog</strong> listener, <strong>Added in
+the UI</strong> (logs pasted or uploaded on the Sources page) or <strong>INTERNAL</strong> (SIEMLite's own audit log). Each shows when it
+was last used, so you can see which are active, and each (except INTERNAL) can have a parser, or be set to Automatic or None. A new install also has a
+<strong>Log generator</strong> token source for <a href="test-logs.html">test logs</a>.</p>
+<p>Access tokens can only post to <code>/api/v1/logs</code> and <code>/api/v1/events</code>. Choose <strong>Manage</strong> on a token's row to open a popup
+with three options:</p>
+<ul>
+<li><strong>Enable</strong>: the token is accepted. This is how a new token starts.</li>
+<li><strong>Disable</strong>: the token is rejected straight away. The source, its token and its logs are kept, and choosing Enable
+  makes the same token work again.</li>
+<li><strong>Delete</strong>: removes the source and its token for good; the token can't be restored. Its logs stay in the Database,
+  shown as "Deleted source". SIEMLite asks again before it deletes, and refuses while an alert rule is scoped to the
+  source (it names the rules; change them first).</li>
+</ul>
+<p>The built-in sources can't be disabled or deleted. Each change is recorded in the audit log. From the command line:</p>
+<pre><code class="language-sh">./siemlite keys create -name &lt;name&gt;
+./siemlite keys list      # with last used times; a disabled token shows &quot;disabled&quot;
+./siemlite keys disable -id &lt;id&gt;   # revoke is the same thing
+./siemlite keys enable -id &lt;id&gt;
+./siemlite keys delete -id &lt;id&gt;
+</code></pre>
+<p>Tokens look like <code>slk_...</code>. Only a SHA-256 hash is stored, so a token is shown once at creation. The <code>keys</code> and <code>users</code>
+commands work while the server is running. Pass <code>-db</code> if your database is not <code>./siemlite.db</code>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>
