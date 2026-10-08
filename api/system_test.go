@@ -52,6 +52,14 @@ func TestBackupsAPI(t *testing.T) {
 	if got := e.call(root, "GET", "/api/v1/system", nil, &sys, nil); got != 200 || sys["backups"] == nil {
 		t.Fatalf("system = %d %v", got, sys)
 	}
+	// Updates are off here (no checker): status still answers, applying doesn't.
+	var upd map[string]any
+	if got := e.call(root, "GET", "/api/v1/system/update", nil, &upd, nil); got != 200 || upd["available"] != false {
+		t.Errorf("update status = %d %v", got, upd)
+	}
+	if got := e.call(root, "POST", "/api/v1/system/update", nil, nil, nil); got != 501 {
+		t.Errorf("apply without a checker = %d", got)
+	}
 	if got := e.call(root, "POST", "/api/v1/backups", nil, nil, nil); got != 202 {
 		t.Fatalf("create = %d", got)
 	}

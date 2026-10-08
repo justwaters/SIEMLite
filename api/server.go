@@ -30,6 +30,7 @@ import (
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
 	"siemlite/pkg/syslogd"
+	"siemlite/pkg/update"
 	"siemlite/web"
 )
 
@@ -55,9 +56,10 @@ type Deps struct {
 	Backups *backup.Manager
 	Started time.Time
 	Restart func()
-	Version string         // e.g. "v0.7"
-	Audit   *audit.Logger  // optional: records actions as INTERNAL events
-	Alerts  *alerts.Engine // optional: alert rules
+	Updates *update.Checker // optional: the System page's update card
+	Version string          // e.g. "v0.7"
+	Audit   *audit.Logger   // optional: records actions as INTERNAL events
+	Alerts  *alerts.Engine  // optional: alert rules
 	Logger  *slog.Logger
 }
 
@@ -137,6 +139,8 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/v1/rules/{id}", s.handleSaveRule)
 	admin("DELETE /api/v1/rules/{id}", s.handleDeleteRule)
 	admin("GET /api/v1/system", s.handleSystem)
+	admin("GET /api/v1/system/update", s.handleUpdateStatus)
+	admin("POST /api/v1/system/update", s.handleApplyUpdate)
 	admin("GET /api/v1/backups", s.handleListBackups)
 	admin("POST /api/v1/backups", s.handleCreateBackup)
 	admin("PUT /api/v1/backups/settings", s.handleBackupSettings)

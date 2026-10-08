@@ -12,9 +12,9 @@ import (
 // restartSelf starts a fresh copy of SIEMLite with the same arguments and
 // environment, then exits, since Windows can't replace a running process.
 func restartSelf() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("restart: %w", err)
+	exe := startExe
+	if exe == "" {
+		return fmt.Errorf("restart: can't tell where SIEMLite's program file is")
 	}
 	slog.Info("restarting SIEMLite")
 	cmd := exec.Command(exe, os.Args[1:]...)

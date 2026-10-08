@@ -52,7 +52,7 @@ sends ten realistic test events a second, attacks included. See [Test logs](#tes
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.9` in `.env` and run `docker compose pull && docker compose up -d`.
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.9.1` in `.env` and run `docker compose pull && docker compose up -d`.
 Or build from the checkout, and deploy and upgrade with one command:
 
 ```sh
@@ -98,7 +98,7 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
 - **Users** (admins): add people, set their role, limit what they can see, change passwords.
 - **Sources** (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
 - **Parsers** (admins): build, upload, export and edit parsers.
-- **System** (admins): the version, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
+- **System** (admins): the version and whether a newer release is out (with an update button), database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 
 ### Send logs from an app
 
@@ -416,6 +416,17 @@ From the command line (works while the server runs; a restore is applied at the 
 ./siemlite backups restore -name siemlite-20261003-211924-manual.tar.gz
 ```
 
+## Updates
+
+The **System** page shows the version you're running and checks GitHub for a newer release (at most every six hours,
+or when you choose **Check now**). When one is out, **Update and restart** downloads the build for your platform,
+checks it against the release's `SHA256SUMS`, swaps it in for the running program and restarts, usually within
+seconds. Nothing changes if the download or check fails. The button appears when SIEMLite runs as a plain program
+it can write to; under Docker the page shows `docker compose pull && docker compose up -d` instead. Updates are
+recorded in the audit log. Make a backup first if you might want to go back: a newer version can upgrade the
+database in ways older versions can't read. Pass `-update-check=false` (or `SIEMLITE_UPDATE_CHECK=false`) to stop
+SIEMLite contacting GitHub at all.
+
 ## Users
 
 People sign in with a username and password. Manage them on the Users page or from the command line. There are two roles:
@@ -509,6 +520,7 @@ by spaces.
 | `-ai-url` | | Ollama server for AI parser help, e.g. `http://ollama:11434` (off when empty) |
 | `-ai-model` | `qwen2.5-coder:3b` | Model for AI parser help; downloaded on first start if missing |
 | `-backup-dir` | `<db dir>/backups` | Folder for database backups |
+| `-update-check` | `true` | Check GitHub for new releases and offer updates on the System page |
 
 `siemlite version` prints the version.
 
