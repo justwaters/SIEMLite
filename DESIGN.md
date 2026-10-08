@@ -70,9 +70,9 @@ near-white in dark (13.4–14.9:1 either way).
 | `--sev-0` | Unknown | `#8a949b` | `#78828a` |
 | `--sev-1` | Informational | `#6c7a86` | `#8796a3` |
 | `--sev-2` | Low | `#2f8463` | `#49a985` |
-| `--sev-3` | Medium | `#a47f12` | `#cfa52a` |
+| `--sev-3` | Medium | `#85680f` | `#cfa52a` |
 | `--sev-4` | High | `#c35a1c` | `#e2793a` |
-| `--sev-5` | Critical | `#c1333a` | `#e05257` |
+| `--sev-5` | Critical | `#c1333a` | `#e77478` |
 | `--sev-6` | Fatal | `#8c2b69` | `#c0559a` |
 
 The scale reads cool grey → green → amber → orange → red → magenta, so "worse" is also "hotter", and Fatal is a
@@ -101,7 +101,7 @@ Core pairs:
 | `--ink-2` on `--surface` | 5.8 | 5.1 |
 | `--ink-2` on `--raised` | 4.9 | **4.5** (at the AA line) |
 | `--rule` on `--paper` | 1.2 | 1.4 (dividers only; not meant to be read) |
-| White on `--sev-5` (alert count badge) | 5.5 | **3.8** |
+| `--paper` on `--sev-5` (alert count badge) | 5.0 | 5.7 |
 
 Severity colours as they are actually used, as text or swatches on `--surface` (panels, tables) and `--paper`
 (notices):
@@ -111,13 +111,13 @@ Severity colours as they are actually used, as text or swatches on `--surface` (
 | 0 Unknown | 3.1 / 2.8 | 3.9 / 4.3 |
 | 1 Informational | 4.4 / 4.0 | 5.0 / 5.5 |
 | 2 Low | 4.6 / **4.1** | 5.3 / 5.8 |
-| 3 Medium | **3.7** / 3.4 | 6.6 / 7.2 |
+| 3 Medium | 5.3 / 4.7 | 6.6 / 7.2 |
 | 4 High | 4.4 / 3.9 | 5.1 / 5.6 |
-| 5 Critical | 5.5 / 5.0 | **4.0** / 4.4 |
+| 5 Critical | 5.5 / 5.0 | 5.2 / 5.7 |
 | 6 Fatal | 7.9 / 7.1 | **3.6** / 4.0 |
 
-Swatches and bars only need 3:1; text needs 4.5:1. The bold values are where a colour is used as *text* and falls
-short (see Findings). Swatches always come with a severity name beside them, so colour is never the only signal.
+Swatches and bars only need 3:1; text needs 4.5:1. The bold value is where a colour is used as *text* and falls
+short (see Findings). On `--raised` (hovered rows) the lowest text pairs are dark Critical 4.6, light Medium 4.4 and light Low 3.8. Swatches always come with a severity name beside them, so colour is never the only signal.
 
 ## Typography
 
@@ -225,21 +225,25 @@ The negative spread keeps the shadow tight under the element, so it reads in bot
 
 ## Findings
 
-Things I noticed while reading, not yet changed.
+### Fixed in v0.9.2
+
+- **Dark Critical text** (`--sev-5`) was 4.0:1 on panels and 4.4:1 on the page, under the 4.5:1 for normal-size text. It's used for open-alert status, errors and threat-match titles. It is now `#e77478`: 5.2 on panels, 5.7 on the page and 4.6 on a hovered row. Hue and saturation are unchanged; only lightness moved.
+- **The unread-alert count badge** was white on `--sev-5`, 3.8:1 in dark. It now uses `--paper` for its text, which tracks the theme: 5.7:1 in dark and 5.0:1 in light (white was 5.5 in light, so light loses a little and still passes).
+- **Light Medium text** (`--sev-3`, the amber behind "Acknowledged") was 3.7:1 on panels. It is now `#85680f`: 5.3 on panels and 4.7 on the page. It is a deeper, browner amber, still clearly distinct from High orange.
+
+### Still open
 
 **Dark theme**
-1. **Small red text is under AA.** `--sev-5` on `--surface` is 4.0:1 and on `--paper` 4.4:1, below the 4.5:1 for normal-size text. It's used for `.status-open`, `.notice.bad`, errors and the bold titles in threat-match boxes. Fatal (3.6:1) and Unknown (3.9:1) are only swatches, where 3:1 is enough. Lightening dark `--sev-5` a little (about `#ea6a6f`) would fix the text uses.
-2. **The unread-alert count** is `#fff` on `--sev-5` at 12px bold, 3.8:1 (5.5:1 in light). Same fix: a lighter red in dark, or dark text on it.
-3. **`--ink-2` on `--raised` is exactly 4.5:1.** Hovered rows, expanded event details and the selected segment all put secondary text there, so there is no headroom. Nudging dark `--ink-2` up one step would give some.
+1. **`--ink-2` on `--raised` is exactly 4.5:1.** Hovered rows, expanded event details and the selected segment all put secondary text there, so there is no headroom. Nudging dark `--ink-2` up one step would give some.
 
 **Light theme**
-4. **Amber text is the weakest pair in the app.** `--sev-3` on `--surface` is 3.7:1, and `.status-acknowledged` uses it as bold table text. Darkening light `--sev-3` (for example `#8a6a0e`) would pass.
-5. **Green on the page background:** `.notice.ok` puts `--sev-2` text on `--paper` at 4.1:1 (4.6:1 on a panel). It's a small miss; darkening light `--sev-2` slightly fixes it.
-6. **`--ink-2` is comfortable everywhere** (4.9–5.8:1), so light has none of the secondary-text problem dark has.
+2. **Green on the page background:** `.notice.ok` puts `--sev-2` text on `--paper` at 4.1:1 (4.6:1 on a panel). It's a small miss; darkening light `--sev-2` slightly fixes it.
+3. **Light Medium on a hovered row is 4.4:1** (`--raised`), just under the line, in the transient hover state only.
+4. **`--ink-2` is comfortable everywhere** (4.9–5.8:1), so light has none of the secondary-text problem dark has.
 
 **Both**
-7. **The dark token list is written twice** (the `prefers-color-scheme` block and the `[data-theme="dark"]` block). They are identical today, but will drift if only one is edited. Defining the palette once would remove the risk.
-8. **A few literal colours bypass the tokens:** the shadows, the dialog backdrop and the `#fff` in finding 2. They are the places a future theme would miss.
-9. **No hover or press transitions.** Consistent with the minimal approach, but buttons and rows change state with no easing; a `.1s` colour transition would soften it, and reduced-motion already covers it.
-10. **Three copies of the palette.** The docs subsite (`docs/docs.css`) and the marketing site each carry their own light and dark tokens (a subset: no `sev-0`, `sev-6` or `chart-other`). Changing a token in the app means editing three files.
-11. **Contrast was computed from the token values, not from rendered screens.** A component that overrides a colour inline, or text placed on a surface I didn't pair, wouldn't show up here.
+5. **The dark token list is written twice** (the `prefers-color-scheme` block and the `[data-theme="dark"]` block). They are identical today, but will drift if only one is edited. Defining the palette once would remove the risk.
+6. **A few literal colours bypass the tokens:** the shadows and the dialog backdrop. They are the places a future theme would miss.
+7. **No hover or press transitions.** Consistent with the minimal approach, but buttons and rows change state with no easing; a `.1s` colour transition would soften it, and reduced-motion already covers it.
+8. **Three copies of the palette.** The docs subsite (`docs/docs.css`) and the marketing site each carry their own light and dark tokens (a subset: no `sev-0`, `sev-6` or `chart-other`). The marketing site still has the old `--sev-3` and `--sev-5` values. Changing a token in the app means editing three files.
+9. **Contrast was computed from the token values, not from rendered screens.** A component that overrides a colour inline, or text placed on a surface I didn't pair, wouldn't show up here.
