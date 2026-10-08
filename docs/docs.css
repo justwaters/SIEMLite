@@ -29,14 +29,15 @@ code, pre { font-family: var(--mono); }
 
 .layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px; padding-top: 36px; padding-bottom: 64px; }
 .side { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 100px); overflow: auto; font-size: 15px; }
-.side p { margin: 22px 0 4px; padding-left: 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.side p { margin: 30px 0 8px; padding-left: 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .side p:first-child { margin-top: 0; padding-left: 0; font-size: inherit; font-weight: inherit; }
 .side ul { list-style: none; margin: 0; padding: 0; }
-.side li { margin: 0; }
-.side a { display: block; padding: 5px 12px; border-left: 2px solid transparent; border-radius: 0 6px 6px 0; text-decoration: none; color: var(--ink-2); }
+.side li { margin: 2px 0; }
+.side a { display: block; padding: 8px 12px; border-left: 2px solid transparent; border-radius: 0 6px 6px 0; text-decoration: none; color: var(--ink-2); }
 .side a:hover { color: var(--ink); background: var(--raised); }
 .side a[aria-current="page"] { color: var(--ink); font-weight: 600; border-left-color: var(--ink); background: var(--raised); }
 
+.doc:focus { outline: none; }
 .doc { min-width: 0; max-width: 780px; }
 .doc h1 { font-size: clamp(32px, 5vw, 46px); line-height: 1.08; letter-spacing: -.03em; font-weight: 600; font-stretch: 85%; margin: 0 0 18px; }
 .doc h2 { font-size: 26px; letter-spacing: -.02em; font-weight: 600; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
@@ -58,8 +59,9 @@ footer p { margin: 0; }
   :root { --gutter: 20px; }
   .layout { grid-template-columns: 1fr; gap: 24px; padding-top: 20px; }
   .side { position: static; max-height: none; border-bottom: 1px solid var(--rule); padding-bottom: 16px; }
-  .side p { margin-top: 14px; }
-  .side ul { display: flex; flex-wrap: wrap; gap: 4px; }
+  .side p { margin: 18px 0 8px; }
+  .side li { margin: 0; }
+  .side ul { display: flex; flex-wrap: wrap; gap: 8px; }
   .side ul a { border: 1px solid var(--rule); border-radius: 999px; padding: 4px 12px; }
   .side ul a[aria-current="page"] { border-color: var(--ink); }
 }
