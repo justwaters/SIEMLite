@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture · SIEMLite docs</title>
+<meta name="description" content="clients ──HTTPS + token──▶ api ───────┐">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a aria-current="page" href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="architecture">Architecture</h1>
+<pre><code>clients ──HTTPS + token──▶ api ───────┐
+devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threat intel) ─▶ ingest worker pool ─▶ batched transactions,
+                                                                          (500 events or 500 ms)  one per day file
+                                                                                                           │
+                               api ──▶ search engine ──▶ day files, newest first ◀──────────────────────────┘
+                                       (events ⋈ events_fts in each)
+                                       retention worker (deletes old day files)
+                                       intel service (feed refresh, reload on change)
+</code></pre>
+<ul>
+<li><strong><code>pkg/ocsf</code></strong>: event model and validation.</li>
+<li><strong><code>pkg/parser</code></strong>: automatic parsing, custom parsers (pattern, JSON, key=value), templates and pattern drafting.</li>
+<li><strong><code>pkg/sources</code></strong>: applies each source's parser to its lines.</li>
+<li><strong><code>pkg/ai</code></strong>: parser suggestions from a local model via Ollama.</li>
+<li><strong><code>pkg/backup</code></strong>: backups (<code>VACUUM INTO</code> of every file, in a <code>.tar.gz</code>), the schedule, uploads, and restores applied at
+  startup.</li>
+<li><strong><code>pkg/storage</code></strong>: SQLite setup (WAL, <code>synchronous=NORMAL</code>, <code>busy_timeout=5000</code>), schema, queries. Events are stored
+  one file per UTC day by when they happened (<code>siemlite-events/2026-10-04.db</code>); everything else is in <code>siemlite.db</code>.
+  A search reads the days newest first and stops as soon as the page is full; within a day, a search with many matches
+  reads them newest first instead of sorting them all. Each day's <code>events_fts</code> is an external-content FTS5 table kept
+  in sync by a trigger and one bulk update per batch, so log text is not stored twice. It indexes the parsed message, program, host, user, addresses and fields, not the original line, which an hourly job clears 24 hours after the event arrived (by arrival, tracked with arrival-number watermarks, so late events keep theirs for a day too). Event ids carry their day, and an arrival number lets the alert
+  engine find late events filed in older days.</li>
+<li><strong><code>pkg/ingest</code></strong>: enriches each event, then a buffered channel and worker pool that flushes in batches.</li>
+<li><strong><code>pkg/syslogd</code></strong>: UDP, TCP and TLS syslog listeners with a sender allowlist.</li>
+<li><strong><code>pkg/enrich</code></strong>: enrichment document and GeoIP/ASN lookups (<code>.mmdb</code>, reloaded on change).</li>
+<li><strong><code>pkg/intel</code></strong>: feed parsing, the in-memory indicator matcher and feed refresh.</li>
+<li><strong><code>pkg/search</code></strong>: combines time window, OCSF filters and FTS5.</li>
+<li><strong><code>pkg/retention</code></strong>: deletes expired days' files, and older events from the day the cutoff falls in.</li>
+<li><strong><code>pkg/alerts</code></strong>: the alert engine: runs each rule over the events since its last check.</li>
+<li><strong><code>pkg/audit</code></strong>: writes the audit log as INTERNAL events.</li>
+<li><strong><code>pkg/auth</code></strong>: access tokens, users, roles, source limits, sessions and permission checks.</li>
+<li><strong><code>api</code></strong>: HTTPS server and endpoints. <strong><code>web</code></strong>: the embedded UI.</li>
+</ul>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

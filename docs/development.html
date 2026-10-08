@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Development · SIEMLite docs</title>
+<meta name="description" content="go test -race ./...                                   # everything below except load and fuzzing">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a aria-current="page" href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="development">Development</h1>
+<pre><code class="language-sh">go test -race ./...                                   # everything below except load and fuzzing
+SIEMLITE_LOAD=small go test ./loadtest -run Load -v   # load tests: ci (~1 min), small (~6 min), or hard with SIEMLITE_LOAD_FOR=5m, 30m or 2h
+go test ./pkg/parser -run '^$' -fuzz FuzzDraftPattern # one fuzzer; see .github/workflows/ci.yml for all of them
+python3 e2e/ui_test.py ./siemlite                     # browser test (needs Playwright for Python)
+</code></pre>
+<p>The tests go beyond examples:</p>
+<ul>
+<li><strong>Every route, every caller</strong>: the API's route table is read from the source, and each route is called with no
+  credentials, a forged cookie, a bad token, a valid access token, a standard user and an admin, and cross-site. A new
+  route can't ship without a permission.</li>
+<li><strong>Limited users never see other sources</strong>: random users get random sets of sources and run random searches, filters
+  and pages; their results must equal an admin's results less the sources they weren't given.</li>
+<li><strong>Upgrades from every version</strong>: a populated database from every schema version SIEMLite has shipped is upgraded and
+  must end up identical to a new one, with every row, reference and search index intact.</li>
+<li><strong>Day files against one table</strong>: every search, filter and page across day files (with late events, clocks ahead and
+  ties at midnight) must equal the same events searched in one table; the dashboard must add up the same; and moving
+  events out of an old database while searches run must never show one twice or miss one.</li>
+<li><strong>Fuzzing</strong>: log lines, parser patterns, the pattern builder, syslog framing, backup names and threat intel feeds get
+  millions of generated inputs. This found and fixed four ways the pattern builder could draft a pattern that didn't
+  match its own sample lines.</li>
+<li><strong>Everything at once</strong>: ingest over HTTPS and syslog, searches by admins and limited users, retention, backups, the alert
+  engine, the log generator and user changes run together, under the race detector too. Nothing may be lost, leaked or
+  corrupted, and every backup must open. This found backups failing with "database is locked" on a busy server; fixed.</li>
+<li><strong>Load</strong>: ingest over HTTPS, syslog floods and searches on millions of events, each with a floor it must reach;
+  see <a href="performance.html">Performance</a>. Running these found and fixed slow searches for common words and deep pages, and an
+  alert engine that would have needed minutes for a large database.</li>
+<li><strong>In a browser</strong>: a real SIEMLite fed by the log generator is clicked through page by page, at desktop and phone
+  sizes, until the generator's brute force shows up as an alert.</li>
+</ul>
+<p>Every pull request and every commit on <code>main</code> runs these on GitHub (<code>.github/workflows/ci.yml</code>): formatting, <code>go vet</code>,
+the tests with the race detector, the <code>ci</code> load tests, 20 seconds of each fuzzer, the browser test, a build, a syntax
+check of the web UI's script, <code>govulncheck</code> for known vulnerabilities in code SIEMLite actually calls, and a build of the
+Docker image for x86-64 and ARM64.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

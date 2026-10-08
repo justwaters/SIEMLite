@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backups and updates · SIEMLite docs</title>
+<meta name="description" content="On the System page, choose Create backup now, or set automatic backups to run every 6 hours, every day or every">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a aria-current="page" href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="backups-and-updates">Backups and updates</h1>
+<h2 id="backups">Backups</h2>
+<p>On the <strong>System</strong> page, choose <strong>Create backup now</strong>, or set automatic backups to run every 6 hours, every day or every
+week, keeping the newest 1-365. A backup is a compressed copy of everything (every day's events, users, sources,
+parsers, rules, alerts and settings), made while SIEMLite keeps running and logging.</p>
+<ul>
+<li><strong>Restore</strong>: SIEMLite checks the backup, saves the current database as a "Before a restore" backup, restarts, and
+  comes back with the backup in place, usually within seconds. To undo, restore the "Before a restore" backup.
+  Backups from older versions are upgraded as they open; backups from newer versions are refused. Version 0.7 and
+  earlier can't restore backups made by 0.8 or later.</li>
+<li><strong>Download</strong> a backup to keep a copy off the server, and <strong>Upload</strong> one (a <code>.tar.gz</code>, a <code>.db.gz</code> from before version
+  0.8, or a <code>.db</code> file) to move SIEMLite to
+  a new server or recover after losing the old one. Uploads are checked before they're accepted.</li>
+<li>Old automatic backups are removed as new ones are made. Manual, uploaded and "Before a restore" backups are only
+  removed when you delete them.</li>
+<li>Backups are kept in <code>&lt;db folder&gt;/backups</code> (<code>/data/backups</code> with Docker, inside the same volume as the database), or
+  wherever <code>-backup-dir</code> points. Keep copies somewhere else too: download them, or point <code>-backup-dir</code> at other storage.</li>
+</ul>
+<p>From the command line (works while the server runs; a restore is applied at the next start):</p>
+<pre><code class="language-sh">./siemlite backups create
+./siemlite backups list
+./siemlite backups restore -name siemlite-20261003-211924-manual.tar.gz
+</code></pre>
+<h2 id="updates">Updates</h2>
+<p>The <strong>System</strong> page shows the version you're running and checks GitHub for a newer release (at most every six hours,
+or when you choose <strong>Check now</strong>). When one is out, <strong>Update and restart</strong> downloads the build for your platform,
+checks it against the release's <code>SHA256SUMS</code>, swaps it in for the running program and restarts, usually within
+seconds. Nothing changes if the download or check fails. The button appears when SIEMLite runs as a plain program
+it can write to; under Docker the page shows <code>docker compose pull &amp;&amp; docker compose up -d</code> instead. Updates are
+recorded in the audit log. Make a backup first if you might want to go back: a newer version can upgrade the
+database in ways older versions can't read. Pass <code>-update-check=false</code> (or <code>SIEMLITE_UPDATE_CHECK=false</code>) to stop
+SIEMLite contacting GitHub at all.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

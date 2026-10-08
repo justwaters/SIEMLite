@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troubleshooting · SIEMLite docs</title>
+<meta name="description" content="The first start prints it once. With Docker the first container&#x27;s logs hold it (docker compose logs siemlite | grep -A1 &#x27;username: admin&#x27;), but rebuilding replaces them. Set a new one:">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a aria-current="page" href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="troubleshooting">Troubleshooting</h1>
+<h2 id="i-lost-the-admin-password">I lost the admin password</h2>
+<p>The first start prints it once. With Docker the first container's logs hold it (<code>docker compose logs siemlite | grep -A1 'username: admin'</code>), but rebuilding replaces them. Set a new one:</p>
+<pre><code class="language-sh">docker compose exec siemlite siemlite users passwd -username admin    # Docker
+./siemlite users passwd -username admin                               # plain binary
+</code></pre>
+<p>Pass <code>-db</code> if your database is not <code>./siemlite.db</code>. This also signs the user out everywhere.</p>
+<h2 id="the-browser-warns-about-the-certificate">The browser warns about the certificate</h2>
+<p>SIEMLite generates a self-signed certificate on first start. Trust <code>siemlite.crt</code> on your machine, or supply your own with <code>-tls-cert</code> and <code>-tls-key</code>. With Docker, copy the certificate out with <code>docker compose cp siemlite:/data/siemlite.crt .</code>.</p>
+<h2 id="the-certificate-doesnt-match-the-name-i-use">The certificate doesn't match the name I use</h2>
+<p>The certificate is generated once. Set <code>-tls-hosts</code> (Docker: <code>SIEMLITE_TLS_HOSTS</code>) to every name or IP people use <strong>before the first start</strong>. To regenerate later, delete the certificate and key and restart; see <a href="installation.html#run-with-docker">Installation</a> for the Docker command.</p>
+<h2 id="sending-a-log-returns-an-error">Sending a log returns an error</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>202</code></td>
+<td>Accepted.</td>
+</tr>
+<tr>
+<td><code>401</code></td>
+<td>The token is wrong, the source is disabled, or its source was deleted. Check the Sources page.</td>
+</tr>
+<tr>
+<td><code>403</code></td>
+<td>The token was used for something other than sending logs. Tokens can only post to <code>/api/v1/logs</code> and <code>/api/v1/events</code>.</td>
+</tr>
+<tr>
+<td><code>503</code></td>
+<td>SIEMLite is busy. Wait for the <code>Retry-After</code> seconds and send again.</td>
+</tr>
+<tr>
+<td><code>405</code> on a preflight</td>
+<td>Browsers can't call SIEMLite directly (no cross-origin calls). Send from your own backend instead; see <a href="sending-logs.html">Sending logs</a>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Events dated before the retention period, or more than a day ahead, are refused and counted as rejected with the reason.</p>
+<h2 id="syslog-isnt-arriving">Syslog isn't arriving</h2>
+<ul>
+<li>Each listener is off until its flag is set (<code>-syslog-udp</code>, <code>-syslog-tcp</code>, <code>-syslog-tls</code>).</li>
+<li>Only loopback and private networks may send by default. Widen it with <code>-syslog-allow</code>. Refused senders are counted and logged once a minute.</li>
+<li>Ports below 1024 need root, or <code>sudo setcap cap_net_bind_service=+ep ./siemlite</code>.</li>
+<li>UDP drops messages when the ingest queue is full and has no way to push back. Keep its rate below what storage sustains, or use TCP.</li>
+<li>Under Docker, a sender on the Docker host itself appears as the network's gateway address.</li>
+</ul>
+<h2 id="my-lines-arent-parsed-the-way-i-expect">My lines aren't parsed the way I expect</h2>
+<p>Look at the source's setting on the Sources page: <strong>Automatic</strong>, <strong>None</strong> or a <a href="parsers.html">parser</a>. A line that doesn't match the source's parser is still stored, parsed as Automatic would, with a <code>parse_error</code> field. Use the parser editor's preview with sample lines.</p>
+<h2 id="search-doesnt-find-part-of-the-original-line">Search doesn't find part of the original line</h2>
+<p>Search covers the parsed event (message, program, host, user, addresses and parsed fields). The original line is removed 24 hours after the event arrives, so search for what the parser understood. See <a href="search.html">Search</a>.</p>
+<h2 id="an-update-or-restore-didnt-work">An update or restore didn't work</h2>
+<ul>
+<li>The <strong>Update and restart</strong> button only appears for a plain-binary install that can write to its own folder. Under Docker, pull the new image.</li>
+<li>Failed downloads or checksum mismatches change nothing.</li>
+<li>Backups from newer versions are refused by older ones. Make a backup before updating if you may want to go back. See <a href="backups-and-updates.html">Backups and updates</a>.</li>
+</ul>
+<h2 id="still-stuck">Still stuck</h2>
+<p>Check the server log, <code>GET /health</code> (details when signed in), and the <a href="audit-log.html">audit log</a>, then <a href="https://github.com/justwaters/SIEMLite/issues">open an issue</a>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

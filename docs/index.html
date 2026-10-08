@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIEMLite wiki</title>
+<meta name="description" content="SIEMLite is a lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS or syslog, normalizes them to the OCSF event model, stores them in SQLite (one file per day) and gives you f">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a aria-current="page" href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="siemlite-wiki">SIEMLite wiki</h1>
+<p>SIEMLite is a lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS or syslog, normalizes them to the <a href="https://schema.ocsf.io/">OCSF</a> event model, stores them in SQLite (one file per day) and gives you full-text search through a built-in web UI and a small JSON API.</p>
+<p>This wiki is the full documentation. The <a href="https://github.com/justwaters/SIEMLite">README</a> has the short version. Current release: <strong><a href="https://github.com/justwaters/SIEMLite/releases/latest">latest</a></strong>.</p>
+<h2 id="start-here">Start here</h2>
+<ul>
+<li><strong><a href="installation.html">Installation</a></strong>: run the binary or Docker, first sign-in, upgrading from older versions.</li>
+<li><strong><a href="web-ui.html">The web UI</a></strong>: a tour of every page.</li>
+<li><strong><a href="sending-logs.html">Sending logs</a></strong>: apps over HTTPS, syslog devices, and the command line.</li>
+</ul>
+<h2 id="using-siemlite">Using SIEMLite</h2>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a>: who is sending, and how to disable or delete them.</li>
+<li><a href="parsers.html">Parsers</a>: teach SIEMLite how to read a source's lines, with optional local AI help.</li>
+<li><a href="search.html">Search</a>: query syntax and what is searchable.</li>
+<li><a href="alerts.html">Alerts</a> and the <a href="audit-log.html">Audit log</a>.</li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a> and <a href="threat-intel.html">Threat intel</a>: event enrichment.</li>
+<li><a href="users-and-security.html">Users and security</a>.</li>
+<li><a href="backups-and-updates.html">Backups and updates</a>.</li>
+<li><a href="test-logs.html">Test logs (loggen)</a>: realistic sample logs, attacks included.</li>
+</ul>
+<h2 id="reference">Reference</h2>
+<ul>
+<li><a href="configuration.html">Configuration</a>: every flag and environment variable.</li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a>, <a href="performance.html">Performance</a> and <a href="development.html">Development</a></li>
+</ul>
+<h2 id="license">License</h2>
+<p>AGPL-3.0. See the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">license</a>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

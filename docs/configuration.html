@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration · SIEMLite docs</title>
+<meta name="description" content="Each flag can also be set with an environment variable named SIEMLITE_ plus the flag name in capitals with _ for">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a aria-current="page" href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="configuration">Configuration</h1>
+<p>Each flag can also be set with an environment variable named <code>SIEMLITE_</code> plus the flag name in capitals with <code>_</code> for
+<code>-</code> (e.g. <code>SIEMLITE_GEOIP_CITY</code>). A flag on the command line wins. <code>SIEMLITE_INTEL_FEED</code> takes several feeds separated
+by spaces.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-addr</code></td>
+<td><code>localhost:8443</code></td>
+<td>HTTPS listen address</td>
+</tr>
+<tr>
+<td><code>-db</code></td>
+<td><code>siemlite.db</code></td>
+<td>SQLite database path; events go in a folder beside it named after it (<code>siemlite-events</code>)</td>
+</tr>
+<tr>
+<td><code>-retention-days</code></td>
+<td><code>30</code></td>
+<td>Delete events older than this many days (checked daily; whole days are deleted as files)</td>
+</tr>
+<tr>
+<td><code>-tls-cert</code>, <code>-tls-key</code></td>
+<td><code>&lt;db dir&gt;/siemlite.crt</code>, <code>.key</code></td>
+<td>Certificate and key; a self-signed pair is generated if both are missing</td>
+</tr>
+<tr>
+<td><code>-tls-hosts</code></td>
+<td></td>
+<td>Extra DNS names or IPs for a generated certificate</td>
+</tr>
+<tr>
+<td><code>-syslog-udp</code>, <code>-syslog-tcp</code>, <code>-syslog-tls</code></td>
+<td></td>
+<td>Syslog listen addresses, e.g. <code>:514</code>, <code>:514</code>, <code>:6514</code> (each off when empty)</td>
+</tr>
+<tr>
+<td><code>-syslog-allow</code></td>
+<td>loopback and private networks</td>
+<td>Comma-separated IPs/CIDRs allowed to send syslog</td>
+</tr>
+<tr>
+<td><code>-geoip-city</code></td>
+<td></td>
+<td>MaxMind or DB-IP City/Country <code>.mmdb</code></td>
+</tr>
+<tr>
+<td><code>-geoip-asn</code></td>
+<td></td>
+<td>MaxMind or DB-IP ASN <code>.mmdb</code></td>
+</tr>
+<tr>
+<td><code>-intel-feed</code></td>
+<td></td>
+<td>Threat intel feed as <code>name=https://url</code>; repeat for several</td>
+</tr>
+<tr>
+<td><code>-intel-refresh</code></td>
+<td><code>6h</code></td>
+<td>How often to re-download feeds</td>
+</tr>
+<tr>
+<td><code>-ai-url</code></td>
+<td></td>
+<td>Ollama server for AI parser help, e.g. <code>http://ollama:11434</code> (off when empty)</td>
+</tr>
+<tr>
+<td><code>-ai-model</code></td>
+<td><code>qwen2.5-coder:3b</code></td>
+<td>Model for AI parser help; downloaded on first start if missing</td>
+</tr>
+<tr>
+<td><code>-backup-dir</code></td>
+<td><code>&lt;db dir&gt;/backups</code></td>
+<td>Folder for database backups</td>
+</tr>
+<tr>
+<td><code>-update-check</code></td>
+<td><code>true</code></td>
+<td>Check GitHub for new releases and offer updates on the System page</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>siemlite version</code> prints the version.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

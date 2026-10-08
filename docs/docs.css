@@ -1,0 +1,63 @@
+/* Same look as the main site: monochrome, and colour only ever means severity. */
+@font-face { font-family: "Instrument Sans"; src: url(../fonts/instrument-sans.woff2) format("woff2");
+             font-weight: 400 700; font-stretch: 75% 100%; font-display: swap; }
+@font-face { font-family: "Spline Sans Mono"; src: url(../fonts/spline-sans-mono.woff2) format("woff2");
+             font-weight: 400 600; font-display: swap; }
+:root {
+  --paper: #f2f3f1; --surface: #ffffff; --raised: #e9ebe8; --ink: #1c1f21; --ink-2: #5f666b; --rule: #d9dcd8;
+  --sans: "Instrument Sans", system-ui, sans-serif; --mono: "Spline Sans Mono", ui-monospace, monospace; --gutter: 32px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a; }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 3px; }
+code, pre { font-family: var(--mono); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--gutter); }
+
+.top { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--paper) 92%, transparent);
+       backdrop-filter: blur(8px); border-bottom: 1px solid var(--rule); }
+.top .wrap { display: flex; align-items: center; gap: 16px; min-height: 60px; }
+.wordmark { font-weight: 650; font-size: 20px; letter-spacing: -.2px; font-stretch: 88%; text-decoration: none; padding: 8px 0; }
+.top nav { margin-left: auto; display: flex; }
+.top nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; font-size: 15px; color: var(--ink-2);
+             text-decoration: none; border-radius: 6px; }
+.top nav a:hover { color: var(--ink); background: var(--raised); }
+
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px; padding-top: 36px; padding-bottom: 64px; }
+.side { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 100px); overflow: auto; font-size: 15px; }
+.side p { margin: 18px 0 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.side p:first-child { margin-top: 0; }
+.side strong { font-weight: 600; }
+.side ul { list-style: none; margin: 0; padding: 0; }
+.side a { display: block; padding: 5px 10px; border-radius: 6px; text-decoration: none; color: var(--ink-2); }
+.side p a { padding: 0; color: var(--ink); }
+.side a:hover { color: var(--ink); background: var(--raised); }
+.side a[aria-current="page"] { color: var(--ink); background: var(--raised); font-weight: 600; }
+
+.doc { min-width: 0; max-width: 780px; }
+.doc h1 { font-size: clamp(32px, 5vw, 46px); line-height: 1.08; letter-spacing: -.03em; font-weight: 600; font-stretch: 85%; margin: 0 0 18px; }
+.doc h2 { font-size: 26px; letter-spacing: -.02em; font-weight: 600; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.doc h3 { font-size: 19px; font-weight: 600; margin: 28px 0 6px; }
+.doc p, .doc li { color: var(--ink); }
+.doc li { margin: 4px 0; }
+.doc p code, .doc li code, .doc td code { font-size: .86em; background: var(--raised); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.doc pre { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.55; }
+.doc blockquote { margin: 16px 0; padding: 2px 16px; border-left: 3px solid var(--rule); color: var(--ink-2); }
+.tablewrap { overflow-x: auto; margin: 16px 0; }
+.doc table { border-collapse: collapse; font-size: 15px; min-width: 100%; }
+.doc th, .doc td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+.doc th { font-weight: 600; color: var(--ink-2); font-size: 13px; letter-spacing: .03em; }
+
+footer { border-top: 1px solid var(--rule); padding: 28px 0 40px; color: var(--ink-2); font-size: 14px; }
+footer p { margin: 0; }
+
+@media (max-width: 820px) {
+  :root { --gutter: 20px; }
+  .layout { grid-template-columns: 1fr; gap: 24px; padding-top: 20px; }
+  .side { position: static; max-height: none; border-bottom: 1px solid var(--rule); padding-bottom: 16px; }
+  .side ul { display: flex; flex-wrap: wrap; gap: 2px 4px; }
+}

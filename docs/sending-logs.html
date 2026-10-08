@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sending logs · SIEMLite docs</title>
+<meta name="description" content="There are three ways in: an access token over HTTPS (apps), syslog (devices), and the command line. See also Sources and tokens and Parsers.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a aria-current="page" href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="sending-logs">Sending logs</h1>
+<p>There are three ways in: an access token over HTTPS (apps), syslog (devices), and the command line. See also <a href="sources-and-tokens.html">Sources and tokens</a> and <a href="parsers.html">Parsers</a>.</p>
+<h2 id="from-an-app">From an app</h2>
+<p>On the <strong>Sources</strong> page, choose <strong>Add source</strong>, name it after the app and optionally pick a parser. The next screen,
+<strong>Connect</strong>, shows the address to send logs to (<code>&lt;address&gt;/api/v1/logs</code>), the access token, which is shown once, and a
+snippet that sends a log in curl, Python, Go, JavaScript or React, with the address and token already filled in. The
+address starts as the one in your browser; change it to the address your apps use to reach SIEMLite if that differs.
+Tokens can only send logs; they can't search or sign in.</p>
+<p>The snippets trust <code>siemlite.crt</code>, since the certificate is self-signed unless you supplied your own. Copy it next to
+the code (<code>docker compose cp siemlite:/data/siemlite.crt .</code> with Docker) and remove those lines if your certificate is
+already trusted. A log sent returns <code>202</code> when accepted, <code>401</code> if the token is wrong or the source is disabled, and
+<code>503</code> with <code>Retry-After</code> when SIEMLite is busy: wait that many seconds, then send again.</p>
+<p>The React example goes through your own backend. A token in front-end code is public, and SIEMLite doesn't allow
+cross-origin browser calls (it answers a browser's preflight request with <code>405</code>, so the browser blocks the call). The
+page sends the log to a route on your server, such as <code>/api/log</code>, and the server adds the token and forwards it.</p>
+<p>From the command line:</p>
+<pre><code class="language-sh">./siemlite keys create -name myapp
+</code></pre>
+<p>Then post logs, one per line:</p>
+<pre><code class="language-sh">curl --cacert siemlite.crt -X POST 'https://localhost:8443/api/v1/logs?source=myapp' \
+  -H &quot;Authorization: Bearer $SIEMLITE_KEY&quot; \
+  --data-binary @app.log
+</code></pre>
+<p>Or post structured OCSF events:</p>
+<pre><code class="language-sh">curl --cacert siemlite.crt -X POST https://localhost:8443/api/v1/events \
+  -H &quot;Authorization: Bearer $SIEMLITE_KEY&quot; \
+  -d '[{&quot;category_uid&quot;:3,&quot;class_uid&quot;:3002,&quot;severity_id&quot;:4,
+        &quot;message&quot;:&quot;Failed password for root&quot;,&quot;src_endpoint&quot;:{&quot;ip&quot;:&quot;203.0.113.7&quot;}}]'
+</code></pre>
+<p>If the app connects with a hostname or IP other than <code>localhost</code>, start SIEMLite with <code>-tls-hosts</code> listing it before the
+certificate is first generated, so the certificate matches.</p>
+<h2 id="syslog">Syslog</h2>
+<p>Point rsyslog, syslog-ng, firewalls, switches or anything else that speaks syslog at SIEMLite:</p>
+<pre><code class="language-sh">./siemlite -syslog-udp :514 -syslog-tcp :514 -syslog-tls :6514
+</code></pre>
+<ul>
+<li><strong>UDP</strong> (RFC 5426), <strong>TCP</strong> (RFC 6587; octet-counted or newline-delimited frames) and <strong>TLS</strong> (RFC 5425, using the same
+  certificate as the web UI). Each listener is off unless its flag is set.</li>
+<li>Syslog has no authentication, so only senders on loopback and private networks (10/8, 172.16/12, 192.168/16,
+  100.64/10, fc00::/7, link-local) are accepted by default. Set <code>-syslog-allow 192.0.2.0/24,198.51.100.4</code> to choose
+  exactly who may send; refused senders are counted and logged once a minute.</li>
+<li>The syslog hostname becomes the event's <strong>host</strong> and the app name or tag (<code>sshd[311]:</code>) its <strong>source</strong>. The
+  sender's address is kept as <code>device.ip</code>.</li>
+<li>Messages over 64 KiB are dropped. With UDP, messages are dropped when the ingest queue is full; TCP waits briefly.</li>
+<li>Ports below 1024 need root or <code>sudo setcap cap_net_bind_service=+ep ./siemlite</code>.</li>
+</ul>
+<p>rsyslog example (<code>/etc/rsyslog.d/siemlite.conf</code>): <code>*.* @@siemlite.internal:514</code> (TCP; one <code>@</code> for UDP).</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

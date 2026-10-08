@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threat intel · SIEMLite docs</title>
+<meta name="description" content="SIEMLite checks every event against a list of indicators: IP addresses, CIDR ranges, domains (which also match">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a aria-current="page" href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="threat-intel">Threat intel</h1>
+<p>SIEMLite checks every event against a list of indicators: IP addresses, CIDR ranges, domains (which also match
+subdomains) and MD5/SHA-1/SHA-256 hashes. It looks at the source and destination IPs and at IPv4 addresses, domain
+names and hashes anywhere in the raw log. A hit marks the event as a threat (red bar and <strong>INTEL</strong> badge in the UI,
+<code>threat=true</code> in search) and records which indicator, source and field matched.</p>
+<p>Download feeds automatically (refreshed every <code>-intel-refresh</code>, default 6h):</p>
+<pre><code class="language-sh">./siemlite \
+  -intel-feed feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt \
+  -intel-feed drop=https://www.spamhaus.org/drop/drop.txt \
+  -intel-feed urlhaus=https://urlhaus.abuse.ch/downloads/hostfile/
+</code></pre>
+<p>Or manage indicators from the command line (works while the server is running; changes are picked up within 30s):</p>
+<pre><code class="language-sh">./siemlite intel import -source mylist -file iocs.txt     # replaces everything in &quot;mylist&quot;; -file - reads stdin
+./siemlite intel import -source feodo -url https://feodotracker.abuse.ch/downloads/ipblocklist.txt
+./siemlite intel add -source manual -value 203.0.113.7 -description &quot;seen in phishing&quot;
+./siemlite intel list
+./siemlite intel delete -source mylist
+</code></pre>
+<p>Feed files have one indicator per line. Plain lists, CSV (first column), Spamhaus DROP (<code>1.2.3.0/24 ; SBL123</code>), hosts
+files (<code>0.0.0.0 evil.example</code>) and URL lists (the host is used) are understood; comments and invalid lines are
+skipped. The type is detected, or forced with <code>-type ip|cidr|domain|hash</code>. Importing or refreshing a source replaces
+all of its indicators, so entries removed from a feed stop matching. A download that fails or comes back empty keeps
+the previous indicators.</p>
+<p>Matching happens when an event is stored; adding an indicator does not flag older events (search for it instead).</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

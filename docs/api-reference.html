@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API reference · SIEMLite docs</title>
+<meta name="description" content="All endpoints are under the same HTTPS address as the UI.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a aria-current="page" href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="api-reference">API reference</h1>
+<p>All endpoints are under the same HTTPS address as the UI.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Who</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/v1/logs</code></td>
+<td>access token, or admin</td>
+<td>Raw log text, one entry per line, read with the source's parser. Optional <code>source</code> (program name) and <code>severity</code> query params.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/events</code></td>
+<td>access token, or admin</td>
+<td>JSON array of OCSF events (up to 10,000 per request).</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/search</code></td>
+<td>any signed-in user</td>
+<td><code>q</code>, <code>start</code>, <code>end</code> (RFC3339 or epoch ms), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000), <code>offset</code>. Newest first. Each event includes its parsed <code>message</code>, its <code>source_name</code>, extra parsed <code>fields</code> and <code>enrichment</code>, and <code>raw_data</code>, the original line (empty once it has been removed, 24 hours after the event arrived).</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/stats?hours=24</code></td>
+<td>any signed-in user</td>
+<td>Dashboard figures for the last 1-2160 hours.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/sources</code></td>
+<td>any signed-in user</td>
+<td>Admins get every source; others get the names of the sources they can see.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/sources</code>, <code>PATCH</code>/<code>DELETE /api/v1/sources/{id}</code></td>
+<td>admin</td>
+<td>Create an access token (<code>{"name", "parser_id", "parser_none"}</code>), rename, set how its lines are read (<code>"parser_id": 3</code> for a parser, <code>"parser_id": null</code> for Automatic, <code>"parser_none": true</code> for None; not both together), and switch a token on or off (<code>"enabled": true</code> or <code>false</code>; to disable a token use <code>PATCH</code>, not <code>DELETE</code>). <code>DELETE</code> removes the source and its token for good (it used to revoke the token); it returns <code>409</code> naming the alert rules that are scoped to the source, and <code>400</code> for built-in sources. Only access tokens can be enabled, disabled or deleted. A source shows <code>parser_none</code> and <code>enabled</code> in its JSON (<code>revoked_at</code> is set while it's disabled).</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>POST /api/v1/users</code>, <code>PATCH</code>/<code>DELETE /api/v1/users/{id}</code>, <code>POST /api/v1/users/{id}/password</code></td>
+<td>admin</td>
+<td>Manage users: <code>{"username", "password", "role", "limited", "sources"}</code>. A limited standard user sees only <code>sources</code>. Updates change only the fields sent.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>POST /api/v1/parsers</code>, <code>GET</code>/<code>PUT</code>/<code>DELETE /api/v1/parsers/{id}</code>, <code>GET /api/v1/parsers/templates</code></td>
+<td>admin</td>
+<td>Manage parsers.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/alerts?status=open</code></td>
+<td>any signed-in user not limited to some sources</td>
+<td>Alerts (<code>open</code>, <code>acknowledged</code>, <code>closed</code> or <code>all</code>) and the count in each state.</td>
+</tr>
+<tr>
+<td><code>PATCH /api/v1/alerts/{id}</code></td>
+<td>same</td>
+<td>Acknowledge, close or reopen: <code>{"status": "acknowledged"}</code>.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/rules</code>, <code>POST /api/v1/rules</code>, <code>PUT</code>/<code>DELETE /api/v1/rules/{id}</code></td>
+<td>any signed-in user (list), admin</td>
+<td>Alert rules: <code>{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes"}</code>.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/system</code></td>
+<td>admin</td>
+<td>Database size and version, uptime, backups folder and free space.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>POST /api/v1/backups</code>, <code>PUT /api/v1/backups/settings</code>, <code>POST /api/v1/backups/upload</code></td>
+<td>admin</td>
+<td>List backups and the job status, start a backup, set the schedule (<code>{"interval_hours": 0/6/24/168, "keep"}</code>), upload a backup file.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>DELETE /api/v1/backups/{name}</code>, <code>POST /api/v1/backups/{name}/restore</code></td>
+<td>admin</td>
+<td>Download or delete a backup; restore it (SIEMLite restarts).</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/parsers/test</code>, <code>POST /api/v1/parsers/suggest</code></td>
+<td>admin</td>
+<td>Run a parser over <code>{"definition", "lines"}</code>; ask the AI model for a parser for <code>{"lines"}</code>.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/login</code>, <code>POST /api/v1/logout</code>, <code>GET /api/v1/me</code></td>
+<td></td>
+<td>Browser sign-in, sign-out and current session.</td>
+</tr>
+<tr>
+<td><code>GET /health</code></td>
+<td>public</td>
+<td>Up/down only. When signed in it also returns event count, database size, ingest queue state, indicator count and syslog counters.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Applications authenticate with <code>Authorization: Bearer &lt;token&gt;</code>. A missing or disabled token, or one whose source was deleted, returns <code>401</code>; a token used
+for anything but sending logs returns <code>403</code>.</p>
+<p>Events must be dated within the retention period and no more than a day ahead (a sender's clock can run a little fast).
+Others are refused and counted as rejected, with the reason, since each day's events are kept in their own file.</p>
+<h2 id="log-parsing">Log parsing</h2>
+<p><code>/api/v1/logs</code> converts each line into an OCSF event: syslog (RFC 3164 and 5424) headers give the time and hostname,
+the first two IPv4 addresses become source and destination, a user is picked up from patterns like <code>for user alice</code>,
+and severity comes from the syslog priority or keywords (<code>error</code>, <code>failed</code>, <code>warning</code>, ...). JSON objects that already
+contain <code>category_uid</code> are stored as OCSF; other JSON uses its <code>message</code>, <code>level</code> and timestamp fields. The detection
+is heuristic; use <code>?severity=</code> to override it, or give the source a parser. The message stored with an event is the
+text after the syslog header (the whole line when there isn't one). A line that only starts with a timestamp, such as
+<code>2026-10-04T13:42:07Z ERROR payment failed</code>, gets its time from it but no hostname.</p>
+<p>This is the <strong>Automatic</strong> setting of a source. <strong>None</strong> skips detection: each line is stored as it is, with the line as
+its message, the time it arrived, Informational severity and no addresses, user or host. <code>?source=</code> and <code>?severity=</code>
+still apply, and <a href="threat-intel.html">threat intel</a> still checks the line.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

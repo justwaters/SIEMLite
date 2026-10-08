@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit log · SIEMLite docs</title>
+<meta name="description" content="SIEMLite records what people do in it as events from the built-in INTERNAL source: sign-ins, failed and blocked">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a aria-current="page" href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="audit-log">Audit log</h1>
+<p>SIEMLite records what people do in it as events from the built-in <strong>INTERNAL</strong> source: sign-ins, failed and blocked
+sign-ins, sign-outs, changes to users, sources, parsers and rules, alerts acknowledged or closed, and backups created, downloaded, uploaded, restored or deleted. Command-line changes are recorded too, as "command line
+(user)". Each event names who did it and from which address, and has an <code>action</code> field such as <code>signin.failed</code> or
+<code>user.delete</code>. Search for them in the Database by choosing the INTERNAL source, or with a search like <code>"sign-in failed"</code>.
+They are kept, and removed by retention, like any other events.</p>
+<p>A failed sign-in names the account only if it exists; otherwise it says "an unknown username", so a password typed
+into the username field is never stored. Every failed sign-in is recorded until the address is locked out; the lockout is
+recorded once, not each retry. Beyond 600 failed sign-ins a minute (a flood from many addresses) the rest are counted
+in one Critical event, which raises an alert. Every analyst who isn't limited to some sources can
+read the audit log and acknowledge or close alerts.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

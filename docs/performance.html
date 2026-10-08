@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Performance · SIEMLite docs</title>
+<meta name="description" content="Measured with the load tests in `loadtest` (SIEMLITE_LOAD=hard) on one small machine: an AMD Ryzen">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong>
+- <a href="installation.html">Installation</a>
+- <a href="web-ui.html">The web UI</a>
+- <a href="sending-logs.html">Sending logs</a></p>
+<p><strong>Using SIEMLite</strong>
+- <a href="sources-and-tokens.html">Sources and tokens</a>
+- <a href="parsers.html">Parsers</a>
+- <a href="search.html">Search</a>
+- <a href="alerts.html">Alerts</a>
+- <a href="audit-log.html">Audit log</a>
+- <a href="geoip-and-asn.html">GeoIP and ASN</a>
+- <a href="threat-intel.html">Threat intel</a>
+- <a href="users-and-security.html">Users and security</a>
+- <a href="backups-and-updates.html">Backups and updates</a>
+- <a href="test-logs.html">Test logs</a></p>
+<p><strong>Reference</strong>
+- <a href="configuration.html">Configuration</a>
+- <a href="api-reference.html">API reference</a>
+- <a href="troubleshooting.html">Troubleshooting</a>
+- <a href="architecture.html">Architecture</a>
+- <a aria-current="page" href="performance.html">Performance</a>
+- <a href="development.html">Development</a></p></aside>
+  <main class="doc">
+<h1 id="performance">Performance</h1>
+<p>Measured with the load tests in <a href="https://github.com/justwaters/SIEMLite/blob/main/loadtest/doc.go"><code>loadtest</code></a> (<code>SIEMLITE_LOAD=hard</code>) on one small machine: an AMD Ryzen
+Embedded R2544 (4 cores, 8 threads), 14 GB of memory and an SSD, with the database on that SSD. Each figure is the 95th
+percentile with many clients working at once.</p>
+<p>The table below is version 0.7, which kept every event in one file, at 5 million events. Version 0.8 stores one file per
+day, and stores batches with multi-row inserts and one text-index update per batch, which made storing about four
+times faster. Measured on the <code>small</code> tier (500,000 events across 30 days, 8 senders): logs over HTTPS 19,500 events/s
+stored and searchable, TCP syslog 21,000 lines/s, filling storage directly 31,000 events/s, searches 6-170 ms, results
+5,001-5,100 about 450 ms, the dashboard 65 ms, the first alert check under 1 s, and backup and restore 4 s and 2 s.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Workload</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Logs over HTTPS, 32 apps sending 500-line batches at once</td>
+<td>4,600 events/s accepted, 3,700/s stored and searchable (about 320 million a day)</td>
+</tr>
+<tr>
+<td>Syslog over UDP at 4,000 messages/s for 75 s</td>
+<td>300,000 of 300,000 stored</td>
+</tr>
+<tr>
+<td>Syslog over TCP, 4 senders as fast as they can</td>
+<td>4,100 lines/s stored, none lost</td>
+</tr>
+<tr>
+<td>Search 5 million events (2.4 GB), 16 people at once: newest page, a common word, an address, a user</td>
+<td>4-27 ms</td>
+</tr>
+<tr>
+<td>... a phrase, three words with AND, a host and severity</td>
+<td>28-80 ms</td>
+</tr>
+<tr>
+<td>... a word within one day, results 5,001-5,100</td>
+<td>190-200 ms (a user limited to some sources: up to 530 ms)</td>
+</tr>
+<tr>
+<td>Dashboard over 5 million events</td>
+<td>1.4 s</td>
+</tr>
+<tr>
+<td>Alert rules, first check of all 5 million events</td>
+<td>7 s</td>
+</tr>
+<tr>
+<td>Backup of 5 million events (684 MB compressed) / restore</td>
+<td>33 s / 21 s</td>
+</tr>
+</tbody>
+</table></div>
+<p>When senders outpace storage, SIEMLite answers <code>503</code> with <code>Retry-After</code> and how many lines it kept, so nothing is
+lost silently; UDP syslog has no way to push back, so keep its rate under what storage sustains.</p>
+<p>Version 0.7 made search much faster on large databases. On 500,000 events with 8 people searching at once:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Search</th>
+<th>v0.6</th>
+<th>v0.7</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A common word</td>
+<td>2,330 ms</td>
+<td>20 ms</td>
+</tr>
+<tr>
+<td>Results 5,001-5,100 for a common word</td>
+<td>3,131 ms</td>
+<td>78 ms</td>
+</tr>
+<tr>
+<td>An address</td>
+<td>299 ms</td>
+<td>1 ms</td>
+</tr>
+<tr>
+<td>A host and severity, by a user limited to some sources</td>
+<td>960 ms</td>
+<td>41 ms</td>
+</tr>
+</tbody>
+</table></div>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>
