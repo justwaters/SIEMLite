@@ -185,7 +185,7 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 	if _, hasCat := generic["category_uid"]; hasCat {
 		var ev ocsf.Event
 		if err := json.Unmarshal([]byte(trimmed), &ev); err == nil {
-			ev.RawData = trimmed
+			ev.RawData = line
 			return &ev
 		}
 	}
@@ -196,7 +196,7 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 		ClassUID:    6003,
 		ActivityID:  99,
 		SeverityID:  ocsf.SeverityInformational,
-		RawData:     trimmed,
+		RawData:     line,
 		Unmapped:    generic,
 	}
 	if d.Source != "" {
