@@ -7,6 +7,7 @@
 <meta name="description" content="SIEMLite is a lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS or syslog, normalizes them to the OCSF event model, stores them in SQLite (one file per day) and gives you f">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
 </head>
 <body>
 <header class="top">
@@ -21,28 +22,34 @@
 </header>
 <div class="wrap layout">
   <aside class="side" aria-label="Documentation"><p><strong><a aria-current="page" href="./">Home</a></strong></p>
-<p><strong>Getting started</strong>
-- <a href="installation.html">Installation</a>
-- <a href="web-ui.html">The web UI</a>
-- <a href="sending-logs.html">Sending logs</a></p>
-<p><strong>Using SIEMLite</strong>
-- <a href="sources-and-tokens.html">Sources and tokens</a>
-- <a href="parsers.html">Parsers</a>
-- <a href="search.html">Search</a>
-- <a href="alerts.html">Alerts</a>
-- <a href="audit-log.html">Audit log</a>
-- <a href="geoip-and-asn.html">GeoIP and ASN</a>
-- <a href="threat-intel.html">Threat intel</a>
-- <a href="users-and-security.html">Users and security</a>
-- <a href="backups-and-updates.html">Backups and updates</a>
-- <a href="test-logs.html">Test logs</a></p>
-<p><strong>Reference</strong>
-- <a href="configuration.html">Configuration</a>
-- <a href="api-reference.html">API reference</a>
-- <a href="troubleshooting.html">Troubleshooting</a>
-- <a href="architecture.html">Architecture</a>
-- <a href="performance.html">Performance</a>
-- <a href="development.html">Development</a></p></aside>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
   <main class="doc">
 <h1 id="siemlite-wiki">SIEMLite wiki</h1>
 <p>SIEMLite is a lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS or syslog, normalizes them to the <a href="https://schema.ocsf.io/">OCSF</a> event model, stores them in SQLite (one file per day) and gives you full-text search through a built-in web UI and a small JSON API.</p>

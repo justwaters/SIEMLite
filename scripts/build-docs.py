@@ -20,7 +20,20 @@ pages = sorted(p.stem for p in wiki.glob("*.md") if not p.stem.startswith("_"))
 def target(name):
     return "./" if name == "Home" else name.lower() + ".html"
 
+def blank_before_lists(text):
+    """GitHub lets a list follow a paragraph directly; Python-Markdown needs a blank line first."""
+    out, fenced, prev = [], False, ""
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"[-*] ", line) and prev.strip() and not re.match(r"\s*([-*] |\d+\. )", prev) and not prev.startswith(" "):
+            out.append("")
+        out.append(line)
+        prev = line
+    return "\n".join(out)
+
 def md(text):
+    text = blank_before_lists(text)
     return markdown.markdown(text, extensions=["tables", "fenced_code", "toc"], extension_configs={"toc": {"permalink": False}})
 
 def links(h):
