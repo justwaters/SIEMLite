@@ -18,7 +18,7 @@
   :root {
     color-scheme: light;
     --paper: #f2f3f1; --surface: #ffffff; --raised: #e9ebe8; --ink: #1c1f21; --ink-2: #5f666b; --rule: #d9dcd8;
-    --sev-0: #8a949b; --sev-1: #6c7a86; --sev-2: #2f8463; --sev-3: #a47f12; --sev-4: #c35a1c; --sev-5: #c1333a; --sev-6: #8c2b69;
+    --sev-0: #8a949b; --sev-1: #6c7a86; --sev-2: #2f8463; --sev-3: #85680f; --sev-4: #c35a1c; --sev-5: #c1333a; --sev-6: #8c2b69;
     --chart-other: #5f666b;
     --sans: "Instrument Sans", system-ui, sans-serif;
     --mono: "Spline Sans Mono", ui-monospace, monospace;
@@ -28,14 +28,14 @@
     :root:not([data-theme="light"]) {
       color-scheme: dark;
       --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a;
-      --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e05257; --sev-6: #c0559a;
+      --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e77478; --sev-6: #c0559a;
       --chart-other: #7d858a;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
     --paper: #1a1e21; --surface: #21262a; --raised: #2a3035; --ink: #e4e6e3; --ink-2: #8f979c; --rule: #30363a;
-    --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e05257; --sev-6: #c0559a;
+    --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e77478; --sev-6: #c0559a;
     --chart-other: #7d858a;
   }
 
@@ -293,7 +293,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Alerts */
-  .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--sev-5); color: #fff;
+  .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--sev-5); color: var(--paper);
                font-size: 12px; font-weight: 700; text-align: center; line-height: 20px; }
   .alert-tabs { margin-bottom: 14px; }
   .alert-tabs .n { color: var(--ink-2); font-variant-numeric: tabular-nums; }
