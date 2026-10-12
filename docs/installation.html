@@ -38,6 +38,7 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -70,7 +71,7 @@ warn about the self-signed certificate unless you trust <code>siemlite.crt</code
 sends ten realistic test events a second, attacks included. See <a href="test-logs.html">Test logs</a>.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.9.1</code> in <code>.env</code> and run <code>docker compose pull &amp;&amp; docker compose up -d</code>.
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.10</code> in <code>.env</code> and run <code>docker compose pull &amp;&amp; docker compose up -d</code>.
 Or build from the checkout, and deploy and upgrade with one command:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
@@ -100,7 +101,7 @@ missed it, set a new one: <code>docker compose exec siemlite siemlite users pass
   answering.</li>
 </ul>
 <h2 id="upgrading">Upgrading</h2>
-<p>SIEMLite upgrades its database automatically on first start. On the System page you can <a href="backups-and-updates.html#updates">update in place</a> for plain-binary installs. Under Docker, pull the new image. Notes for each older version:</p>
+<p>SIEMLite upgrades its database automatically on first start. On the System page you can <a href="backups-and-updates.html#updates">update in place</a>, for a plain binary and for Docker (where the update is saved in the data volume). You can also pull or rebuild the image: <code>docker compose pull &amp;&amp; docker compose up -d</code>, or <code>git pull &amp;&amp; docker compose up -d --build</code>. Notes for each older version:</p>
 <h3 id="from-v08">From v0.8</h3>
 <p>Each day file is upgraded once, when the server (or a command) first opens it: the stored line
 becomes the event's message and the search index is rebuilt over the parsed event, which can take a little while on a

@@ -38,6 +38,7 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -121,6 +122,11 @@
 <td><code>GET /api/v1/system</code></td>
 <td>admin</td>
 <td>Database size and version, uptime, backups folder and free space.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/system/email</code>, <code>POST /api/v1/system/email/test</code></td>
+<td>admin</td>
+<td>The mail server settings (<code>{"host", "port", "security": "starttls"/"tls"/"none", "username", "password", "from_address", "from_name", "skip_verify"}</code>; the password is write-only, and leaving it out keeps the saved one) and a test send (the same fields plus <code>"to"</code>).</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>POST /api/v1/backups</code>, <code>PUT /api/v1/backups/settings</code>, <code>POST /api/v1/backups/upload</code></td>

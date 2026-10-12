@@ -38,6 +38,7 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="email.html">Email</a></li>
 <li><a aria-current="page" href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -59,7 +60,7 @@ parsers, rules, alerts and settings), made while SIEMLite keeps running and logg
 <ul>
 <li><strong>Restore</strong>: SIEMLite checks the backup, saves the current database as a "Before a restore" backup, restarts, and
   comes back with the backup in place, usually within seconds. To undo, restore the "Before a restore" backup.
-  Backups from older versions are upgraded as they open; backups from newer versions are refused. Version 0.7 and
+  Backups from older versions are upgraded as they open; backups from newer versions are refused. A saved <a href="email.html">email</a> password is in the backup encrypted, and the key is not, so enter it again after restoring onto a different server. Version 0.7 and
   earlier can't restore backups made by 0.8 or later.</li>
 <li><strong>Download</strong> a backup to keep a copy off the server, and <strong>Upload</strong> one (a <code>.tar.gz</code>, a <code>.db.gz</code> from before version
   0.8, or a <code>.db</code> file) to move SIEMLite to
@@ -78,11 +79,20 @@ parsers, rules, alerts and settings), made while SIEMLite keeps running and logg
 <p>The <strong>System</strong> page shows the version you're running and checks GitHub for a newer release (at most every six hours,
 or when you choose <strong>Check now</strong>). When one is out, <strong>Update and restart</strong> downloads the build for your platform,
 checks it against the release's <code>SHA256SUMS</code>, swaps it in for the running program and restarts, usually within
-seconds. Nothing changes if the download or check fails. The button appears when SIEMLite runs as a plain program
-it can write to; under Docker the page shows <code>docker compose pull &amp;&amp; docker compose up -d</code> instead. Updates are
-recorded in the audit log. Make a backup first if you might want to go back: a newer version can upgrade the
-database in ways older versions can't read. Pass <code>-update-check=false</code> (or <code>SIEMLITE_UPDATE_CHECK=false</code>) to stop
-SIEMLite contacting GitHub at all.</p>
+seconds. Nothing changes if the download or check fails. Updates are recorded in the audit log. Make a backup
+first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
+Pass <code>-update-check=false</code> (or <code>SIEMLITE_UPDATE_CHECK=false</code>) to stop SIEMLite contacting GitHub at all.</p>
+<ul>
+<li><strong>A plain program</strong> is replaced in place. The button appears when SIEMLite can write to its own folder.</li>
+<li><strong>Docker</strong> can't replace the program inside the image, so the update is saved in the data volume
+  (<code>/data/bin</code>) and the image's program hands over to it each time it starts. It survives restarts and
+  <code>docker compose up -d</code>. When you later rebuild or pull an image that is as new, the saved copy is removed
+  automatically. If a saved update doesn't come up after two starts, it is removed and the image's own version runs,
+  so a bad update can't stop the container from starting. This needs no access to the Docker socket.
+  <code>docker compose exec siemlite siemlite ...</code> commands (and <code>siemlite version</code>) still run the image's own version
+  until the image is rebuilt or pulled.</li>
+<li>If SIEMLite can't write where it needs to, the card says so and shows <code>docker compose pull &amp;&amp; docker compose up -d</code>.</li>
+</ul>
   </main>
 </div>
 <footer>

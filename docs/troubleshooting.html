@@ -38,6 +38,7 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -108,9 +109,19 @@
 <p>Search covers the parsed event (message, program, host, user, addresses and parsed fields). The original line is removed 24 hours after the event arrives, so search for what the parser understood. See <a href="search.html">Search</a>.</p>
 <h2 id="an-update-or-restore-didnt-work">An update or restore didn't work</h2>
 <ul>
-<li>The <strong>Update and restart</strong> button only appears for a plain-binary install that can write to its own folder. Under Docker, pull the new image.</li>
+<li>The <strong>Update and restart</strong> button appears for a plain-binary install that can write to its own folder, and for Docker (the update is saved in the data volume). If SIEMLite can't write where it needs to, the card says so and shows the command to pull the new image. See <a href="backups-and-updates.html#updates">Backups and updates</a>.</li>
 <li>Failed downloads or checksum mismatches change nothing.</li>
 <li>Backups from newer versions are refused by older ones. Make a backup before updating if you may want to go back. See <a href="backups-and-updates.html">Backups and updates</a>.</li>
+</ul>
+<h2 id="the-test-email-fails">The test email fails</h2>
+<p>The message is the mail server's own answer. The usual causes:</p>
+<ul>
+<li><strong>Couldn't connect</strong>: the server name or port is wrong, or a firewall blocks it. Use 587 with STARTTLS, 465 with TLS, or 25 with no encryption.</li>
+<li><strong>The server doesn't offer STARTTLS</strong>: choose TLS or no encryption, or check the port.</li>
+<li><strong>The secure connection failed</strong>: the certificate doesn't verify. Fix the name or certificate, or tick <strong>Accept any certificate</strong> for a self-signed one.</li>
+<li><strong>The server rejected the login</strong>: check the username and password. Many providers need an app password, or a login that is allowed to send mail.</li>
+<li><strong>The server refused the sender</strong>: the <strong>Send from</strong> address must be one the server lets that login send as.</li>
+<li><strong>"Enter the password again"</strong> appears after changing the server or login, or after restoring a backup onto another server. See <a href="email.html">Email</a>.</li>
 </ul>
 <h2 id="still-stuck">Still stuck</h2>
 <p>Check the server log, <code>GET /health</code> (details when signed in), and the <a href="audit-log.html">audit log</a>, then <a href="https://github.com/justwaters/SIEMLite/issues">open an issue</a>.</p>

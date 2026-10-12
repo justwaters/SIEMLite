@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email · SIEMLite docs</title>
+<meta name="description" content="The System page has an Email section for the mail server SIEMLite sends email through. Fill in the server,">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a aria-current="page" href="email.html">Email</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="email">Email</h1>
+<p>The <strong>System</strong> page has an <strong>Email</strong> section for the mail server SIEMLite sends email through. Fill in the server,
+choose the connection security, add a login if the server needs one, and say what address mail is sent from.
+<strong>Send test</strong> sends a message with the settings as they are in the form, before you save them, and shows the
+server's own error if it fails (a wrong password, a port that isn't listening, a certificate that doesn't verify).</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Security</th>
+<th>Usual port</th>
+<th>Use it for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>STARTTLS</strong></td>
+<td>587</td>
+<td>Most mail providers and relays: starts plain, then upgrades to an encrypted connection.</td>
+</tr>
+<tr>
+<td><strong>TLS</strong></td>
+<td>465</td>
+<td>Servers that expect an encrypted connection from the first byte.</td>
+</tr>
+<tr>
+<td><strong>None</strong></td>
+<td>25</td>
+<td>A relay on a network you trust. The login and every message cross the network in plain text.</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>Logins use PLAIN or LOGIN, whichever the server offers.</li>
+<li><strong>Accept any certificate</strong> is for a server with a self-signed certificate. The connection is still encrypted, but SIEMLite
+  can't tell whether it is talking to the right server.</li>
+<li>The password is <strong>encrypted</strong> with a key in <code>siemlite-secret.key</code>, next to the database (<code>/data</code> with Docker). It is
+  never shown again, and the page only says whether one is saved. A backup contains the encrypted password but not the
+  key, so after a backup is restored onto a different server the page says the password can't be read there; enter
+  it again. Keep <code>siemlite-secret.key</code> private, like <code>siemlite.key</code>.</li>
+<li>The saved password is only ever used with the server and login it was saved for. If you change the server, port,
+  security or username, and for <strong>Send test</strong> against a different server, type the password again, so nothing can
+  make SIEMLite log in somewhere else with the saved one.</li>
+<li>Saving and testing are recorded in the <a href="audit-log.html">audit log</a> (without the password).</li>
+<li>This sets up the connection only; nothing sends email by itself yet.</li>
+</ul>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>
