@@ -27,6 +27,7 @@
 <li><a href="installation.html">Installation</a></li>
 <li><a href="web-ui.html">The web UI</a></li>
 <li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
 </ul>
 <p><strong>Using SIEMLite</strong></p>
 <ul>
@@ -38,6 +39,8 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a aria-current="page" href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
@@ -65,13 +68,18 @@
 ./siemlite users passwd -username alice                 # also signs alice out everywhere
 ./siemlite users delete -username alice
 </code></pre>
+<p>Accounts that sign in with Microsoft (see <a href="sign-in-with-microsoft.html">Sign in with Microsoft</a>) are marked <strong>Microsoft</strong> on the
+Users page. They have no password, so <strong>Change password</strong> isn't offered for them. An admin can still change their role and which sources
+they see.</p>
 <p>Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code> cookie,
 and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window.</p>
 <h2 id="transport-and-tokens">Transport and tokens</h2>
 <ul>
-<li>HTTPS only: there is no plain-HTTP listener. A self-signed certificate is generated on first start, or bring your own with <code>-tls-cert</code> / <code>-tls-key</code>.</li>
+<li>HTTPS only for the web UI: a self-signed certificate is generated on first start, or bring your own with <code>-tls-cert</code> / <code>-tls-key</code>. On the internet, Caddy serves it with a Let's Encrypt certificate; see <a href="run-on-the-internet.html">Run on the internet</a>.</li>
+<li>Behind Caddy, SIEMLite believes visitors' addresses only from Caddy (<code>-trusted-proxies</code>), so sign-in lockouts and the audit log apply to the real visitor and can't be fooled by a forged <code>X-Forwarded-For</code>.</li>
 <li>Access tokens can only send logs. Only a SHA-256 hash is stored.</li>
 <li>Syslog has no authentication, so only <a href="sending-logs.html#syslog">allowed senders</a> are accepted.</li>
+<li>Secrets SIEMLite keeps (the email password, the Entra client secret) are encrypted with <code>siemlite-secret.key</code>, which isn't in backups.</li>
 <li>Client-certificate (mTLS) verification and per-key rate limiting are not implemented yet.</li>
 <li>Sign-ins, changes and backups are recorded in the <a href="audit-log.html">audit log</a>.</li>
 </ul>

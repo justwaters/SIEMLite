@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run on the internet · SIEMLite docs</title>
+<meta name="description" content="To serve SIEMLite on a public domain, let Caddy be its web server. Caddy gets a certificate from">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+<li><a aria-current="page" href="run-on-the-internet.html">Run on the internet</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="email.html">Email</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="run-on-the-internet">Run on the internet</h1>
+<p>To serve SIEMLite on a public domain, let <a href="https://caddyserver.com">Caddy</a> be its web server. Caddy gets a certificate from
+Let's Encrypt, renews it by itself, and redirects plain HTTP to HTTPS. SIEMLite's web ports then aren't published at all:
+only Caddy can reach SIEMLite, over a private port on the Docker network. Before you start:</p>
+<ul>
+<li>A DNS name (an A or AAAA record) that points at this server, such as <code>siem.example.com</code>.</li>
+<li>Ports 80 and 443 reachable from the internet. Let's Encrypt connects to one of them to check you control the name.</li>
+</ul>
+<p>Then add to <code>.env</code> and run <code>docker compose up -d</code>:</p>
+<pre><code class="language-sh">COMPOSE_FILE=compose.yaml:compose.public.yaml
+SIEMLITE_DOMAIN=siem.example.com
+</code></pre>
+<p>Open <code>https://siem.example.com</code>. Caddy gets the certificate on that first visit (usually within seconds); <code>docker compose logs caddy</code>
+shows it.</p>
+<p><strong>Changing the domain</strong> is done on the <strong>System</strong> page, under <strong>Web address</strong>; no restart or file edit is needed. Caddy asks SIEMLite
+before it gets a certificate for any name, and SIEMLite agrees only to the domain set there (or, until one is, <code>SIEMLITE_DOMAIN</code>), so
+nobody can make Caddy request certificates for names that aren't yours. When you move to a new domain, visitors who use the old one are
+redirected to it. <code>SIEMLITE_DOMAIN</code> is still needed in <code>.env</code>: it is where SIEMLite starts, since it can't be reached any other way.</p>
+<ul>
+<li><strong>Visitors' addresses</strong> reach SIEMLite in <code>X-Forwarded-For</code>, which it believes only from Caddy (<code>-trusted-proxies=caddy</code>),
+  so sign-in lockouts apply to the person who failed, not to everyone, and the audit log shows who it was. Caddy throws away any
+  <code>X-Forwarded-For</code> a visitor sends, so it can't be forged, and SIEMLite's plain port refuses anyone but Caddy. Caddy runs on a
+  Docker network (<code>edge</code>) that only SIEMLite shares, so no other container can ever take an address SIEMLite trusts as Caddy's;
+  don't add other services to it.</li>
+<li><strong>Syslog</strong> is still published on its own ports, and senders outside loopback and private networks are refused unless you list
+  them in <code>SIEMLITE_SYSLOG_ALLOW</code>. Don't open syslog to the internet: it has no authentication. Syslog over TLS keeps SIEMLite's own
+  certificate.</li>
+<li><strong>Apps sending logs</strong> use <code>https://siem.example.com/api/v1/logs</code>. The certificate is trusted everywhere, so the snippets on the
+  Connect screen work without <code>siemlite.crt</code>; remove those lines.</li>
+<li><strong>Microsoft sign-in</strong>: set the SIEMLite address on the Entra card to <code>https://siem.example.com</code>.</li>
+<li>Caddy keeps the certificate in the <code>caddy-data</code> volume; keep it, or Caddy asks Let's Encrypt again on every rebuild. It adds
+  <code>Strict-Transport-Security</code> and compresses responses. To change anything else, edit <code>caddy/Caddyfile</code>.</li>
+<li>Inside the Docker network SIEMLite still serves HTTPS on 8443 (the health check and the log generator use it); it is not
+  published.</li>
+<li>Not for a private network with no public name: Let's Encrypt can't reach it. Keep the default setup there.</li>
+</ul>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>
