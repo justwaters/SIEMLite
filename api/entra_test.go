@@ -360,3 +360,59 @@ func TestSignInWithMicrosoftRefusals(t *testing.T) {
 		t.Errorf("after many failures: %q", resp.Header.Get("Location"))
 	}
 }
+
+func TestTurningOffEntraCannotLockEveryoneOut(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin) // a local admin, to configure it
+	root := e.client()
+	e.login(root, "root", password)
+	form := entraForm(e)
+	form["admin_group_id"] = entratest.AdminGroup
+	if got := e.call(root, "PUT", "/api/v1/integrations/entra", form, nil, nil); got != 200 {
+		t.Fatalf("save = %d", got)
+	}
+	e.ms.Set(entratest.AccessGroup, annOID, true)
+	e.ms.Set(entratest.AdminGroup, annOID, true)
+	br := e.browser()
+	authURL, state := e.startSSO(br)
+	e.ms.Expect(authURL, annOID, "ann@example.com")
+	if resp := e.get(br, "/api/v1/auth/entra/callback?code="+entratest.Code+"&state="+state); resp.Header.Get("Location") != "/" {
+		t.Fatalf("sign-in = %q", resp.Header.Get("Location"))
+	}
+	var me struct{ Role string }
+	if got := e.call(br, "GET", "/api/v1/me", nil, &me, nil); got != 200 || me.Role != "admin" {
+		t.Fatalf("ann = %d %+v", got, me)
+	}
+
+	// The local admin can turn it off: Ann's session ends, and she can't sign in again until it is back on.
+	var card map[string]any
+	if got := e.call(root, "POST", "/api/v1/integrations/entra/enabled", map[string]any{"enabled": false}, &card, nil); got != 200 || card["state"] != "off" {
+		t.Fatalf("turn off = %d %v", got, card)
+	}
+	if got := e.call(br, "GET", "/api/v1/me", nil, nil, nil); got != 401 {
+		t.Errorf("a Microsoft session survived turning it off = %d", got)
+	}
+	if got := e.call(root, "GET", "/api/v1/me", nil, nil, nil); got != 200 {
+		t.Errorf("the local admin was signed out = %d", got)
+	}
+	e.call(root, "POST", "/api/v1/integrations/entra/enabled", map[string]any{"enabled": true}, nil, nil)
+
+	// Without any local admin left, the same request is refused.
+	if err := e.repo.SetUserDisabled(t.Context(), 1, true); err != nil && !strings.Contains(err.Error(), "admin") {
+		t.Fatal(err)
+	}
+	ann := e.browser()
+	authURL, state = e.startSSO(ann)
+	e.ms.Expect(authURL, annOID, "ann@example.com")
+	e.get(ann, "/api/v1/auth/entra/callback?code="+entratest.Code+"&state="+state)
+	var er map[string]string
+	if got := e.call(ann, "POST", "/api/v1/integrations/entra/enabled", map[string]any{"enabled": false}, &er, nil); got != 400 || !strings.Contains(er["error"], "lock everyone out") {
+		t.Errorf("turning off as the only admin = %d %v", got, er)
+	}
+	if got := e.call(ann, "PUT", "/api/v1/integrations/entra", map[string]any{}, &er, nil); got != 400 {
+		t.Errorf("removing as the only admin = %d %v", got, er)
+	}
+	if got := e.call(ann, "GET", "/api/v1/me", nil, nil, nil); got != 200 {
+		t.Errorf("the refused change signed her out = %d", got)
+	}
+}

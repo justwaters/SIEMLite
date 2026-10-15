@@ -11,12 +11,12 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"siemlite/pkg/integrations"
 )
 
 // InputError is a mistake in what a person entered, worded for them.
-type InputError string
-
-func (e InputError) Error() string { return string(e) }
+type InputError = integrations.InputError
 
 // Provider is this integration's value in users.auth_provider.
 const Provider = "entra"

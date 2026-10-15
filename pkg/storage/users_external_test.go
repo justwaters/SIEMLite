@@ -138,3 +138,46 @@ func TestDisabledAdminsDontCount(t *testing.T) {
 		t.Errorf("with another enabled admin: %v", err)
 	}
 }
+
+func TestSessionsAndAdminsByProvider(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewRepository(db)
+	local, _ := repo.CreateUser(ctx, "root", "h", "admin", 1)
+	a, _ := repo.CreateExternalUser(ctx, "entra", "o1", "boss@example.com", "admin", 2)
+	b, _ := repo.CreateExternalUser(ctx, "entra", "o2", "ann@example.com", "standard", 2)
+	for tok, id := range map[string]int64{"t-local": local, "t-a": a, "t-b": b} {
+		if err := repo.CreateSession(ctx, tok, id, 1, 1<<50); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, _ := repo.CountEnabledAdmins(ctx, "entra"); n != 1 {
+		t.Errorf("entra admins = %d", n)
+	}
+	if n, _ := repo.CountEnabledAdmins(ctx, ProviderLocal); n != 1 {
+		t.Errorf("local admins = %d", n)
+	}
+	repo.SetUserDisabled(ctx, a, true)
+	if n, _ := repo.CountEnabledAdmins(ctx, "entra"); n != 0 {
+		t.Errorf("a disabled admin is counted: %d", n)
+	}
+
+	// Only that provider's sessions go. (Disabling `a` already ended theirs.)
+	n, err := repo.DeleteSessionsByProvider(ctx, "entra")
+	if err != nil || n != 1 {
+		t.Fatalf("deleted %d, %v", n, err)
+	}
+	if _, err := repo.FindSession(ctx, "t-b", 2); !errors.Is(err, ErrUserNotFound) {
+		t.Error("an entra session survived")
+	}
+	if _, err := repo.FindSession(ctx, "t-local", 2); err != nil {
+		t.Errorf("a local session was ended: %v", err)
+	}
+	if n, _ := repo.DeleteSessionsByProvider(ctx, "entra"); n != 0 {
+		t.Errorf("second delete = %d", n)
+	}
+}

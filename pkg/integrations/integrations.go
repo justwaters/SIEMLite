@@ -29,6 +29,13 @@ type Info struct {
 	Enabled    bool   `json:"enabled"`
 }
 
+// InputError is a mistake in what a person entered (or a request that would
+// cause harm, like turning off the only way in), worded for them. Integrations
+// return it so the API can answer 400 with the message rather than 500.
+type InputError string
+
+func (e InputError) Error() string { return string(e) }
+
 // Integration is what the page needs from each one. Its own settings are
 // saved and tested through its own endpoints.
 type Integration interface {

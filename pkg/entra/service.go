@@ -133,6 +133,9 @@ type SyncStatus struct {
 	Disabled int    `json:"disabled"` // switched off this time
 	Enabled  int    `json:"enabled"`  // switched back on this time
 	Changed  int    `json:"changed"`  // roles changed this time
+	// Protected counts people who are no longer in the group but were kept,
+	// because switching them off would leave no enabled admin.
+	Protected int `json:"protected"`
 }
 
 // View is what the Integrations page shows. The client secret is never included.
@@ -213,10 +216,16 @@ func (s *Service) Save(ctx context.Context, cfg Config, clientSecret *string) er
 	defer s.mu.Unlock()
 	cfg = cfg.normalize()
 	if cfg.TenantID == "" && cfg.ClientID == "" {
+		if err := s.refuseIfLockout(ctx); err != nil {
+			return err
+		}
 		s.tokMu.Lock()
 		s.tokens = nil
 		s.tokMu.Unlock()
-		return s.store.SetSetting(ctx, settingKey, "")
+		if err := s.store.SetSetting(ctx, settingKey, ""); err != nil {
+			return err
+		}
+		return s.endMicrosoftSessions(ctx)
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -313,7 +322,29 @@ func (s *Service) Info(ctx context.Context) (integrations.Info, error) {
 	return info, nil
 }
 
+// refuseIfLockout guards turning the integration off or removing it, which
+// also ends every Microsoft session so that it takes effect now. It refuses if
+// the only enabled admins are Microsoft accounts and no local admin exists:
+// they would be signed out with no way back in.
+func (s *Service) refuseIfLockout(ctx context.Context) error {
+	sso, err := s.repo.CountEnabledAdmins(ctx, Provider)
+	if err != nil {
+		return err
+	}
+	if sso > 0 {
+		local, err := s.repo.CountEnabledAdmins(ctx, storage.ProviderLocal)
+		if err != nil {
+			return err
+		}
+		if local == 0 {
+			return InputError("The only admins sign in with Microsoft, so turning this off would lock everyone out. Create a local admin account first (Users page, or `siemlite users create -role admin`).")
+		}
+	}
+	return nil
+}
+
 // SetEnabled turns single sign-on on or off without touching the settings.
+// Turning it off also signs out everyone who signed in with Microsoft.
 func (s *Service) SetEnabled(ctx context.Context, on bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -324,8 +355,30 @@ func (s *Service) SetEnabled(ctx context.Context, on bool) error {
 	if st.TenantID == "" || st.Secret == "" {
 		return InputError("Set up the Entra app first.")
 	}
+	if !on && !st.Disabled {
+		if err := s.refuseIfLockout(ctx); err != nil {
+			return err
+		}
+	}
 	st.Disabled = !on
-	return s.save(ctx, st)
+	if err := s.save(ctx, st); err != nil {
+		return err
+	}
+	if !on {
+		return s.endMicrosoftSessions(ctx)
+	}
+	return nil
+}
+
+func (s *Service) endMicrosoftSessions(ctx context.Context) error {
+	n, err := s.repo.DeleteSessionsByProvider(ctx, Provider)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		s.log.Warn("single sign-on switched off: Microsoft sessions ended", "sessions", n)
+	}
+	return nil
 }
 
 // Active reports whether sign-in with Microsoft is on, for the sign-in page.
@@ -601,7 +654,13 @@ func (s *Service) Sync(ctx context.Context) (SyncStatus, error) {
 		switch {
 		case !allowed && !u.Disabled:
 			if err := s.repo.SetUserDisabled(ctx, u.ID, true); err != nil {
-				s.log.Warn("couldn't switch off a single sign-on user", "user", u.Username, "err", err)
+				if errors.Is(err, storage.ErrLastAdmin) {
+					stat.Protected++
+					s.log.Warn("single sign-on user is no longer in the access group but is the last enabled admin, so was kept: create another admin",
+						"user", u.Username)
+				} else {
+					s.log.Warn("couldn't switch off a single sign-on user", "user", u.Username, "err", err)
+				}
 				continue
 			}
 			stat.Disabled++

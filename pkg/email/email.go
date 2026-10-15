@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"siemlite/pkg/integrations"
 )
 
 // Connection security.
@@ -35,11 +37,8 @@ const (
 	sendTimeout = 60 * time.Second
 )
 
-// InputError is a mistake in what a person entered, worded for them (as
-// opposed to a server failing).
-type InputError string
-
-func (e InputError) Error() string { return string(e) }
+// InputError is a mistake in what a person entered, worded for them.
+type InputError = integrations.InputError
 
 // Config is the server and sender, without the password.
 type Config struct {

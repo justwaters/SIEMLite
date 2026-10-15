@@ -384,3 +384,24 @@ func (r *Repository) SetUserDisabled(ctx context.Context, id int64, disabled boo
 	}
 	return tx.Commit()
 }
+
+// DeleteSessionsByProvider ends every session of the accounts that sign in
+// through a provider, and returns how many there were.
+func (r *Repository) DeleteSessionsByProvider(ctx context.Context, provider string) (int64, error) {
+	res, err := r.db.Write.ExecContext(ctx,
+		`DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE auth_provider = ?)`, provider)
+	if err != nil {
+		return 0, fmt.Errorf("clear sessions: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// CountEnabledAdmins returns how many enabled admins sign in through a provider.
+func (r *Repository) CountEnabledAdmins(ctx context.Context, provider string) (int, error) {
+	var n int
+	if err := r.db.Read.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0 AND auth_provider = ?`, provider).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count admins: %w", err)
+	}
+	return n, nil
+}

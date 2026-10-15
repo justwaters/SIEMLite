@@ -476,3 +476,116 @@ func TestSettingsAndTheSecret(t *testing.T) {
 		t.Errorf("turning on with nothing saved: %v", err)
 	}
 }
+
+func TestTurningOffSignsMicrosoftAccountsOut(t *testing.T) {
+	e := newEnv(t)
+	cfg := e.cfg
+	cfg.AdminGroupID = adminGroup
+	e.svc.Save(bg(), cfg, nil)
+	e.ms.Set(accessGroup, ann, true)
+	e.ms.Set(accessGroup, bob, true)
+	e.ms.Set(adminGroup, ann, true)
+	a, err := e.signIn(ann, "ann@example.com") // an admin who signs in with Microsoft
+	if err != nil || a.Role != "admin" {
+		t.Fatal(a, err)
+	}
+	b, _ := e.signIn(bob, "bob@example.com")
+	e.repo.CreateSession(bg(), "ann", a.ID, 1, 1<<50)
+	e.repo.CreateSession(bg(), "bob", b.ID, 1, 1<<50)
+	alive := func(tok string) bool { _, err := e.repo.FindSession(bg(), tok, 2); return err == nil }
+	var in InputError
+
+	// With no local admin, turning it off or removing it would lock everyone out: refused, nothing changes.
+	if err := e.svc.SetEnabled(bg(), false); !errors.As(err, &in) || !strings.Contains(err.Error(), "lock everyone out") {
+		t.Fatalf("turning off with only Microsoft admins: %v", err)
+	}
+	if err := e.svc.Save(bg(), Config{}, nil); !errors.As(err, &in) {
+		t.Fatalf("removing with only Microsoft admins: %v", err)
+	}
+	if v, _ := e.svc.Get(bg()); !v.Enabled || !v.Configured {
+		t.Errorf("a refused change took effect: %+v", v)
+	}
+	if !alive("ann") || !alive("bob") {
+		t.Error("a refused change ended sessions")
+	}
+
+	// With a local admin (who has a session of their own), off ends every Microsoft session and only those.
+	root, _ := e.repo.CreateUser(bg(), "root", "h", "admin", 1)
+	e.repo.CreateSession(bg(), "root", root, 1, 1<<50)
+	if err := e.svc.SetEnabled(bg(), false); err != nil {
+		t.Fatal(err)
+	}
+	if alive("ann") || alive("bob") {
+		t.Error("Microsoft sessions survived turning the integration off")
+	}
+	if !alive("root") {
+		t.Error("a local session was ended")
+	}
+	if u, _ := e.repo.FindExternalUser(bg(), "entra", ann); u.Disabled || u.Role != "admin" {
+		t.Errorf("the accounts should be kept as they were: %+v", u)
+	}
+	if _, err := e.signIn(bob, "bob@example.com"); !errors.Is(err, ErrNotActive) {
+		t.Errorf("signing in while off: %v", err)
+	}
+	// Turning it on again lets them sign in again.
+	if err := e.svc.SetEnabled(bg(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.signIn(bob, "bob@example.com"); err != nil {
+		t.Errorf("signing in after turning it back on: %v", err)
+	}
+
+	// Removing it ends them too.
+	e.repo.CreateSession(bg(), "bob2", b.ID, 1, 1<<50)
+	if err := e.svc.Save(bg(), Config{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if alive("bob2") {
+		t.Error("a Microsoft session survived removing the integration")
+	}
+	if v, _ := e.svc.Get(bg()); v.Configured {
+		t.Error("not removed")
+	}
+}
+
+func TestTurningOffIsAllowedWithoutMicrosoftAdmins(t *testing.T) {
+	e := newEnv(t) // no admin group, so everyone is Standard and nobody depends on Microsoft to administer
+	e.ms.Set(accessGroup, bob, true)
+	b, err := e.signIn(bob, "bob@example.com")
+	if err != nil || b.Role != "standard" {
+		t.Fatal(b, err)
+	}
+	e.repo.CreateSession(bg(), "bob", b.ID, 1, 1<<50)
+	if err := e.svc.SetEnabled(bg(), false); err != nil {
+		t.Fatalf("turning off with no Microsoft admins: %v", err)
+	}
+	if _, err := e.repo.FindSession(bg(), "bob", 2); err == nil {
+		t.Error("the session survived")
+	}
+}
+
+func TestSyncSaysWhoWasKeptBecauseTheyAreTheLastAdmin(t *testing.T) {
+	e := newEnv(t)
+	cfg := e.cfg
+	cfg.AdminGroupID = adminGroup
+	e.svc.Save(bg(), cfg, nil)
+	e.ms.Set(accessGroup, ann, true)
+	e.ms.Set(adminGroup, ann, true)
+	if _, err := e.signIn(ann, "ann@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	e.ms.Remove(accessGroup, ann)
+	e.ms.Remove(adminGroup, ann)
+	st, err := e.svc.Sync(bg())
+	if err != nil || st.Disabled != 0 || st.Protected != 1 {
+		t.Fatalf("sync = %+v %v", st, err)
+	}
+	if v, _ := e.svc.Get(bg()); v.LastSync == nil || v.LastSync.Protected != 1 {
+		t.Errorf("the status doesn't say: %+v", v.LastSync)
+	}
+	// Once another admin exists the next check switches her off.
+	e.repo.CreateUser(bg(), "root", "h", "admin", 1)
+	if st, err = e.svc.Sync(bg()); err != nil || st.Disabled != 1 || st.Protected != 0 {
+		t.Errorf("sync with another admin = %+v %v", st, err)
+	}
+}

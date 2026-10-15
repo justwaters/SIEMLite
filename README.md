@@ -472,12 +472,14 @@ Enter them on the card, choose **Test connection** (it shows the group names and
   and everyone else is Standard; the role follows the group at each sign-in and check. Without one, roles are yours to set.
 - **Leaving the group** switches the account off and ends its sessions within five minutes (SIEMLite checks every five minutes, and
   you can choose **Check the group now**). It is also refused at the next sign-in. Someone who is added back is switched on again.
-  If Microsoft can't be reached, nothing is changed. An account is never switched off or demoted if it is the last enabled admin.
+  If Microsoft can't be reached, nothing is changed. An account is never switched off or demoted if it is the last enabled admin: it is
+  kept, the check says so, and it can't sign in again while it is outside the group, so create another admin.
 - **Accounts are matched by Microsoft's object ID**, not by name. A Microsoft user name that matches an existing local account is
   refused, never linked to it, so nobody can take over a local account by having the same name.
 - **Password sign-in stays** for local accounts, so keep a local admin in case Microsoft is unreachable. Accounts that sign in with
-  Microsoft have no password. Turning the integration off, or removing it, stops new Microsoft sign-ins but doesn't end sessions that
-  are already open (they last up to 12 hours); the accounts stay.
+  Microsoft have no password. Turning the integration off, or removing it, stops new Microsoft sign-ins and signs out everyone who signed in
+  with Microsoft right away; the accounts stay, and local sessions are not touched. It is refused if the only enabled admins sign
+  in with Microsoft, since they would be locked out: create a local admin first.
 - The **client secret** is encrypted like the [email](#email) password (with `siemlite-secret.key`), is never shown again, and is only
   ever used with the tenant and app it was saved for.
 - Sign-ins, refusals, and changes to these settings are in the [audit log](#audit-log) (`signin.sso`, `signin.sso.failed`,

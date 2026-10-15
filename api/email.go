@@ -177,7 +177,7 @@ func (s *Server) handleSetIntegrationEnabled(w http.ResponseWriter, r *http.Requ
 	}
 	who := auth.FromContext(r.Context()).Name
 	if err := it.SetEnabled(r.Context(), *body.Enabled); err != nil {
-		var bad email.InputError
+		var bad integrations.InputError
 		if errors.As(err, &bad) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

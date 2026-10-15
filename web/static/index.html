@@ -2648,7 +2648,8 @@ function entraFill(v) {
   st.textContent = v.secret_unreadable ? "The saved client secret can't be read on this server (it may have come from a backup), so enter it again and save."
     : v.enabled ? "People in the access group can sign in with Microsoft from the sign-in page." : "Set up, but turned off, so the sign-in page doesn't offer Microsoft.";
   if (v.last_sync) st.textContent += v.last_sync.ok
-    ? ` Last check ${new Date(v.last_sync.at).toLocaleTimeString()}: ${v.last_sync.members} in the group, ${v.last_sync.accounts} accounts.`
+    ? ` Last check ${new Date(v.last_sync.at).toLocaleTimeString()}: ${v.last_sync.members} in the group, ${v.last_sync.accounts} accounts.` +
+      (v.last_sync.protected ? ` ${v.last_sync.protected} no longer in the group ${v.last_sync.protected === 1 ? "is" : "are"} kept as the last admin; create another admin.` : "")
     : ` The last check (${new Date(v.last_sync.at).toLocaleTimeString()}) failed: ${v.last_sync.error}`;
 }
 async function loadEntra() {
@@ -2695,7 +2696,8 @@ $("entra-sync").onclick = async () => {
   notice($("entra-msg"), "Checking the group…", true);
   try {
     const r = await apiJSON("/api/v1/integrations/entra/sync", { method: "POST" });
-    notice($("entra-msg"), `Checked: ${r.members} in the group, ${r.accounts} accounts here. ${r.disabled} switched off, ${r.enabled} switched on, ${r.changed} roles changed.`, true);
+    notice($("entra-msg"), `Checked: ${r.members} in the group, ${r.accounts} accounts here. ${r.disabled} switched off, ${r.enabled} switched on, ${r.changed} roles changed.` +
+      (r.protected ? ` ${r.protected} no longer in the group ${r.protected === 1 ? "was" : "were"} kept because switching them off would leave no admin. Create another admin.` : ""), true);
     await loadEntra();
   } catch (err) { notice($("entra-msg"), err.message); }
   entraBusy(false);
