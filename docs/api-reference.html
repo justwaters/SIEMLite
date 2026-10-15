@@ -27,6 +27,7 @@
 <li><a href="installation.html">Installation</a></li>
 <li><a href="web-ui.html">The web UI</a></li>
 <li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
 </ul>
 <p><strong>Using SIEMLite</strong></p>
 <ul>
@@ -38,6 +39,8 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
@@ -124,9 +127,39 @@
 <td>Database size and version, uptime, backups folder and free space.</td>
 </tr>
 <tr>
-<td><code>GET</code>/<code>PUT /api/v1/system/email</code>, <code>POST /api/v1/system/email/test</code></td>
+<td><code>GET</code>/<code>PUT /api/v1/system/public</code></td>
 <td>admin</td>
-<td>The mail server settings (<code>{"host", "port", "security": "starttls"/"tls"/"none", "username", "password", "from_address", "from_name", "skip_verify"}</code>; the password is write-only, and leaving it out keeps the saved one) and a test send (the same fields plus <code>"to"</code>).</td>
+<td>The public domain Caddy serves SIEMLite on: <code>{"domain"}</code> (empty removes it). Reports where the domain comes from, whether Caddy is in front, and what the name resolves to.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/caddy/ask?domain=</code></td>
+<td>Caddy only</td>
+<td>Caddy asks this before getting a certificate: <code>200</code> for the public domain, <code>404</code> for anything else. Refused for anyone but a trusted proxy asking directly.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/integrations</code></td>
+<td>admin</td>
+<td>The built-in integrations and their state: <code>{"integrations": [{"id", "name", "description", "state": "needs_setup"/"off"/"on"/"error", "summary", "configured", "enabled"}]}</code>.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/integrations/{id}/enabled</code></td>
+<td>admin</td>
+<td>Turn an integration on or off, keeping its settings: <code>{"enabled": true}</code>. Refused until it is set up.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/integrations/email</code>, <code>POST /api/v1/integrations/email/test</code></td>
+<td>admin</td>
+<td>The email settings (<code>{"host", "port", "security": "starttls"/"tls"/"none", "username", "password", "from_address", "from_name", "skip_verify"}</code>; the password is write-only, and leaving it out keeps the saved one) and a test send (the same fields plus <code>"to"</code>). These were <code>/api/v1/system/email</code> in v0.10, which still works.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/integrations/entra</code>, <code>POST /api/v1/integrations/entra/test</code>, <code>POST /api/v1/integrations/entra/sync</code></td>
+<td>admin</td>
+<td>The Microsoft Entra ID settings (<code>{"tenant_id", "client_id", "client_secret", "public_url", "access_group_id", "admin_group_id"}</code>; the client secret is write-only, and leaving it out keeps the saved one, but only for the same tenant and app), a connection test (the same fields; reports the groups it can read), and an immediate membership check.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/auth/providers</code>, <code>GET /api/v1/auth/entra/start</code>, <code>GET /api/v1/auth/entra/callback</code></td>
+<td>public</td>
+<td>The sign-in page's "Sign in with Microsoft": which buttons to show, where the browser is sent to sign in, and where Microsoft sends it back. Not for scripts.</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>POST /api/v1/backups</code>, <code>PUT /api/v1/backups/settings</code>, <code>POST /api/v1/backups/upload</code></td>

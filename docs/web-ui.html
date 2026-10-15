@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The web UI · SIEMLite docs</title>
-<meta name="description" content="Sign in at https://&lt;your-server&gt;:8443. Admins see every page; standard users see the Dashboard, Database and (unless limited to some sources) Alerts.">
+<meta name="description" content="Sign in at your SIEMLite address. Admins see every page; standard users see the Dashboard, Database and (unless limited to some sources) Alerts.">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
@@ -27,6 +27,7 @@
 <li><a href="installation.html">Installation</a></li>
 <li><a aria-current="page" href="web-ui.html">The web UI</a></li>
 <li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
 </ul>
 <p><strong>Using SIEMLite</strong></p>
 <ul>
@@ -38,6 +39,8 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
@@ -53,7 +56,7 @@
 </ul></aside>
   <main class="doc">
 <h1 id="the-web-ui">The web UI</h1>
-<p>Sign in at <code>https://&lt;your-server&gt;:8443</code>. Admins see every page; standard users see the Dashboard, Database and (unless limited to some sources) Alerts.</p>
+<p>Sign in at your SIEMLite address. Admins see every page; standard users see the Dashboard, Database and (unless limited to some sources) Alerts.</p>
 <ul>
 <li><strong>Dashboard</strong>: a search field and the last 24 hours, 7 days or 30 days at a glance: events, threat intel matches,
   high-severity events, events over time, severity, busiest sources and the IPs on threat lists. Type a search and press
@@ -67,7 +70,8 @@
 <li><strong>Users</strong> (admins): add people, set their role, limit what they can see, change passwords.</li>
 <li><strong>Sources</strong> (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).</li>
 <li><strong>Parsers</strong> (admins): build, upload, export and edit parsers.</li>
-<li><strong>System</strong> (admins): the version and whether a newer release is out (with an update button), the mail server SIEMLite sends email through, database size and uptime, and backups: create, schedule, download, upload, restore and delete.</li>
+<li><strong>Integrations</strong> (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, and sign-in with Microsoft Entra ID.</li>
+<li><strong>System</strong> (admins): the version and whether a newer release is out (with an update button), the web address Caddy serves it on, database size and uptime, and backups: create, schedule, download, upload, restore and delete.</li>
 </ul>
 <p>The light and dark themes can follow your system or be set from the menu. Fonts are bundled in the binary, so the UI never contacts a font service.</p>
   </main>

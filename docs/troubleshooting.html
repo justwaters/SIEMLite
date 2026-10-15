@@ -27,6 +27,7 @@
 <li><a href="installation.html">Installation</a></li>
 <li><a href="web-ui.html">The web UI</a></li>
 <li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
 </ul>
 <p><strong>Using SIEMLite</strong></p>
 <ul>
@@ -38,6 +39,8 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
@@ -123,6 +126,24 @@
 <li><strong>The server refused the sender</strong>: the <strong>Send from</strong> address must be one the server lets that login send as.</li>
 <li><strong>"Enter the password again"</strong> appears after changing the server or login, or after restoring a backup onto another server. See <a href="email.html">Email</a>.</li>
 </ul>
+<h2 id="caddy-doesnt-get-a-certificate">Caddy doesn't get a certificate</h2>
+<p><code>docker compose logs caddy</code> says why. The usual causes:</p>
+<ul>
+<li><strong>The name doesn't point here</strong>: its DNS (an A or AAAA record) must point at this server's public address. The System page's <strong>Web address</strong> section shows what the name resolves to.</li>
+<li><strong>Ports 80 or 443 aren't reachable from the internet</strong>: Let's Encrypt connects to one of them. Check the firewall and any port forwarding.</li>
+<li><strong>It isn't the domain SIEMLite is set to</strong>: Caddy only gets certificates for the domain on the System page (or <code>SIEMLITE_DOMAIN</code>), and refuses others.</li>
+<li><strong>Too many attempts</strong>: Let's Encrypt limits how often it issues for one name. Keep the <code>caddy-data</code> volume, so rebuilds reuse the certificate.</li>
+</ul>
+<p>See <a href="run-on-the-internet.html">Run on the internet</a>.</p>
+<h2 id="sign-in-with-microsoft-doesnt-work">Sign in with Microsoft doesn't work</h2>
+<p>The sign-in page shows a short reason, and the server log has the detail.</p>
+<ul>
+<li><strong>"Isn't in the group"</strong>: add the person to the Entra access group (nested groups count).</li>
+<li><strong>"An account with your name already exists"</strong>: a local account has the same name. SIEMLite won't link them; rename or delete the local account.</li>
+<li><strong>Test connection says Graph refused the request</strong>: give the app the <code>GroupMember.Read.All</code> application permission and grant admin consent.</li>
+<li><strong>Microsoft says the redirect URI doesn't match</strong>: copy the Redirect URL from the card into the app registration exactly; the SIEMLite address on the card must be the address people use.</li>
+</ul>
+<p>See <a href="sign-in-with-microsoft.html">Sign in with Microsoft</a>.</p>
 <h2 id="still-stuck">Still stuck</h2>
 <p>Check the server log, <code>GET /health</code> (details when signed in), and the <a href="audit-log.html">audit log</a>, then <a href="https://github.com/justwaters/SIEMLite/issues">open an issue</a>.</p>
   </main>

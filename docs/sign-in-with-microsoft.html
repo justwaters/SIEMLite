@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in with Microsoft (Entra ID) · SIEMLite docs</title>
+<meta name="description" content="The Integrations page has a Microsoft Entra ID card. When it is on, the sign-in page offers Sign in with Microsoft, and the">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a aria-current="page" href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="email.html">Email</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="sign-in-with-microsoft-entra-id">Sign in with Microsoft (Entra ID)</h1>
+<p>The <strong>Integrations</strong> page has a <strong>Microsoft Entra ID</strong> card. When it is on, the sign-in page offers <strong>Sign in with Microsoft</strong>, and the
+people in one Entra group can sign in with their work account. Everyone else is refused, even if they are in your organization.</p>
+<p><strong>Set it up.</strong> The card has the steps; in short, in the Entra admin center:</p>
+<ol>
+<li>Register an app (<strong>App registrations</strong>, <strong>New registration</strong>, this directory only). Add a <strong>Web</strong> redirect URI, which the card shows
+   (your SIEMLite address plus <code>/api/v1/auth/entra/callback</code>). SIEMLite is https only, so the address must be https.</li>
+<li>Copy the <strong>Directory (tenant) ID</strong> and <strong>Application (client) ID</strong>, and create a <strong>client secret</strong> (copy its <em>Value</em>).</li>
+<li>Under <strong>API permissions</strong>, add the Microsoft Graph <strong>application</strong> permission <code>GroupMember.Read.All</code> and <strong>grant admin consent</strong>.</li>
+<li>Copy the <strong>Object ID</strong> of the group whose members may sign in. Optionally copy a second group's for Admins.</li>
+</ol>
+<p>Enter them on the card, choose <strong>Test connection</strong> (it shows the group names and how many people are in them), then <strong>Save</strong>.</p>
+<p><strong>How it behaves</strong></p>
+<ul>
+<li><strong>Who may sign in</strong> is decided by Microsoft Graph at the moment of sign-in, by asking whether the person is in the access group
+  (members of nested groups count). Nothing in the sign-in token is trusted for that.</li>
+<li><strong>First sign-in</strong> creates the account (named after their Microsoft user name, lower-cased) as a <strong>Standard</strong> user who sees every
+  source, like a new Standard user made by hand; limit them on the Users page. With an <strong>admin group</strong>, its members are <strong>Admins</strong>
+  and everyone else is Standard; the role follows the group at each sign-in and check. Without one, roles are yours to set.</li>
+<li><strong>Leaving the group</strong> switches the account off and ends its sessions within five minutes (SIEMLite checks every five minutes, and
+  you can choose <strong>Check the group now</strong>). It is also refused at the next sign-in. Someone who is added back is switched on again.
+  If Microsoft can't be reached, nothing is changed. An account is never switched off or demoted if it is the last enabled admin: it is
+  kept, the check says so, and it can't sign in again while it is outside the group, so create another admin.</li>
+<li><strong>Accounts are matched by Microsoft's object ID</strong>, not by name. A Microsoft user name that matches an existing local account is
+  refused, never linked to it, so nobody can take over a local account by having the same name.</li>
+<li><strong>Password sign-in stays</strong> for local accounts, so keep a local admin in case Microsoft is unreachable. Accounts that sign in with
+  Microsoft have no password. Turning the integration off, or removing it, stops new Microsoft sign-ins and signs out everyone who signed in
+  with Microsoft right away; the accounts stay, and local sessions are not touched. It is refused if the only enabled admins sign
+  in with Microsoft, since they would be locked out: create a local admin first.</li>
+<li>The <strong>client secret</strong> is encrypted like the <a href="email.html">email</a> password (with <code>siemlite-secret.key</code>), is never shown again, and is only
+  ever used with the tenant and app it was saved for.</li>
+<li>Sign-ins, refusals, and changes to these settings are in the <a href="audit-log.html">audit log</a> (<code>signin.sso</code>, <code>signin.sso.failed</code>,
+  <code>system.entra.save</code>, <code>system.entra.test</code>, <code>system.entra.sync</code>).</li>
+<li>This is for the Microsoft public cloud. Government and other sovereign clouds use different addresses and aren't supported yet.</li>
+</ul>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

@@ -27,6 +27,7 @@
 <li><a href="installation.html">Installation</a></li>
 <li><a href="web-ui.html">The web UI</a></li>
 <li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
 </ul>
 <p><strong>Using SIEMLite</strong></p>
 <ul>
@@ -38,6 +39,8 @@
 <li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a aria-current="page" href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
@@ -60,7 +63,7 @@ parsers, rules, alerts and settings), made while SIEMLite keeps running and logg
 <ul>
 <li><strong>Restore</strong>: SIEMLite checks the backup, saves the current database as a "Before a restore" backup, restarts, and
   comes back with the backup in place, usually within seconds. To undo, restore the "Before a restore" backup.
-  Backups from older versions are upgraded as they open; backups from newer versions are refused. A saved <a href="email.html">email</a> password is in the backup encrypted, and the key is not, so enter it again after restoring onto a different server. Version 0.7 and
+  Backups from older versions are upgraded as they open; backups from newer versions are refused. Version 0.7 and
   earlier can't restore backups made by 0.8 or later.</li>
 <li><strong>Download</strong> a backup to keep a copy off the server, and <strong>Upload</strong> one (a <code>.tar.gz</code>, a <code>.db.gz</code> from before version
   0.8, or a <code>.db</code> file) to move SIEMLite to
