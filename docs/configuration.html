@@ -74,19 +74,34 @@ by spaces.</p>
 <td>HTTPS listen address</td>
 </tr>
 <tr>
-<td><code>-http-addr</code></td>
-<td></td>
-<td>Plain-HTTP listen address for a reverse proxy that does the HTTPS, such as Caddy (off when empty). Never publish it</td>
+<td><code>-tls-mode</code></td>
+<td><code>self-signed</code></td>
+<td><code>self-signed</code> (or the <code>-tls-cert</code> files), or <code>letsencrypt</code> for <code>-domain</code>; the System page takes precedence</td>
 </tr>
 <tr>
 <td><code>-domain</code></td>
 <td></td>
-<td>The public domain Caddy serves SIEMLite on, until one is set on the System page (<code>SIEMLITE_DOMAIN</code>)</td>
+<td>The domain to get a Let's Encrypt certificate for; port 443 must reach SIEMLite</td>
+</tr>
+<tr>
+<td><code>-acme-directory</code></td>
+<td>Let's Encrypt</td>
+<td>Another ACME server, such as Let's Encrypt's staging server for testing</td>
+</tr>
+<tr>
+<td><code>-acme-ca-root</code></td>
+<td></td>
+<td>A CA certificate (PEM file) to trust when talking to the ACME server, for a private ACME CA</td>
+</tr>
+<tr>
+<td><code>-http-addr</code></td>
+<td></td>
+<td>Plain-HTTP listen address for your own reverse proxy that does the HTTPS (off when empty). Never publish it</td>
 </tr>
 <tr>
 <td><code>-trusted-proxies</code></td>
 <td></td>
-<td>Reverse proxies whose <code>X-Forwarded-For</code> is believed: addresses, networks or host names, e.g. <code>caddy</code>. With it set, the <code>-http-addr</code> port refuses everyone else</td>
+<td>Reverse proxies whose <code>X-Forwarded-For</code> is believed: addresses, networks or host names, e.g. <code>proxy</code>. With it set, the <code>-http-addr</code> port refuses everyone else</td>
 </tr>
 <tr>
 <td><code>-db</code></td>

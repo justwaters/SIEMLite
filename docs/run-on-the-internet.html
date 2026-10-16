@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run on the internet · SIEMLite docs</title>
-<meta name="description" content="To serve SIEMLite on a public domain, let Caddy be its web server. Caddy gets a certificate from">
+<meta name="description" content="SIEMLite can get a certificate from Let&#x27;s Encrypt for your domain and renew it by itself, so browsers">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
@@ -56,40 +56,39 @@
 </ul></aside>
   <main class="doc">
 <h1 id="run-on-the-internet">Run on the internet</h1>
-<p>To serve SIEMLite on a public domain, let <a href="https://caddyserver.com">Caddy</a> be its web server. Caddy gets a certificate from
-Let's Encrypt, renews it by itself, and redirects plain HTTP to HTTPS. SIEMLite's web ports then aren't published at all:
-only Caddy can reach SIEMLite, over a private port on the Docker network. Before you start:</p>
+<p>SIEMLite can get a certificate from <a href="https://letsencrypt.org">Let's Encrypt</a> for your domain and renew it by itself, so browsers
+and apps trust it with no warning and nothing else to install. Before you start:</p>
 <ul>
-<li>A DNS name (an A or AAAA record) that points at this server, such as <code>siem.example.com</code>.</li>
-<li>Ports 80 and 443 reachable from the internet. Let's Encrypt connects to one of them to check you control the name.</li>
+<li>A DNS name (an A or AAAA record) that points at this server's public address, such as <code>siem.example.com</code>.</li>
+<li>Port <strong>443</strong> reachable from the internet and forwarded to SIEMLite: Let's Encrypt connects to it to check you control the name.
+  With Docker, publish it with <code>SIEMLITE_HTTPS_PORT=443</code> in <code>.env</code> (and leave <code>SIEMLITE_BIND</code> empty, or set it to the public address),
+  then <code>docker compose up -d</code>. Without Docker, use <code>-addr :443</code> (as root, or after <code>sudo setcap cap_net_bind_service=+ep ./siemlite</code>).</li>
 </ul>
-<p>Then add to <code>.env</code> and run <code>docker compose up -d</code>:</p>
-<pre><code class="language-sh">COMPOSE_FILE=compose.yaml:compose.public.yaml
-SIEMLITE_DOMAIN=siem.example.com
-</code></pre>
-<p>Open <code>https://siem.example.com</code>. Caddy gets the certificate on that first visit (usually within seconds); <code>docker compose logs caddy</code>
-shows it.</p>
-<p><strong>Changing the domain</strong> is done on the <strong>System</strong> page, under <strong>Web address</strong>; no restart or file edit is needed. Caddy asks SIEMLite
-before it gets a certificate for any name, and SIEMLite agrees only to the domain set there (or, until one is, <code>SIEMLITE_DOMAIN</code>), so
-nobody can make Caddy request certificates for names that aren't yours. When you move to a new domain, visitors who use the old one are
-redirected to it. <code>SIEMLITE_DOMAIN</code> is still needed in <code>.env</code>: it is where SIEMLite starts, since it can't be reached any other way.</p>
+<p>Then on the <strong>System</strong> page, under <strong>HTTPS certificate</strong>, choose <strong>Let's Encrypt</strong>, enter the domain, choose <strong>Check this address</strong> (it
+confirms that the name and port 443 really lead to this SIEMLite), and <strong>Save</strong>. The status shows the certificate being obtained,
+usually within seconds, then who issued it and until when. Or set it from the start in <code>.env</code> with <code>SIEMLITE_TLS_MODE=letsencrypt</code> and
+<code>SIEMLITE_DOMAIN=siem.example.com</code>; what you save on the System page takes precedence.</p>
 <ul>
-<li><strong>Visitors' addresses</strong> reach SIEMLite in <code>X-Forwarded-For</code>, which it believes only from Caddy (<code>-trusted-proxies=caddy</code>),
-  so sign-in lockouts apply to the person who failed, not to everyone, and the audit log shows who it was. Caddy throws away any
-  <code>X-Forwarded-For</code> a visitor sends, so it can't be forged, and SIEMLite's plain port refuses anyone but Caddy. Caddy runs on a
-  Docker network (<code>edge</code>) that only SIEMLite shares, so no other container can ever take an address SIEMLite trusts as Caddy's;
-  don't add other services to it.</li>
-<li><strong>Syslog</strong> is still published on its own ports, and senders outside loopback and private networks are refused unless you list
-  them in <code>SIEMLITE_SYSLOG_ALLOW</code>. Don't open syslog to the internet: it has no authentication. Syslog over TLS keeps SIEMLite's own
-  certificate.</li>
+<li><strong>Nothing is lost if it fails.</strong> Only visitors who ask for that domain get its certificate. Anyone using another address (an IP or a
+  LAN name), and the domain itself until its certificate arrives, still gets the self-signed one, so you can always get back in and
+  switch back. The status says what went wrong (DNS, port 443, Let's Encrypt's rate limit).</li>
+<li><strong>Renewal is automatic</strong>, well before the certificate expires. The certificate and the Let's Encrypt account are kept in an <code>acme</code>
+  folder next to the database (<code>/data/acme</code> with Docker, so in the volume); keep it, or a rebuild asks Let's Encrypt again and can
+  hit its rate limits.</li>
+<li><strong>Syslog over TLS</strong> uses the same certificate for senders that ask for the domain.</li>
 <li><strong>Apps sending logs</strong> use <code>https://siem.example.com/api/v1/logs</code>. The certificate is trusted everywhere, so the snippets on the
   Connect screen work without <code>siemlite.crt</code>; remove those lines.</li>
 <li><strong>Microsoft sign-in</strong>: set the SIEMLite address on the Entra card to <code>https://siem.example.com</code>.</li>
-<li>Caddy keeps the certificate in the <code>caddy-data</code> volume; keep it, or Caddy asks Let's Encrypt again on every rebuild. It adds
-  <code>Strict-Transport-Security</code> and compresses responses. To change anything else, edit <code>caddy/Caddyfile</code>.</li>
-<li>Inside the Docker network SIEMLite still serves HTTPS on 8443 (the health check and the log generator use it); it is not
-  published.</li>
-<li>Not for a private network with no public name: Let's Encrypt can't reach it. Keep the default setup there.</li>
+<li>Only port 443 is needed; there is no plain-HTTP port to redirect from. <strong>Syslog</strong> keeps its own ports, and senders outside loopback
+  and private networks are refused unless you list them in <code>SIEMLITE_SYSLOG_ALLOW</code>. Don't open syslog to the internet: it has no
+  authentication.</li>
+<li>To test without using up Let's Encrypt's limits, point <code>-acme-directory</code> at its staging server
+  (<code>https://acme-staging-v02.api.letsencrypt.org/directory</code>; its certificates aren't trusted by browsers). <code>-acme-directory</code> also
+  works with other ACME CAs, and <code>-acme-ca-root</code> adds a private CA for talking to one.</li>
+<li><strong>Behind your own reverse proxy</strong> (nginx, Traefik, a load balancer) that does the HTTPS instead: give SIEMLite a private plain-HTTP
+  port with <code>-http-addr</code> and name the proxy in <code>-trusted-proxies</code>, so visitors' real addresses reach the sign-in lockout and the audit
+  log. SIEMLite believes <code>X-Forwarded-For</code> only from those proxies, reading it from the right so a visitor can't forge it, and the
+  plain port refuses everyone else.</li>
 </ul>
   </main>
 </div>
