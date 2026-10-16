@@ -126,15 +126,21 @@
 <li><strong>The server refused the sender</strong>: the <strong>Send from</strong> address must be one the server lets that login send as.</li>
 <li><strong>"Enter the password again"</strong> appears after changing the server or login, or after restoring a backup onto another server. See <a href="email.html">Email</a>.</li>
 </ul>
-<h2 id="caddy-doesnt-get-a-certificate">Caddy doesn't get a certificate</h2>
-<p><code>docker compose logs caddy</code> says why. The usual causes:</p>
+<h2 id="lets-encrypt-doesnt-issue-a-certificate">Let's Encrypt doesn't issue a certificate</h2>
+<p>The <strong>HTTPS certificate</strong> section of the System page says why, and <strong>Check this address</strong> tests the same path Let's Encrypt uses. Meanwhile the site stays reachable by IP address or LAN name with the self-signed certificate. The usual causes:</p>
 <ul>
-<li><strong>The name doesn't point here</strong>: its DNS (an A or AAAA record) must point at this server's public address. The System page's <strong>Web address</strong> section shows what the name resolves to.</li>
-<li><strong>Ports 80 or 443 aren't reachable from the internet</strong>: Let's Encrypt connects to one of them. Check the firewall and any port forwarding.</li>
-<li><strong>It isn't the domain SIEMLite is set to</strong>: Caddy only gets certificates for the domain on the System page (or <code>SIEMLITE_DOMAIN</code>), and refuses others.</li>
-<li><strong>Too many attempts</strong>: Let's Encrypt limits how often it issues for one name. Keep the <code>caddy-data</code> volume, so rebuilds reuse the certificate.</li>
+<li><strong>The name doesn't point here</strong>: its DNS (an A or AAAA record) must point at this server's public address. The section shows what the name resolves to.</li>
+<li><strong>Port 443 isn't reachable from the internet</strong>, or isn't forwarded to SIEMLite. With Docker, publish it with <code>SIEMLITE_HTTPS_PORT=443</code>. Let's Encrypt only checks port 443 (there's no port-80 option here).</li>
+<li><strong>Too many attempts</strong>: Let's Encrypt limits how often it issues for one name. Keep the <code>acme</code> folder next to the database (<code>/data/acme</code> with Docker), so restarts and rebuilds reuse the certificate. To experiment, use its staging server with <code>-acme-directory</code>.</li>
+<li><strong>The check fails but Let's Encrypt might still work</strong>: some routers don't let a server reach its own public address. Try saving anyway; the status shows the real result.</li>
 </ul>
 <p>See <a href="run-on-the-internet.html">Run on the internet</a>.</p>
+<h2 id="cant-change-your-password">Can't change your password</h2>
+<ul>
+<li><strong>"The current password is wrong"</strong>: and after several wrong tries you're locked out for a while, as with signing in.</li>
+<li><strong>No password form on the Account page</strong>: the account belongs to Microsoft Entra ID; its password is managed by your organization.</li>
+<li><strong>Forgotten</strong>: an admin can set a new one on the Users page, or run <code>siemlite users passwd -username &lt;name&gt;</code>.</li>
+</ul>
 <h2 id="sign-in-with-microsoft-doesnt-work">Sign in with Microsoft doesn't work</h2>
 <p>The sign-in page shows a short reason, and the server log has the detail.</p>
 <ul>

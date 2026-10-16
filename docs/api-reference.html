@@ -127,14 +127,14 @@
 <td>Database size and version, uptime, backups folder and free space.</td>
 </tr>
 <tr>
-<td><code>GET</code>/<code>PUT /api/v1/system/public</code></td>
+<td><code>GET</code>/<code>PUT /api/v1/system/tls</code>, <code>POST /api/v1/system/tls/check</code></td>
 <td>admin</td>
-<td>The public domain Caddy serves SIEMLite on: <code>{"domain"}</code> (empty removes it). Reports where the domain comes from, whether Caddy is in front, and what the name resolves to.</td>
+<td>The HTTPS certificate: <code>{"mode": "self-signed"/"letsencrypt", "domain"}</code>; the reply describes the certificates, whether one is being obtained, the last error and what the domain resolves to. The check (<code>{"domain"}</code>) says whether that name on port 443 reaches this SIEMLite.</td>
 </tr>
 <tr>
-<td><code>GET /api/v1/caddy/ask?domain=</code></td>
-<td>Caddy only</td>
-<td>Caddy asks this before getting a certificate: <code>200</code> for the public domain, <code>404</code> for anything else. Refused for anyone but a trusted proxy asking directly.</td>
+<td><code>GET /.well-known/siemlite-check/{token}</code></td>
+<td>public</td>
+<td>Answers the check above with its one-time token.</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/integrations</code></td>
@@ -179,7 +179,12 @@
 <tr>
 <td><code>POST /api/v1/login</code>, <code>POST /api/v1/logout</code>, <code>GET /api/v1/me</code></td>
 <td></td>
-<td>Browser sign-in, sign-out and current session.</td>
+<td>Browser sign-in, sign-out and current session (<code>/me</code> includes <code>auth_provider</code>: <code>local</code> or <code>entra</code>).</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/me/password</code></td>
+<td>any signed-in user</td>
+<td>Change your own password: <code>{"current_password", "new_password"}</code>. The current password is checked with the same limits as signing in; your other sessions end, this one continues. Refused for Microsoft accounts.</td>
 </tr>
 <tr>
 <td><code>GET /health</code></td>
