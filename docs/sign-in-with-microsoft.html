@@ -80,7 +80,8 @@ people in one Entra group can sign in with their work account. Everyone else is 
   kept, the check says so, and it can't sign in again while it is outside the group, so create another admin.</li>
 <li><strong>Accounts are matched by Microsoft's object ID</strong>, not by name. A Microsoft user name that matches an existing local account is
   refused, never linked to it, so nobody can take over a local account by having the same name.</li>
-<li><strong>Password sign-in stays</strong> for local accounts, so keep a local admin in case Microsoft is unreachable. Accounts that sign in with
+<li><strong>Password sign-in stays</strong> for local accounts unless you choose <strong>Only allow sign-in with Microsoft</strong> (see
+  <a href="users-and-security.html#sign-in-restrictions">Sign-in restrictions</a>), so keep a local admin in case Microsoft is unreachable. Accounts that sign in with
   Microsoft have no password. Turning the integration off, or removing it, stops new Microsoft sign-ins and signs out everyone who signed in
   with Microsoft right away; the accounts stay, and local sessions are not touched. It is refused if the only enabled admins sign
   in with Microsoft, since they would be locked out: create a local admin first.</li>

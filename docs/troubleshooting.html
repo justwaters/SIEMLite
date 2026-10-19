@@ -137,10 +137,22 @@
 <p>See <a href="run-on-the-internet.html">Run on the internet</a>.</p>
 <h2 id="cant-change-your-password">Can't change your password</h2>
 <ul>
-<li><strong>"The current password is wrong"</strong>: and after several wrong tries you're locked out for a while, as with signing in.</li>
+<li><strong>"The current password is wrong"</strong>: after 10 wrong tries in 15 minutes the account can't try again until the window ends. This limit is separate from signing in, so it never stops you signing in.</li>
 <li><strong>No password form on the Account page</strong>: the account belongs to Microsoft Entra ID; its password is managed by your organization.</li>
 <li><strong>Forgotten</strong>: an admin can set a new one on the Users page, or run <code>siemlite users passwd -username &lt;name&gt;</code>.</li>
 </ul>
+<h2 id="the-admin-account-cant-sign-in">The admin account can't sign in</h2>
+<p>"This account can only sign in on the server itself" means <strong>Keep the admin account to this server</strong> is on (Users page), or
+<strong>Only allow sign-in with Microsoft</strong> is. Sign in at <code>https://localhost:8444</code> on the server. From another computer, tunnel to it first:
+<code>ssh -L 8444:localhost:8444 you@server</code>, then open <code>https://localhost:8444</code>. A "this port only answers the server itself" error means
+the connection didn't come from the server: use <code>localhost</code> on the server or the tunnel, not the server's address. If the local port
+doesn't answer at all, check that <code>docker compose ps</code> shows <code>127.0.0.1:8444-&gt;8444</code> (it needs the v0.17 <code>compose.yaml</code>; update with
+<code>git pull</code>), or that SIEMLite was started with <code>-local-addr</code>.</p>
+<p>If nothing works, lift the restrictions on the server with <code>docker compose exec siemlite siemlite signin reset</code> (or
+<code>./siemlite signin reset</code>); a running SIEMLite applies it within a minute. See <a href="users-and-security.html#sign-in-restrictions">Sign-in restrictions</a>.</p>
+<h2 id="the-sign-in-page-has-no-password-form">The sign-in page has no password form</h2>
+<p><strong>Only allow sign-in with Microsoft</strong> is on, so only Microsoft accounts can sign in. The built-in <code>admin</code> account can still sign in on
+the server, at <code>https://localhost:8444</code>, where the password form is shown. Turning sign-in with Microsoft off brings passwords back.</p>
 <h2 id="sign-in-with-microsoft-doesnt-work">Sign in with Microsoft doesn't work</h2>
 <p>The sign-in page shows a short reason, and the server log has the detail.</p>
 <ul>
