@@ -94,6 +94,11 @@ by spaces.</p>
 <td>A CA certificate (PEM file) to trust when talking to the ACME server, for a private ACME CA</td>
 </tr>
 <tr>
+<td><code>-local-addr</code></td>
+<td><code>localhost:8444</code></td>
+<td>HTTPS listen address that counts as the server itself, for the <a href="users-and-security.html#sign-in-restrictions">sign-in restrictions</a> (off when empty). Only the server must be able to reach it</td>
+</tr>
+<tr>
 <td><code>-http-addr</code></td>
 <td></td>
 <td>Plain-HTTP listen address for your own reverse proxy that does the HTTPS (off when empty). Never publish it</td>

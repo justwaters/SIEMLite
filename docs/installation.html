@@ -74,7 +74,7 @@ warn about the self-signed certificate unless you trust <code>siemlite.crt</code
 sends ten realistic test events a second, attacks included. See <a href="test-logs.html">Test logs</a>.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.16</code> in <code>.env</code> and run <code>docker compose pull &amp;&amp; docker compose up -d</code>.
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.17</code> in <code>.env</code> and run <code>docker compose pull &amp;&amp; docker compose up -d</code>.
 Or build from the checkout, and deploy and upgrade with one command:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
@@ -86,7 +86,8 @@ missed it, set a new one: <code>docker compose exec siemlite siemlite users pass
 <ul>
 <li>The database and certificate live in the <code>siemlite-data</code> volume, so rebuilds and upgrades keep every event,
   account and key. <code>docker compose down</code> keeps the volume; <code>docker compose down -v</code> deletes it.</li>
-<li>Ports: HTTPS on 8443, syslog on 514 (UDP and TCP) and syslog over TLS on 6514. Change the host ports in <code>.env</code>.</li>
+<li>Ports: HTTPS on 8443, syslog on 514 (UDP and TCP) and syslog over TLS on 6514. Change the host ports in <code>.env</code>.
+  The local port, 8444, is published on <code>127.0.0.1</code> only, so only the server itself reaches it (see <a href="users-and-security.html#sign-in-restrictions">Sign-in restrictions</a>).</li>
 <li>Settings: every server flag can be set in <code>.env</code> as <code>SIEMLITE_&lt;FLAG&gt;</code>, e.g. <code>SIEMLITE_RETENTION_DAYS=90</code>
   for <code>-retention-days</code>. <code>.env.example</code> lists the useful ones.</li>
 <li>Set <code>SIEMLITE_TLS_HOSTS</code> to the names or IPs people use to reach the server <strong>before the first start</strong>: the

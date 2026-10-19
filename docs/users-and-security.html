@@ -72,9 +72,33 @@
 Users page. They have no password, so <strong>Change password</strong> isn't offered for them. An admin can still change their role and which sources
 they see.</p>
 <p>Anyone with a local account can change their own password on the <strong>Account</strong> page (it asks for the current one, and signs them out
-on every other browser). Admins can set anyone's password on the Users page.</p>
+on every other browser). Wrong guesses there are limited separately from signing in, so someone using an unlocked session
+can't lock the owner out of signing in. Admins can set anyone's password on the Users page.</p>
 <p>Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code> cookie,
 and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window.</p>
+<h3 id="sign-in-restrictions">Sign-in restrictions</h3>
+<p>Two switches tighten who can sign in with a password. Both take effect at once, for new sign-ins and for sessions already open.</p>
+<ul>
+<li><strong>Keep the admin account to this server</strong> (Users page): the built-in local account named <code>admin</code> (the one made on first start) can
+  then sign in, and work, only on SIEMLite's <strong>local port</strong>: <code>https://localhost:8444</code> on the server itself. Elsewhere its sign-in is
+  refused, whatever the password, and its sessions stop working. From another computer, reach the local port through an SSH tunnel
+  (<code>ssh -L 8444:localhost:8444 you@server</code>, then open <code>https://localhost:8444</code>). Other admins aren't affected.</li>
+<li><strong>Only allow sign-in with Microsoft</strong> (the Microsoft Entra ID card on the Integrations page): every account that signs in with a password
+  is signed out and refused, so only Microsoft accounts can sign in. The built-in <code>admin</code> account is the exception, but only on the local
+  port, so you can still get in if Microsoft sign-in breaks. It needs sign-in with Microsoft turned on and a local Admin account named
+  <code>admin</code>. It applies only while sign-in with Microsoft is on: turning that off brings passwords back.</li>
+</ul>
+<p>"On the server itself" means the request came in on the local port, not that it came from a particular address: behind Docker or a
+proxy on the same machine, visitors from anywhere can arrive from a local-looking address. The local port is set with <code>-local-addr</code>
+(default <code>localhost:8444</code>; outside a container, keep it on localhost). The Docker setup publishes it on the server's <code>127.0.0.1</code> only
+(<code>SIEMLITE_LOCAL_PORT</code> in <code>.env</code>). The port also checks who is connecting: it answers loopback and, in a container, only the
+container's gateway, which is where the server's own connections come from. Other containers on the network, and other machines that
+route to the container's address, are refused.</p>
+<p>If no one can sign in to lift the restrictions, run this on the server (a running SIEMLite applies it within a minute):</p>
+<pre><code class="language-sh">./siemlite signin show
+./siemlite signin reset            # Docker: docker compose exec siemlite siemlite signin reset
+</code></pre>
+<p>Changes are in the <a href="audit-log.html">audit log</a> (<code>system.signin</code>), and so are refused sign-ins (<code>signin.refused</code>).</p>
 <h2 id="transport-and-tokens">Transport and tokens</h2>
 <ul>
 <li>HTTPS only for the web UI: a self-signed certificate is generated on first start, SIEMLite can get one from Let's Encrypt for your domain (see <a href="run-on-the-internet.html">Run on the internet</a>), or bring your own with <code>-tls-cert</code> / <code>-tls-key</code>.</li>
