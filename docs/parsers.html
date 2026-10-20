@@ -80,17 +80,34 @@ values to keep. Choose how a source's lines are read on the Sources page:</p>
 <li><strong>Upload and export</strong> parsers as small JSON files to share them or keep them in version control.</li>
 <li>A line that doesn't match its source's parser is still stored, parsed as Automatic would, with a <code>parse_error</code> field.</li>
 </ul>
-<h2 id="ai-help">AI help</h2>
-<p>With a local model running in <a href="https://ollama.com">Ollama</a>, the editor gets a <strong>Suggest a parser</strong> button. SIEMLite
-removes syslog headers and recognises JSON and key=value lines itself, drafts a pattern that matches every sample
-line, and asks the model to name the fields and pick severity and category. It keeps the model's answer only when it
-still reads every sample line. Nothing leaves your network.</p>
-<p>With Docker, add to <code>.env</code> and run <code>docker compose up -d</code> (the model, about 2 GB, downloads once on first start):</p>
-<pre><code class="language-sh">COMPOSE_PROFILES=ai
-SIEMLITE_AI_URL=http://ollama:11434
-</code></pre>
-<p>Without Docker, run Ollama yourself and start SIEMLite with <code>-ai-url http://localhost:11434</code>. The default model is
-<code>qwen2.5-coder:3b</code>, which runs on a CPU; a suggestion takes about 10-40 seconds there. Choose another with <code>-ai-model</code>.</p>
+<h2 id="ai-parsers">AI Parsers</h2>
+<p>With the <strong>AI Parsers</strong> integration on, the parser editor gets a <strong>Suggest a parser</strong> button. SIEMLite removes syslog
+headers and recognises JSON and key=value lines itself, drafts a pattern that matches every sample line, and asks the
+model to name the fields and pick severity and category. It keeps the model's answer only when it still reads every
+sample line.</p>
+<p>Set it up on the <strong>Integrations</strong> page, choosing where the model runs:</p>
+<ul>
+<li><strong>On this server</strong>, with <a href="https://ollama.com">Ollama</a>. Nothing leaves your network. Choose a model size: the card shows
+  this server's CPU cores and memory, recommends the largest model that will answer in reasonable time on them, and marks
+  models that are too big. The chosen model downloads in the background (1 to 9 GB, once), with its progress on the card.
+  With Docker, start Ollama by adding <code>ai</code> to <code>COMPOSE_PROFILES</code> in <code>.env</code> and running <code>docker compose up -d</code>; its address is
+  <code>http://ollama:11434</code>. Without Docker, run Ollama yourself (<code>http://localhost:11434</code>). On a CPU, the medium model
+  (<code>qwen2.5-coder:3b</code>) takes about 10-40 seconds per suggestion. Any Ollama model that can answer in a JSON shape can be used.</li>
+<li><strong>In the cloud</strong>, with <a href="https://openrouter.ai">OpenRouter</a> and your API key (from <a href="https://openrouter.ai/keys">openrouter.ai/keys</a>).
+  Choose a model: the recommended ones are small, fast and inexpensive, and the full list shows every model that can answer
+  in a JSON shape, with its price. The sample lines you ask about are sent to OpenRouter and the model's provider, so:</li>
+<li>IP, email and MAC addresses and host names are replaced before sending (on unless you turn it off). Every dotted name
+    counts as a host name, including file and field names such as <code>index.html</code> or <code>actor.ip</code>, so nothing slips through on an
+    unusual domain; this can make field mapping for JSON with dotted field names less precise. The stand-ins keep the lines'
+    shape, and the answer is changed back, so the parser fits the real lines. Other text, such as user names, is sent as written.</li>
+<li>Before anything is sent, SIEMLite checks the exact text: if an address, or part of one, is still there, nothing is sent
+    and you are asked to remove it from the samples or use a model on this server.</li>
+<li>SIEMLite asks OpenRouter to use only providers that don't keep or train on what they're sent.</li>
+<li>The key is encrypted like the <a href="email.html">email</a> password and never shown again.</li>
+</ul>
+<p>Turning the integration off hides the button; its settings are kept. Asking for a suggestion is recorded in the
+<a href="audit-log.html">audit log</a> (<code>parser.suggest</code>), and so are changes to the settings (<code>system.ai.save</code>). Before v0.19 this was
+set with <code>SIEMLITE_AI_URL</code>; that still works, as the starting settings, until the page saves its own.</p>
 <h2 id="automatic-parsing">Automatic parsing</h2>
 <p><code>/api/v1/logs</code> converts each line into an OCSF event: syslog (RFC 3164 and 5424) headers give the time and hostname,
 the first two IPv4 addresses become source and destination, a user is picked up from patterns like <code>for user alice</code>,

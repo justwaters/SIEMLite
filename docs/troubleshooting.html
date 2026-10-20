@@ -162,6 +162,19 @@ the server, at <code>https://localhost:8444</code>, where the password form is s
 <li><strong>Microsoft says the redirect URI doesn't match</strong>: copy the Redirect URL from the card into the app registration exactly; the SIEMLite address on the card must be the address people use.</li>
 </ul>
 <p>See <a href="sign-in-with-microsoft.html">Sign in with Microsoft</a>.</p>
+<h2 id="ai-parsers-doesnt-suggest-anything">AI Parsers doesn't suggest anything</h2>
+<ul>
+<li><strong>No Suggest a parser button</strong>: AI Parsers is off or not set up. An admin sets it up on the <strong>Integrations</strong> page.</li>
+<li><strong>"The AI model is still downloading or Ollama isn't reachable"</strong>: the AI Parsers card shows the download's progress, or why
+  Ollama can't be reached. With Docker, Ollama runs only with <code>ai</code> in <code>COMPOSE_PROFILES</code> in <code>.env</code> (then <code>docker compose up -d</code>),
+  and its address is <code>http://ollama:11434</code>.</li>
+<li><strong>"Some addresses in these lines couldn't be hidden, so nothing was sent to the cloud"</strong>: SIEMLite checks the exact text before
+  sending it to OpenRouter and found an address, or part of one, still in it. Remove those lines from the samples, or use a
+  model on this server.</li>
+<li><strong>"OpenRouter refused the API key"</strong> or <strong>"out of credit"</strong>: check the key and the account at <a href="https://openrouter.ai">openrouter.ai</a>.</li>
+<li><strong>Suggestions for JSON with dotted field names are vague in the cloud</strong>: dotted names are replaced before sending, field names
+  included. A model on this server sees them as they are.</li>
+</ul>
 <h2 id="still-stuck">Still stuck</h2>
 <p>Check the server log, <code>GET /health</code> (details when signed in), and the <a href="audit-log.html">audit log</a>, then <a href="https://github.com/justwaters/SIEMLite/issues">open an issue</a>.</p>
   </main>

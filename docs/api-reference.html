@@ -159,7 +159,7 @@
 <tr>
 <td><code>GET /api/v1/auth/providers</code>, <code>GET /api/v1/auth/entra/start</code>, <code>GET /api/v1/auth/entra/callback</code></td>
 <td>public</td>
-<td>The sign-in page's "Sign in with Microsoft": which buttons to show, where the browser is sent to sign in, and where Microsoft sends it back. Not for scripts.</td>
+<td>The sign-in page's "Continue with Microsoft": which buttons to show, where the browser is sent to sign in, and where Microsoft sends it back. Not for scripts.</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>POST /api/v1/backups</code>, <code>PUT /api/v1/backups/settings</code>, <code>POST /api/v1/backups/upload</code></td>
@@ -170,6 +170,11 @@
 <td><code>GET</code>/<code>DELETE /api/v1/backups/{name}</code>, <code>POST /api/v1/backups/{name}/restore</code></td>
 <td>admin</td>
 <td>Download or delete a backup; restore it (SIEMLite restarts).</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/integrations/ai</code>, <code>POST /api/v1/integrations/ai/test</code>, <code>GET /api/v1/integrations/ai/cloud-models</code></td>
+<td>admin</td>
+<td>The <a href="parsers.html#ai-parsers">AI Parsers</a> settings (<code>{"provider": "local"/"openrouter", "ollama_url", "local_model", "cloud_model", "send_addresses", "openrouter_key"}</code>; the key is write-only, leaving it out keeps the saved one and <code>""</code> removes it), with this server's hardware, the recommended model and the download's progress; a connection test (the same fields); and OpenRouter's models that can answer in a JSON shape.</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/parsers/test</code>, <code>POST /api/v1/parsers/suggest</code></td>
