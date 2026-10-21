@@ -66,6 +66,15 @@ values to keep. Choose how a source's lines are read on the Sources page:</p>
 <li><strong>A parser</strong> you built, as below.</li>
 </ul>
 <p>Build one on the Parsers page: paste a few sample lines, describe them, and the preview shows how each line is read.</p>
+<p>Or let SIEMLite build it: paste the samples and choose <strong>Draft a parser</strong>. It needs no AI model. SIEMLite works out the
+format (JSON, key=value, syslog or free text) and, for JSON and key=value lines, which keys hold what, from both their names
+and their values: timestamps become the time, IP addresses the source or destination (by names like <code>dest_</code>), <code>detail</code> or
+<code>description</code> the message, <code>username</code> or <code>actor</code> the user, a level field the severity. Without a level field, an action,
+outcome or status field decides it (failures and refusals medium, deletions and permission changes low, the rest
+informational; for HTTP status codes, 5xx medium and 4xx low). Free text gets a pattern that matches every sample. Check the
+preview and the field mapping, adjust anything, and save. With <a href="parsers.html#ai-parsers">AI Parsers</a> on, <strong>Suggest with AI</strong> starts from
+the same draft and asks the model to improve it.</p>
+<p>JSON can be pasted as it comes: pretty-printed objects, or an array of them, become one object per line.</p>
 <ul>
 <li><strong>Text with a fixed layout</strong>: write one line out with <code>{name}</code> where values change, e.g.
   <code>{src_ip} - {user} [{time}] "{method} {path} {protocol}" {status}</code>. Spaces match any run of spaces, <code>{}</code> skips text,

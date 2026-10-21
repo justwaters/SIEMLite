@@ -177,9 +177,9 @@
 <td>The <a href="parsers.html#ai-parsers">AI Parsers</a> settings (<code>{"provider": "local"/"openrouter"/"anthropic"/"google"/"openai"/"nvidia", "ollama_url", "local_model", "cloud_model", "send_addresses", "api_key", "key_for"}</code>; <code>api_key</code> is write-only and is for the service <code>key_for</code> (or <code>provider</code>): leaving it out keeps the saved one and <code>""</code> removes it; <code>openrouter_key</code> from v0.19 still works), with this server's hardware, the recommended model and the download's progress; a connection test (the same fields); and a service's models with the ones recommended (<code>GET ?provider=</code> uses the saved key, <code>POST {"provider", "api_key"}</code> the one given).</td>
 </tr>
 <tr>
-<td><code>POST /api/v1/parsers/test</code>, <code>POST /api/v1/parsers/suggest</code></td>
+<td><code>POST /api/v1/parsers/test</code>, <code>POST /api/v1/parsers/draft</code>, <code>POST /api/v1/parsers/suggest</code></td>
 <td>admin</td>
-<td>Run a parser over <code>{"definition", "lines"}</code>; ask the AI model for a parser for <code>{"lines"}</code>.</td>
+<td>Run a parser over <code>{"definition", "lines"}</code>; draft a parser with no AI model from <code>{"text"}</code> (pasted text; pretty-printed JSON is split into objects) or <code>{"lines"}</code>, answering the definition, how many samples it reads, and the samples as lines; ask the AI model for a parser for <code>{"lines"}</code>.</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/login</code>, <code>POST /api/v1/logout</code>, <code>GET /api/v1/me</code></td>
