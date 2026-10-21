@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Backups and updates · SIEMLite docs</title>
-<meta name="description" content="On the System page, choose Create backup now, or set automatic backups to run every 6 hours, every day or every">
+<meta name="description" content="SIEMLite keeps events for two years by default. Change it on the System page (Keep events: 30 days, 90 days, 1 year,">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
@@ -56,6 +56,17 @@
 </ul></aside>
   <main class="doc">
 <h1 id="backups-and-updates">Backups and updates</h1>
+<h2 id="keeping-events">Keeping events</h2>
+<p>SIEMLite keeps events for two years by default. Change it on the <strong>System</strong> page (<strong>Keep events</strong>: 30 days, 90 days, 1 year,
+2 years or any number of days up to ten years); it takes effect at once. Once a day, events older than that are deleted,
+whole days at a time, and making the period shorter deletes them straight away (after asking). Before the page sets it,
+<code>-retention-days</code> (<code>SIEMLITE_RETENTION_DAYS</code>) does.</p>
+<p>Each event is stored under its own date, even when it arrives late, such as a batch of old logs sent at once. An event dated
+before the retention period is refused, since it would be deleted straight away. When 50 or more events more than 30 days
+old arrive from one source in one go (a burst ends after a quiet minute, or after ten minutes), SIEMLite records it in the
+<a href="audit-log.html">audit log</a> and the built-in rule <strong>Mass ingestion of late logs</strong> raises a High alert naming the source, how many
+events, and the dates they cover. The events themselves keep their own severity. Old logs loaded in bulk on purpose raise it
+too: close the alert once you know why.</p>
 <h2 id="backups">Backups</h2>
 <p>On the <strong>System</strong> page, choose <strong>Create backup now</strong>, or set automatic backups to run every 6 hours, every day or every
 week, keeping the newest 1-365. A backup is a compressed copy of everything (every day's events, users, sources,

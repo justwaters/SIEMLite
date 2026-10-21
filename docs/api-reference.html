@@ -187,6 +187,11 @@
 <td>Browser sign-in, sign-out and current session (<code>/me</code> includes <code>auth_provider</code>: <code>local</code> or <code>entra</code>, and <code>display_name</code> for a Microsoft account). A password sign-in refused by a <a href="users-and-security.html#sign-in-restrictions">sign-in restriction</a> gets <code>403</code>.</td>
 </tr>
 <tr>
+<td><code>GET</code>/<code>PUT /api/v1/system/retention</code></td>
+<td>admin</td>
+<td>How long events are kept: <code>{"days"}</code> (1 to 3650). The answer also gives the default, whether the page has set it, and the late-ingestion thresholds; shortening it deletes the events now too old, at once.</td>
+</tr>
+<tr>
 <td><code>GET</code>/<code>PUT /api/v1/system/signin</code></td>
 <td>admin</td>
 <td>The <a href="users-and-security.html#sign-in-restrictions">sign-in restrictions</a>: <code>{"admin_local_only", "entra_only"}</code> (send either). The answer also says what is enforced now, the local port, and whether the request came in on it. Turning either on is refused without a local port; Microsoft-only also needs sign-in with Microsoft on and a local Admin account named <code>admin</code>.</td>
@@ -205,7 +210,8 @@
 </table></div>
 <p>Applications authenticate with <code>Authorization: Bearer &lt;token&gt;</code>. A missing or disabled token, or one whose source was deleted, returns <code>401</code>; a token used
 for anything but sending logs returns <code>403</code>.</p>
-<p>Events must be dated within the retention period and no more than a day ahead (a sender's clock can run a little fast).
+<p>Events are stored under their own date, however late they arrive, as long as it is within the retention period (two years
+by default; see <a href="backups-and-updates.html#keeping-events">Keeping events</a>) and no more than a day ahead (a sender's clock can run a little fast).
 Others are refused and counted as rejected, with the reason, since each day's events are kept in their own file.</p>
 <h2 id="log-parsing">Log parsing</h2>
 <p><code>/api/v1/logs</code> converts each line into an OCSF event: syslog (RFC 3164 and 5424) headers give the time and hostname,
