@@ -73,7 +73,8 @@ page sends the log to a route on your server, such as <code>/api/log</code>, and
 <p>From the command line:</p>
 <pre><code class="language-sh">./siemlite keys create -name myapp
 </code></pre>
-<p>Then post logs, one per line:</p>
+<p>Then post logs, one per line. A body that is all JSON (pretty-printed objects, or arrays of them) is read one object at a
+time instead, so an app can send its JSON logs as it prints them:</p>
 <pre><code class="language-sh">curl --cacert siemlite.crt -X POST 'https://localhost:8443/api/v1/logs?source=myapp' \
   -H &quot;Authorization: Bearer $SIEMLITE_KEY&quot; \
   --data-binary @app.log
