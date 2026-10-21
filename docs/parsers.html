@@ -93,18 +93,26 @@ sample line.</p>
   With Docker, start Ollama by adding <code>ai</code> to <code>COMPOSE_PROFILES</code> in <code>.env</code> and running <code>docker compose up -d</code>; its address is
   <code>http://ollama:11434</code>. Without Docker, run Ollama yourself (<code>http://localhost:11434</code>). On a CPU, the medium model
   (<code>qwen2.5-coder:3b</code>) takes about 10-40 seconds per suggestion. Any Ollama model that can answer in a JSON shape can be used.</li>
-<li><strong>In the cloud</strong>, with <a href="https://openrouter.ai">OpenRouter</a> and your API key (from <a href="https://openrouter.ai/keys">openrouter.ai/keys</a>).
-  Choose a model: the recommended ones are small, fast and inexpensive, and the full list shows every model that can answer
-  in a JSON shape, with its price. The sample lines you ask about are sent to OpenRouter and the model's provider, so:</li>
-<li>IP, email and MAC addresses and host names are replaced before sending (on unless you turn it off). Every dotted name
+<li><strong>In the cloud</strong>, with your API key for one of these services:</li>
+<li><a href="https://openrouter.ai">OpenRouter</a> (keys at <a href="https://openrouter.ai/keys">openrouter.ai/keys</a>): hundreds of models from many
+    companies, with prices shown. SIEMLite asks OpenRouter to use only companies that don't keep or train on what they're sent.</li>
+<li><a href="https://www.anthropic.com">Anthropic</a> (keys at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a>): Claude.</li>
+<li><a href="https://ai.google.dev">Google Gemini</a> (keys at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>). With a free key,
+    Google may use what is sent to improve its products; a key on a paid (billing) project doesn't.</li>
+<li><a href="https://platform.openai.com">OpenAI</a> (keys at <a href="https://platform.openai.com/api-keys">platform.openai.com</a>).</li>
+<li><a href="https://build.nvidia.com">NVIDIA</a> (keys at <a href="https://build.nvidia.com/settings/api-keys">build.nvidia.com</a>): NVIDIA's hosted
+    open models, such as Llama and Nemotron.</li>
+</ul>
+<p>Choose the service and a model: the card reads the service's own model list with your key and recommends small, fast and
+  inexpensive ones. Each service keeps its own key and model, so you can switch between them without entering them again.
+  The sample lines you ask about are sent to the service, so:
+  - IP, email and MAC addresses and host names are replaced before sending (on unless you turn it off). Every dotted name
     counts as a host name, including file and field names such as <code>index.html</code> or <code>actor.ip</code>, so nothing slips through on an
     unusual domain; this can make field mapping for JSON with dotted field names less precise. The stand-ins keep the lines'
-    shape, and the answer is changed back, so the parser fits the real lines. Other text, such as user names, is sent as written.</li>
-<li>Before anything is sent, SIEMLite checks the exact text: if an address, or part of one, is still there, nothing is sent
-    and you are asked to remove it from the samples or use a model on this server.</li>
-<li>SIEMLite asks OpenRouter to use only providers that don't keep or train on what they're sent.</li>
-<li>The key is encrypted like the <a href="email.html">email</a> password and never shown again.</li>
-</ul>
+    shape, and the answer is changed back, so the parser fits the real lines. Other text, such as user names, is sent as written.
+  - Before anything is sent, SIEMLite checks the exact text: if an address, or part of one, is still there, nothing is sent
+    and you are asked to remove it from the samples or use a model on this server.
+  - The keys are encrypted like the <a href="email.html">email</a> password and never shown again.</p>
 <p>Turning the integration off hides the button; its settings are kept. Asking for a suggestion is recorded in the
 <a href="audit-log.html">audit log</a> (<code>parser.suggest</code>), and so are changes to the settings (<code>system.ai.save</code>). Before v0.19 this was
 set with <code>SIEMLITE_AI_URL</code>; that still works, as the starting settings, until the page saves its own.</p>

@@ -175,6 +175,16 @@ the server, at <code>https://localhost:8444</code>, where the password form is s
 <li><strong>Suggestions for JSON with dotted field names are vague in the cloud</strong>: dotted names are replaced before sending, field names
   included. A model on this server sees them as they are.</li>
 </ul>
+<h2 id="updatesh-doesnt-finish">./update.sh doesn't finish</h2>
+<ul>
+<li><strong>"Couldn't ask GitHub for the newest release"</strong>: the server can't reach api.github.com. Name the version instead:
+  <code>./update.sh v0.20</code>.</li>
+<li><strong>"This SIEMLite is built from this folder, so it can't switch to ..."</strong>: there's no release image in <code>.env</code>. Run <code>git pull</code>
+  and <code>./update.sh</code>, or set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:&lt;version&gt;</code> in <code>.env</code> to use releases.</li>
+<li><strong>"SIEMLite hasn't reported healthy yet"</strong>: look at <code>docker compose logs --tail 50 siemlite</code>. After going back to an older
+  version, the database may need the newer one; run <code>./update.sh</code> to return to the newest, or restore a backup made on the older one.</li>
+<li><strong><code>./update.sh: No such file or directory</code></strong>: the script arrived in v0.20; run <code>git pull</code> in the SIEMLite folder first.</li>
+</ul>
 <h2 id="still-stuck">Still stuck</h2>
 <p>Check the server log, <code>GET /health</code> (details when signed in), and the <a href="audit-log.html">audit log</a>, then <a href="https://github.com/justwaters/SIEMLite/issues">open an issue</a>.</p>
   </main>
