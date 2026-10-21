@@ -185,6 +185,16 @@ the server, at <code>https://localhost:8444</code>, where the password form is s
   version, the database may need the newer one; run <code>./update.sh</code> to return to the newest, or restore a backup made on the older one.</li>
 <li><strong><code>./update.sh: No such file or directory</code></strong>: the script arrived in v0.20; run <code>git pull</code> in the SIEMLite folder first.</li>
 </ul>
+<h2 id="events-are-refused-as-too-old-or-a-mass-ingestion-of-late-logs-alert">Events are refused as too old, or a "Mass ingestion of late logs" alert</h2>
+<ul>
+<li><strong>"is older than the N days events are kept"</strong>: the event is dated before the retention period, so it isn't stored. Make
+  the period longer under <strong>Keep events</strong> on the System page (two years by default) if you need those logs.</li>
+<li><strong>Keep events shows 30 days after updating</strong>: your <code>.env</code> still sets <code>SIEMLITE_RETENTION_DAYS=30</code> (older copies of
+  <code>.env.example</code> did). Choose the period on the System page and save; that takes precedence from then on.</li>
+<li><strong>A "Mass ingestion of late logs" alert</strong>: 50 or more events more than 30 days old arrived from one source at once. If you
+  loaded old logs on purpose, close it. Otherwise check the source: a sender replaying old logs, or one whose clock is wrong.
+  The alert's event names the source, how many events and the dates they cover.</li>
+</ul>
 <h2 id="still-stuck">Still stuck</h2>
 <p>Check the server log, <code>GET /health</code> (details when signed in), and the <a href="audit-log.html">audit log</a>, then <a href="https://github.com/justwaters/SIEMLite/issues">open an issue</a>.</p>
   </main>
