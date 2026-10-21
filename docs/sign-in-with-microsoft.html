@@ -80,6 +80,9 @@
   kept, the check says so, and it can't sign in again while it is outside the group, so create another admin.</li>
 <li><strong>Accounts are matched by Microsoft's object ID</strong>, not by name. A Microsoft user name that matches an existing local account is
   refused, never linked to it, so nobody can take over a local account by having the same name.</li>
+<li><strong>The display name is shown</strong> (Justin Waters) in the sidebar, on the Account and Users pages and in audit messages, with
+  the account's email (its username, which stays unique) beside it where it identifies the account. It is taken from
+  Microsoft at each sign-in and at every membership check, so a rename in Entra shows up within five minutes.</li>
 <li><strong>Password sign-in stays</strong> for local accounts unless you choose <strong>Only allow sign-in with Microsoft</strong> (see
   <a href="users-and-security.html#sign-in-restrictions">Sign-in restrictions</a>), so keep a local admin in case Microsoft is unreachable. Accounts that sign in with
   Microsoft have no password. Turning the integration off, or removing it, stops new Microsoft sign-ins and signs out everyone who signed in

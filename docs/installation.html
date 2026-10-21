@@ -74,13 +74,22 @@ warn about the self-signed certificate unless you trust <code>siemlite.crt</code
 sends ten realistic test events a second, attacks included. See <a href="test-logs.html">Test logs</a>.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.19</code> in <code>.env</code> and run <code>docker compose pull &amp;&amp; docker compose up -d</code>.
-Or build from the checkout, and deploy and upgrade with one command:</p>
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.20</code> in <code>.env</code> to use it, or leave it out to build from the
+checkout. Either way, start and update with <code>./update.sh</code>:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
-git pull &amp;&amp; docker compose up -d --build
+./update.sh                 # starts SIEMLite; run it again to update
 docker compose logs siemlite | grep -A1 'username: admin'   # the admin password, printed on first start
 </code></pre>
+<p><code>./update.sh</code> gets the newest release (moving <code>SIEMLITE_IMAGE</code> in <code>.env</code> to it) or, when built from the checkout, runs
+<code>git pull</code> and rebuilds; then it restarts SIEMLite, says which version it went from and to, and waits until it is healthy:</p>
+<pre><code>Downloading SIEMLite v0.19.1...
+Updating SIEMLite v0.19 -&gt; v0.19.1
+SIEMLite v0.19.1 is up.
+</code></pre>
+<p><code>./update.sh v0.19</code> picks a particular release. Going back to an older one warns that the database may have been changed
+by the newer version, and asks first. <code>docker compose pull &amp;&amp; docker compose up -d</code> (or <code>docker compose up -d --build</code>)
+still works too; it just doesn't say what changed.</p>
 <p>The password is printed only by the first container. Rebuilding replaces the container and its logs, so if you
 missed it, set a new one: <code>docker compose exec siemlite siemlite users passwd -username admin</code>.</p>
 <ul>

@@ -174,7 +174,7 @@
 <tr>
 <td><code>GET</code>/<code>PUT /api/v1/integrations/ai</code>, <code>POST /api/v1/integrations/ai/test</code>, <code>GET /api/v1/integrations/ai/cloud-models</code></td>
 <td>admin</td>
-<td>The <a href="parsers.html#ai-parsers">AI Parsers</a> settings (<code>{"provider": "local"/"openrouter", "ollama_url", "local_model", "cloud_model", "send_addresses", "openrouter_key"}</code>; the key is write-only, leaving it out keeps the saved one and <code>""</code> removes it), with this server's hardware, the recommended model and the download's progress; a connection test (the same fields); and OpenRouter's models that can answer in a JSON shape.</td>
+<td>The <a href="parsers.html#ai-parsers">AI Parsers</a> settings (<code>{"provider": "local"/"openrouter"/"anthropic"/"google"/"openai"/"nvidia", "ollama_url", "local_model", "cloud_model", "send_addresses", "api_key", "key_for"}</code>; <code>api_key</code> is write-only and is for the service <code>key_for</code> (or <code>provider</code>): leaving it out keeps the saved one and <code>""</code> removes it; <code>openrouter_key</code> from v0.19 still works), with this server's hardware, the recommended model and the download's progress; a connection test (the same fields); and a service's models with the ones recommended (<code>GET ?provider=</code> uses the saved key, <code>POST {"provider", "api_key"}</code> the one given).</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/parsers/test</code>, <code>POST /api/v1/parsers/suggest</code></td>
@@ -184,7 +184,7 @@
 <tr>
 <td><code>POST /api/v1/login</code>, <code>POST /api/v1/logout</code>, <code>GET /api/v1/me</code></td>
 <td></td>
-<td>Browser sign-in, sign-out and current session (<code>/me</code> includes <code>auth_provider</code>: <code>local</code> or <code>entra</code>). A password sign-in refused by a <a href="users-and-security.html#sign-in-restrictions">sign-in restriction</a> gets <code>403</code>.</td>
+<td>Browser sign-in, sign-out and current session (<code>/me</code> includes <code>auth_provider</code>: <code>local</code> or <code>entra</code>, and <code>display_name</code> for a Microsoft account). A password sign-in refused by a <a href="users-and-security.html#sign-in-restrictions">sign-in restriction</a> gets <code>403</code>.</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>PUT /api/v1/system/signin</code></td>
