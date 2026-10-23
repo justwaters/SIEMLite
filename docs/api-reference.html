@@ -119,7 +119,7 @@
 <tr>
 <td><code>GET /api/v1/rules</code>, <code>POST /api/v1/rules</code>, <code>PUT</code>/<code>DELETE /api/v1/rules/{id}</code></td>
 <td>any signed-in user (list), admin</td>
-<td>Alert rules: <code>{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes"}</code>.</td>
+<td>Alert rules: <code>{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes", "kind"}</code>. <code>kind</code> is <code>match</code> (the default), or <code>volume_over</code> / <code>volume_under</code> to alert when the source in <code>source_id</code> (required) sends more than / fewer than <code>threshold</code> events in <code>window_minutes</code>; those ignore <code>query</code>, <code>min_severity</code>, <code>threat_only</code> and <code>group_by</code>.</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/system</code></td>

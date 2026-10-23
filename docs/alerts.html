@@ -90,6 +90,13 @@ every 10 seconds.</p>
 </tr>
 </tbody>
 </table></div>
+<p>A rule can instead watch <strong>how much one source sends</strong>: choose "A source sends more than a number of events" or "fewer than a
+number of events" when you make a rule, then the source, the number and the time window ("fewer than 1 event in 15 minutes" is
+a source that went quiet; "more than 5,000 in 10 minutes" is one flooding you). It counts the source's events in the last
+window, by when the events happened, every 10 seconds, so a batch of old logs doesn't count as a burst. A "fewer than" rule
+waits a whole window after it is saved or edited, or after SIEMLite starts, before it can say a source went quiet, since
+SIEMLite being off looks the same. The alert's count is the highest number seen for "more than" and the lowest for "fewer than".
+A source can't be deleted while a rule watches it.</p>
 <p>While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The <a href="test-logs.html">log
 generator</a>'s attacks raise alerts too.</p>
