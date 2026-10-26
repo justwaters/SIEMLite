@@ -40,6 +40,7 @@
 <li><a href="threat-intel.html">Threat intel</a></li>
 <li><a href="users-and-security.html">Users and security</a></li>
 <li><a href="integrations.html">Integrations</a></li>
+<li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
@@ -85,6 +86,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 <li><strong><code>pkg/search</code></strong>: combines time window, OCSF filters and FTS5.</li>
 <li><strong><code>pkg/retention</code></strong>: deletes expired days' files, and older events from the day the cutoff falls in.</li>
 <li><strong><code>pkg/alerts</code></strong>: the alert engine: runs each rule over the events since its last check.</li>
+<li><strong><code>pkg/mcp</code></strong>: a small Model Context Protocol server (JSON-RPC over HTTP, tools filtered by access level); <strong><code>pkg/agents</code></strong>: AI agent tokens and the "AI agents (MCP)" integration; the tools themselves are in <code>api/mcp.go</code> and run the REST handlers as the token.</li>
 <li><strong><code>pkg/audit</code></strong>: writes the audit log as INTERNAL events.</li>
 <li><strong><code>pkg/auth</code></strong>: access tokens, users, roles, source limits, sessions and permission checks.</li>
 <li><strong><code>api</code></strong>: HTTPS server and endpoints. <strong><code>web</code></strong>: the embedded UI.</li>
