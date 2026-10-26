@@ -74,7 +74,7 @@ warn about the self-signed certificate unless you trust <code>siemlite.crt</code
 sends ten realistic test events a second, attacks included. See <a href="test-logs.html">Test logs</a>.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.24</code> in <code>.env</code> to use it, or leave it out to build from the
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.24.1</code> in <code>.env</code> to use it, or leave it out to build from the
 checkout. Either way, start and update with <code>./update.sh</code>:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
