@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI agents (MCP) · SIEMLite docs</title>
+<meta name="description" content="AI agents can connect to SIEMLite through the Model Context Protocol: the endpoint is">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a aria-current="page" href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="email.html">Email</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="ai-agents-mcp">AI agents (MCP)</h1>
+<p>AI agents can connect to SIEMLite through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>: the endpoint is
+<code>POST https://&lt;your SIEMLite&gt;/mcp</code> (streamable HTTP, JSON answers), and any MCP client can use it. Turn it on and make tokens on
+the <strong>Integrations</strong> page under <strong>AI agents (MCP)</strong>. Each token has a name and a level, is shown once, and can be removed at any
+time (the agent using it is refused straight away). The switch on the card keeps all agents out while leaving the tokens in place.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Level</th>
+<th>Tools</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Read-only</strong></td>
+<td><code>search_events</code> (the Database search with its filters, newest first, 200 at most; the original line only with <code>include_raw</code>), <code>get_stats</code> (the dashboard's numbers for the last N hours), <code>list_alerts</code>, <code>list_rules</code>, <code>list_sources</code></td>
+</tr>
+<tr>
+<td><strong>Analyst</strong></td>
+<td>the above, and <code>set_alert_status</code> (acknowledge, close or reopen an alert)</td>
+</tr>
+<tr>
+<td><strong>Admin</strong></td>
+<td>the above, and <code>list_parsers</code>, <code>get_parser</code>, <code>draft_parser</code>, <code>test_parser</code>, <code>save_parser</code>, <code>delete_parser</code>, <code>create_source</code>, <code>update_source</code>, <code>delete_source</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Agents can't reach users, passwords, sign-in settings, Microsoft sign-in, certificates, email, backups, retention or alert rules
+(they can read rules). A tool the token's level doesn't allow isn't listed, and calling it by name is refused. The tools run the
+same checks as the web pages, so a bad search, a missing name or a parser that doesn't compile comes back as a message the agent
+can act on. To connect Claude Code:</p>
+<pre><code>claude mcp add --transport http siemlite https://siemlite.example.com/mcp --header &quot;Authorization: Bearer slmcp_...&quot;
+</code></pre>
+<p>For the Gemini CLI: <code>gemini mcp add --transport http --header "Authorization: Bearer slmcp_..." siemlite https://siemlite.example.com/mcp</code>
+(or <code>"httpUrl"</code> and <code>"headers"</code> in its <code>settings.json</code>). For OpenCode, add the server to <code>opencode.json</code>:</p>
+<pre><code class="language-json">{ &quot;mcp&quot;: { &quot;siemlite&quot;: { &quot;type&quot;: &quot;remote&quot;, &quot;url&quot;: &quot;https://siemlite.example.com/mcp&quot;, &quot;enabled&quot;: true,
+                          &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer slmcp_...&quot; } } } }
+</code></pre>
+<p>Other clients take the same URL and an <code>Authorization: Bearer slmcp_...</code> header. The dialog shown with a new token has ready-to-copy
+snippets for all of these, with the token filled in. With a self-signed certificate the agent's computer must trust <code>siemlite.crt</code>.</p>
+<p>Things to know:</p>
+<ul>
+<li>Tokens are stored only as hashes. They start with <code>slmcp_</code> so secret scanners can find them, and they work only on <code>/mcp</code>: not on
+  the REST API, and an ingest token or a signed-in session doesn't work on <code>/mcp</code>.</li>
+<li>Everything an agent changes is in the <a href="audit-log.html">audit log</a> as <code>agent:&lt;token name&gt; ...</code> with the field <code>via=mcp</code>, and making
+  or removing a token is recorded too. Bad tokens are recorded and lock the address out like wrong passwords do; a request that
+  names another site in <code>Origin</code> is refused.</li>
+<li>Log text comes from outside systems, so an agent reading it can be misled by what it says. SIEMLite tells agents to treat it as
+  data, but give each agent the lowest level it needs. A read-only token can't change anything.</li>
+</ul>
+<p>The same settings are in the API (admin only): <code>GET /api/v1/integrations/mcp</code>, <code>POST /api/v1/integrations/mcp/tokens</code>
+(<code>{"name", "level"}</code>; the answer holds the token once), <code>DELETE /api/v1/integrations/mcp/tokens/{id}</code>, and
+<code>POST /api/v1/integrations/{id}/enabled</code> with <code>mcp</code> as the id (<code>{"enabled": false}</code>).</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>
