@@ -779,8 +779,10 @@ func (s *Server) handleSuggestParser(w http.ResponseWriter, r *http.Request) {
 	// Pretty-printed JSON pasted as samples becomes one object per line.
 	req.Lines = parser.SplitSamples(strings.Join(req.Lines, "\n"))
 	// A CPU-only model can take minutes; outlast the server's write timeout.
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
-	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+	// The context timeout is the hard limit, so the write deadline matches it.
+	suggestParserTimeout := 4 * time.Minute
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(suggestParserTimeout))
+	ctx, cancel := context.WithTimeout(r.Context(), suggestParserTimeout)
 	defer cancel()
 	sug, err := s.deps.AI.Suggest(ctx, req.Lines)
 	var bad ai.InputError
