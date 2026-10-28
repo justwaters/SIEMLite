@@ -469,6 +469,38 @@ func (r *Repository) SetUserDisabled(ctx context.Context, id int64, disabled boo
 	return tx.Commit()
 }
 
+const versionKey = "last_version"
+
+// RollVersion notes the version of SIEMLite that is starting. When it isn't the
+// one that ran last (an update, or a rollback), every session is ended, so
+// nobody stays signed in across a change of version, and it reports what ran
+// before ("" if nothing was recorded) and how many sessions it ended.
+func (r *Repository) RollVersion(ctx context.Context, version string) (prev string, ended int64, changed bool, err error) {
+	tx, err := r.db.Write.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, false, err
+	}
+	defer tx.Rollback()
+	switch err = tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, versionKey).Scan(&prev); {
+	case errors.Is(err, sql.ErrNoRows):
+		prev = ""
+	case err != nil:
+		return "", 0, false, fmt.Errorf("read the last version: %w", err)
+	}
+	if prev == version {
+		return prev, 0, false, nil
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM sessions`)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("end sessions: %w", err)
+	}
+	ended, _ = res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, versionKey, version); err != nil {
+		return "", 0, false, fmt.Errorf("record the version: %w", err)
+	}
+	return prev, ended, true, tx.Commit()
+}
+
 // DeleteSessionsByProvider ends every session of the accounts that sign in
 // through a provider, and returns how many there were.
 func (r *Repository) DeleteSessionsByProvider(ctx context.Context, provider string) (int64, error) {

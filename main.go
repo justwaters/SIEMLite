@@ -276,6 +276,18 @@ func run() error {
 				"; the database before it was saved as " + restored.SavedAs,
 			Fields: map[string]string{"target": restored.Backup, "saved_as": restored.SavedAs}})
 	}
+	// Nobody stays signed in across an update (or a rollback): people sign in again on the new version.
+	if prev, ended, changed, err := repo.RollVersion(ctx, version()); err != nil {
+		slog.Error("couldn't check whether the version changed", "err", err)
+	} else if changed && ended > 0 {
+		from := "the previous version"
+		if prev != "" {
+			from = prev
+		}
+		auditLog.Record(ctx, audit.Entry{Action: "system.version", Actor: "SIEMLite", Severity: 2,
+			Message: fmt.Sprintf("SIEMLite changed from %s to %s: everyone was signed out (%d sessions)", from, version(), ended),
+			Fields:  map[string]string{"from": prev, "to": version(), "sessions": strconv.FormatInt(ended, 10)}})
+	}
 	alertEngine := alerts.New(repo, nil)
 	wg.Add(1)
 	go func() {

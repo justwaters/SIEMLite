@@ -53,7 +53,7 @@ sends ten realistic test events a second, attacks included. See [Test logs](#tes
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.25` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.26` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -595,6 +595,11 @@ checks it against the release's `SHA256SUMS`, swaps it in for the running progra
 seconds. Nothing changes if the download or check fails. Updates are recorded in the audit log. Make a backup
 first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
 Pass `-update-check=false` (or `SIEMLITE_UPDATE_CHECK=false`) to stop SIEMLite contacting GitHub at all.
+
+**Everyone is signed out when SIEMLite changes version**, however it was updated (the button, `docker compose pull`, a new
+binary, or going back to an older one), so people sign in again on the new version. Restarting the same version keeps
+sessions. The audit log records it ("SIEMLite changed from v0.25 to v0.26: everyone was signed out"), and the person who
+used **Update and restart** is told why when the sign-in page comes back.
 
 - **A plain program** is replaced in place. The button appears when SIEMLite can write to its own folder.
 - **Docker** can't replace the program inside the image, so the update is saved in the data volume

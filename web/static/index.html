@@ -3196,6 +3196,7 @@ async function applyUpdate(u) {
   notice($("system-msg"), `Downloading ${u.latest}…`, true);
   try { await apiJSON("/api/v1/system/update", { method: "POST" }); }
   catch (err) { notice($("system-msg"), err.message); return; }
+  try { sessionStorage.setItem("siemlite.updated", "1"); } catch {}
   waitForRestart("Updating SIEMLite", "SIEMLite is restarting on the new version. This page reloads when it\u2019s back.");
 }
 // --- Integrations ---
@@ -3899,10 +3900,17 @@ function start() {
   if (!location.hash || location.hash === "#") history.replaceState(null, "", "#/dashboard");
   route();
 }
+// Everyone is signed out when SIEMLite is updated; the person who updated it is told why.
+function updatedNote() {
+  try {
+    if (sessionStorage.getItem("siemlite.updated")) { sessionStorage.removeItem("siemlite.updated"); return "SIEMLite was updated, so everyone was signed out. Sign in again."; }
+  } catch {}
+  return "";
+}
 setTheme(document.documentElement.dataset.theme || "system");
 (async () => {
   const res = await fetch("/api/v1/me", { credentials: "same-origin" });
-  if (res.ok) { applySession(await res.json()); start(); } else showLogin(ssoErrorFromURL());
+  if (res.ok) { applySession(await res.json()); start(); } else showLogin(ssoErrorFromURL() || updatedNote());
 })();
 </script>
 </body>
