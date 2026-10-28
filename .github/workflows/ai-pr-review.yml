@@ -365,6 +365,7 @@ jobs:
               temperature=0.4,
               timeout=180
           )
+          consolidated = ok
           blockers = 0
           if ok:
               m = None
@@ -383,16 +384,22 @@ jobs:
                   + "\n\n".join(f"<details><summary>{m}</summary>\n\n{text[:6000]}\n\n</details>" for m, text in reports.items())
               )
 
+          def name_list(models):
+              names = [f"`{m}`" for m in models]
+              return names[0] if len(names) == 1 else (" and ".join(names) if len(names) == 2 else ", ".join(names[:-1]) + ", and " + names[-1])
+
+          # The footer credits only the models whose reports were used. A model that did not answer is listed above, as failed.
+          if consolidated:
+              credit = f"*Consolidated by `nvidia/nemotron-3.5-bolt-e4b` from independent analyses by {name_list(reports)}.*"
+          else:
+              credit = f"*Individual reports from {name_list(reports)}; the consolidation step failed, so they are not merged.*"
           final_body = (
               "<!-- ai-pr-review -->\n"
               "## 🤖 Automated Code Review\n\n"
               f"{final_review}\n\n"
               f"{failed_models_section}"
               "---\n"
-              "*Consolidated by `nvidia/nemotron-3.5-bolt-e4b` from independent analyses by "
-              "`nvidia/nemotron-3.5-super-vl-120b-a12b`, `nvidia/nemotron-3.5-lightning-30b-a3b`, "
-              "`nvidia/nemotron-3-ultra-550b-a55b`, `z-ai/glm-5.3-flash`, `meta/muse-glimmer-30b`, "
-              "`deepseek-ai/deepseek-v4.1-flash`, `minimaxai/minimax-m3.1-flash`, and `poolside/laguna-xs-2.1`.*"
+              f"{credit}"
           )
 
           with open("review_comment.md", "w", encoding="utf-8") as out:
