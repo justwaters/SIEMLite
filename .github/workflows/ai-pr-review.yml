@@ -1,23 +1,157 @@
-name: AI PR Multi-Model Code Review
+# Eve: multi-model AI pull request review. The same logic as FISNI-FI/nvidia-review, as one self-contained file for this
+# public repository (a repository outside that organization cannot call its private shared workflow).
+#
+# - Eight NVIDIA-hosted models review the diff, a ninth consolidates them. The diff, title and description are sent to
+#   NVIDIA. Set the repository variable AI_REVIEW_ENABLED=false to turn Eve off.
+# - It never checks out the pull request's code (it reads the diff through the API), because it runs with
+#   pull_request_target and holds secrets. Keep it that way.
+# - Two checks: "Eve / review" passes whenever a review was left; "Eve - Go/No-Go Decision" fails on blockers (a bug that
+#   breaks at runtime, data loss or a critical security issue) and is neutral when no review completed.
+# - A formal review is submitted too (that is what lists Eve under Reviewers): "Request changes" while there are blockers.
+# - Commands, as a PR comment that is exactly "@eve-fisni review", "pause", "resume" or "help" (owners, members and
+#   collaborators only): review now, stop or restart reviewing new pushes (label eve:paused), or list the commands.
+# - Optional: post as a GitHub App instead of github-actions[bot] with the variable AI_REVIEW_APP_ID and the secret
+#   AI_REVIEW_APP_PRIVATE_KEY; variables EVE_RUNNER and EVE_BOT_SLUG change the runner and the command name.
+name: Eve
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
+  checks: write
+
+# One review per PR at a time: a newer push cancels a review that is still running. A command never cancels one. This is
+# evaluated before the job's `if`, so a comment that is not an authorized command gets its own group (the run id): anyone
+# can comment on a PR, and a shared group would let them push a waiting review out of the queue.
+concurrency:
+  group: >-
+    eve-${{ github.event_name == 'pull_request_target' && format('review-{0}', github.event.pull_request.number)
+    || (contains(github.event.comment.body, '@eve-fisni') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) && format('cmd-{0}', github.event.issue.number) || github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    name: review
+    # Turn Eve off with the repository variable AI_REVIEW_ENABLED=false. A comment only counts when it is an authorized
+    # command (a person who can write to the repository, and a bot never).
+    if: >-
+      vars.AI_REVIEW_ENABLED != 'false' &&
+      (github.event_name == 'pull_request_target' ||
+       (github.event.issue.pull_request != null &&
+        github.event.sender.type != 'Bot' &&
+        contains(github.event.comment.body, '@eve-fisni') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
+    runs-on: ${{ vars.EVE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
     steps:
-      - name: Fetch PR Diff
-        id: get_diff
+      # The runner's workspace is NOT clean between jobs, and Python puts the current directory first on its import path.
+      # Everything here runs in a fresh per-job directory, and Python runs in isolated mode (-I), so no leftover file from an
+      # earlier job can shadow a standard-library module while the NVIDIA key is in the environment.
+      - name: Prepare a clean working directory
+        run: mkdir -p "$RUNNER_TEMP/ai-review"
+
+      - name: Create the review app token
+        id: app
+        if: vars.AI_REVIEW_APP_ID != ''
+        uses: actions/create-github-app-token@v2.0.6
+        with:
+          app-id: ${{ vars.AI_REVIEW_APP_ID }}
+          private-key: ${{ secrets.AI_REVIEW_APP_PRIVATE_KEY }}
+          # Only this repository, and only what Eve does: comment, label, react.
+          permission-pull-requests: write
+          permission-issues: write
+
+      # Decides what this run does. Every event value reaches the shell through env, never through the script text.
+      - name: Decide what to do
+        id: plan
+        working-directory: ${{ runner.temp }}/ai-review
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          IS_PR: ${{ github.event_name == 'pull_request_target' || github.event.issue.pull_request != null }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          ASSOCIATION: ${{ github.event.comment.author_association }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+          SLUG: ${{ vars.EVE_BOT_SLUG || 'eve-fisni' }}
+        run: |
+          action=skip
+          if [ "$IS_PR" = "true" ] && [ -n "$PR_NUMBER" ]; then
+            gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" > pr.json
+            if [ "$EVENT_NAME" = "issue_comment" ]; then
+              # Commands: only a person who can write to the repository, and the whole comment is the command.
+              case "$ASSOCIATION" in OWNER|MEMBER|COLLABORATOR) allowed=true ;; *) allowed=false ;; esac
+              cmd=$(printf '%s' "$COMMENT_BODY" | tr -d '\r' | tr '[:upper:]' '[:lower:]' | xargs)
+              if [ "$allowed" = "true" ] && [ "$SENDER_TYPE" != "Bot" ]; then
+                case "$cmd" in
+                  "@$SLUG review") action=review ;;
+                  "@$SLUG pause") action=pause ;;
+                  "@$SLUG resume") action=resume ;;
+                  "@$SLUG help") action=help ;;
+                esac
+              fi
+              [ "$action" != "skip" ] && gh api -X POST "repos/${{ github.repository }}/issues/comments/$COMMENT_ID/reactions" -f content=eyes > /dev/null || true
+            elif jq -e '[.labels[].name] | index("eve:paused")' pr.json > /dev/null; then
+              echo "Reviews are paused on this pull request (label eve:paused)."
+            else
+              action=review
+            fi
+          fi
+          echo "Action: $action"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          [ -s pr.json ] && echo "head_sha=$(jq -r .head.sha pr.json)" >> "$GITHUB_OUTPUT"
+
+      # The verdict check. It is created here (in progress) so a pull request shows "Eve is reviewing" straight away, and it is
+      # completed at the very end with the decision. It is made with the job token (the app has no Checks permission), and a
+      # failure to create it never stops the review.
+      - name: Open the Go/No-Go check
+        id: gate
+        if: steps.plan.outputs.action == 'review'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ steps.plan.outputs.head_sha }}
+        run: |
+          ID=$(gh api "repos/${{ github.repository }}/check-runs" -f name="Eve - Go/No-Go Decision" -f head_sha="$HEAD_SHA" -f status=in_progress \
+            -f 'output[title]=Eve is reviewing' -f 'output[summary]=The decision follows the review.' --jq .id) || ID=""
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Pause, resume or help
+        if: contains(fromJSON('["pause","resume","help"]'), steps.plan.outputs.action)
+        working-directory: ${{ runner.temp }}/ai-review
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+          ACTION: ${{ steps.plan.outputs.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          SLUG: ${{ vars.EVE_BOT_SLUG || 'eve-fisni' }}
+        run: |
+          api="repos/${{ github.repository }}/issues/$PR_NUMBER"
+          case "$ACTION" in
+            pause)
+              gh api -X POST "$api/labels" -f 'labels[]=eve:paused' > /dev/null
+              msg="Paused. I will not review new pushes on this pull request. Comment \`@$SLUG resume\` to start again, or \`@$SLUG review\` for a one-off review." ;;
+            resume)
+              gh api -X DELETE "$api/labels/eve:paused" > /dev/null 2>&1 || true
+              msg="Resumed. I will review new pushes again. Comment \`@$SLUG review\` to review the current state now." ;;
+            help)
+              msg=$(printf 'Comment one of these on a pull request (the whole comment is the command):\n\n| Command | What it does |\n|---|---|\n| `@%s review` | Review this pull request now (works while paused) |\n| `@%s pause` | Stop reviewing new pushes (adds the `eve:paused` label) |\n| `@%s resume` | Review new pushes again |\n| `@%s help` | Show this list |' "$SLUG" "$SLUG" "$SLUG" "$SLUG") ;;
+          esac
+          gh api "$api/comments" -f body="$msg" > /dev/null
+
+      - name: Fetch PR Diff
+        id: get_diff
+        if: steps.plan.outputs.action == 'review'
+        working-directory: ${{ runner.temp }}/ai-review
+        env:
+          # Reading a private repository's diff needs Contents: read, which the app deliberately does not have.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
             -H "Accept: application/vnd.github.diff" > pr_diff.patch
@@ -28,35 +162,33 @@ jobs:
             echo "empty=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run Static Bug Analysis (Semgrep)
-        if: steps.get_diff.outputs.empty == 'false'
-        continue-on-error: true
-        run: |
-          pip install --quiet semgrep
-          semgrep scan --config auto --json --output semgrep_results.json || true
-
       - name: Run Multi-Model Review Pipeline
-        if: steps.get_diff.outputs.empty == 'false'
+        if: steps.plan.outputs.action == 'review' && steps.get_diff.outputs.empty == 'false'
+        working-directory: ${{ runner.temp }}/ai-review
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           REPO_NAME: ${{ github.repository }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          python3 - << 'EOF'
+          python3 -I - << 'EOF'
           import os
           import sys
           import json
           import urllib.request
           import urllib.error
+          import time
+          import random
+          import re
+          import socket
           from concurrent.futures import ThreadPoolExecutor
 
           api_key = os.environ.get("NVIDIA_API_KEY")
           repo = os.environ.get("REPO_NAME", "")
           pr_num = os.environ.get("PR_NUMBER", "")
-          pr_title = os.environ.get("PR_TITLE", "No title provided")
-          pr_body = os.environ.get("PR_BODY", "No description provided")
+          with open("pr.json", "r", encoding="utf-8") as f:
+              pr_info = json.load(f)
+          pr_title = pr_info.get("title") or "No title provided"
+          pr_body = pr_info.get("body") or "No description provided"
 
           if not api_key:
               print("Missing NVIDIA_API_KEY secret.")
@@ -65,77 +197,62 @@ jobs:
           with open("pr_diff.patch", "r", encoding="utf-8", errors="ignore") as f:
               diff_text = f.read()
 
-          MAX_CHARS = 80000
+          MAX_CHARS = 60000   # big diffs make every model slow; the hosted endpoint is shared and often busy
           if len(diff_text) > MAX_CHARS:
               diff_text = diff_text[:MAX_CHARS] + "\n\n... [Diff truncated due to size limits] ..."
 
-          # Parse Semgrep findings if available
-          semgrep_findings = "No deterministic static issues found."
-          if os.path.exists("semgrep_results.json"):
-              try:
-                  with open("semgrep_results.json", "r", encoding="utf-8") as f:
-                      s_data = json.load(f)
-                      matches = [
-                          f"[{m.get('check_id', 'issue')}] {m.get('path', '')}:{m.get('start', {}).get('line', '')} - {m.get('extra', {}).get('message', '')}"
-                          for m in s_data.get("results", [])
-                      ]
-                      if matches:
-                          semgrep_findings = "\n".join(matches[:15])
-              except Exception as e:
-                  semgrep_findings = f"Could not parse Semgrep results: {e}"
+          TRANSIENT_HTTP = (408, 429, 500, 502, 503, 504)
 
-          # Try to gather project context
-          project_context = ""
-          for ctx_file in ["README.md", "DESIGN.md", "CONTRIBUTING.md"]:
-              if os.path.exists(ctx_file):
-                  try:
-                      with open(ctx_file, "r", encoding="utf-8", errors="ignore") as f:
-                          content = f.read()
-                          if len(content) > 2000:
-                              content = content[:2000] + "\n\n... [truncated] ..."
-                          project_context += f"\n### {ctx_file}\n{content}\n"
-                  except Exception:
-                      pass
-                  break
-
-          def query_nim(model_id, messages, temperature=0.7, timeout=120):
+          def query_nim(model_id, messages, temperature=0.7, timeout=120, retries=0):
+              """Returns (True, text) on success or (False, reason) on any failure. A failure is never used as review text.
+              A busy endpoint (HTTP 429/5xx) or a timeout is retried `retries` times after a pause; anything else is final."""
               payload = {
                   "model": model_id,
                   "messages": messages,
                   "temperature": temperature
               }
-              req = urllib.request.Request(
-                  "https://integrate.api.nvidia.com/v1/chat/completions",
-                  data=json.dumps(payload).encode("utf-8"),
-                  headers={
-                      "Authorization": f"Bearer {api_key}",
-                      "Content-Type": "application/json",
-                      "Accept": "application/json"
-                  }
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=timeout) as response:
-                      res_data = json.loads(response.read().decode("utf-8"))
-                      return res_data["choices"][0]["message"]["content"]
-              except urllib.error.HTTPError as e:
-                  err_msg = e.read().decode("utf-8", errors="ignore")
-                  print(f"Error querying {model_id} ({e.code}): {err_msg}")
-                  return f"⚠️ Analysis skipped due to API error ({e.code})."
-              except Exception as e:
-                  print(f"Exception querying {model_id}: {e}")
-                  return f"⚠️ Analysis error: {str(e)}"
+              reason = "unknown error"
+              for attempt in range(retries + 1):
+                  req = urllib.request.Request(
+                      "https://integrate.api.nvidia.com/v1/chat/completions",
+                      data=json.dumps(payload).encode("utf-8"),
+                      headers={
+                          "Authorization": f"Bearer {api_key}",
+                          "Content-Type": "application/json",
+                          "Accept": "application/json"
+                      }
+                  )
+                  transient = False
+                  try:
+                      with urllib.request.urlopen(req, timeout=timeout) as response:
+                          res_data = json.loads(response.read().decode("utf-8"))
+                          return True, res_data["choices"][0]["message"]["content"]
+                  except urllib.error.HTTPError as e:
+                      err_msg = e.read().decode("utf-8", errors="ignore")
+                      print(f"Error querying {model_id} ({e.code}): {err_msg[:300]}")
+                      reason, transient = f"HTTP {e.code}", e.code in TRANSIENT_HTTP
+                  except (socket.timeout, TimeoutError):
+                      print(f"Timeout querying {model_id} after {timeout}s")
+                      reason, transient = f"timed out after {timeout}s", True
+                  except urllib.error.URLError as e:
+                      print(f"Network error querying {model_id}: {e}")
+                      reason, transient = "network error", True
+                  except Exception as e:
+                      print(f"Exception querying {model_id}: {e}")
+                      reason = type(e).__name__
+                  if not transient or attempt == retries:
+                      break
+                  pause = 10 * (attempt + 1) + random.uniform(0, 6)
+                  print(f"Retrying {model_id} in {pause:.0f}s ({reason})")
+                  time.sleep(pause)
+              return False, reason
 
-          # Inspection prompt combining Diff + Semgrep Findings + PR Intent
+          # Inspection prompt combining the Diff + PR Intent
           analysis_prompt = f"""You are an expert code reviewer. Your task is to review the provided code changes (git diff format) and offer constructive feedback.
-
-          Project Context:{project_context}
 
           The changes were made as part of the following task:
           Title: {pr_title}
           Description: {pr_body}
-
-          Static Analysis (Semgrep) Output:
-          {semgrep_findings}
 
           Please focus your review on: code quality, best practices, potential bugs, readability, maintainability, performance, and security.
 
@@ -146,7 +263,6 @@ jobs:
           - Offer a concise, practical code fix.
           - Do NOT include stylistic or subjective formatting comments.
           - Cross-reference the PR's stated intent with the actual changes and flag discrepancies.
-          - Investigate Semgrep findings and determine if they represent real issues or false alarms.
           - If the diff looks sound, confirm that no critical issues were detected.
 
           Git Diff:
@@ -175,26 +291,32 @@ jobs:
           print(f"Querying {len(ANALYZER_MODELS)} analyzer models in parallel...")
           reports = {}
           failed_models = []
-          with ThreadPoolExecutor(max_workers=len(ANALYZER_MODELS)) as executor:
+          # Four at a time, not all eight: the hosted endpoint is shared and rejects or stalls a burst of large requests.
+          with ThreadPoolExecutor(max_workers=4) as executor:
               future_to_model = {
-                  executor.submit(query_nim, model, messages, 1.0, 120): model
+                  executor.submit(query_nim, model, messages, 1.0, 360, 1): model
                   for model in ANALYZER_MODELS
               }
               for future in future_to_model:
                   model_name = future_to_model[future]
-                  result = future.result()
-                  if result.startswith("⚠️") or result.startswith("Analysis error"):
-                      failed_models.append(model_name)
-                  reports[model_name] = result
+                  ok, result = future.result()
+                  if ok:
+                      reports[model_name] = result
+                  else:
+                      failed_models.append((model_name, result))
 
-          # Build the consolidated prompt dynamically
+          if not reports:
+              print("Every analyzer model failed; not posting a review.")
+              sys.exit(1)
+
+          # Only reports that succeeded are shown to the synthesizer (failure text is never fed into the prompt).
           formatted_reports = "\n\n".join(
               [f"### Report from {m}:\n{text}" for m, text in reports.items()]
           )
 
           failed_models_section = ""
           if failed_models:
-              failed_models_section = "\n\n### ⚠️ Models that failed to respond:\n" + "\n".join([f"- `{m}`" for m in failed_models]) + "\n"
+              failed_models_section = "\n\n### ⚠️ Models that failed to respond:\n" + "\n".join([f"- `{m}` ({why})" for m, why in failed_models]) + "\n"
 
           # Synthesis prompt
           synthesis_prompt = f"""You are a Principal Software Architect synthesizing {len(ANALYZER_MODELS)} automated code review reports into an executive GitHub PR review comment.
@@ -206,10 +328,8 @@ jobs:
           ### Raw Engine Reports:
           {formatted_reports}
 
-          ### Static Analysis Findings (Semgrep):
-          {semgrep_findings}
-
           ### Output Rules & GitHub Markdown Requirements:
+          0. A Blocker is only something the diff itself proves will break at runtime, lose or expose data, or is a critical security issue. Never call something a Blocker because it is missing from the diff (code outside the diff may define it), because a single report claims it, or as a style or preference point. When in doubt it is a Warning.
           1. **Never place multiline code blocks inside table cells** (this breaks GitHub Markdown tables). Use tables ONLY for brief 1-line summaries.
           2. Structure the review into these exact sections:
 
@@ -231,39 +351,130 @@ jobs:
           ```go
           // Clean, runnable code snippet here
           ```
+
+          Finish with exactly one last line, nothing after it: `BLOCKERS: <n>` where <n> is the number of 🔴 Blocker findings above (0 if there are none).
           """
 
           print("Synthesizing final comment with Nemotron 3.5 Bolt E4B...")
-          final_review = query_nim(
+          ok, final_review = query_nim(
               "nvidia/nemotron-3.5-bolt-e4b",
               [
                   {"role": "system", "content": "You are an expert review consolidator that produces clear, actionable GitHub PR feedback."},
                   {"role": "user", "content": synthesis_prompt}
               ],
               temperature=0.4,
-              timeout=90
+              timeout=180
           )
+          consolidated = ok
+          blockers = 0
+          if ok:
+              m = None
+              for m in re.finditer(r"^\s*`?BLOCKERS:\s*(\d+)`?\s*$", final_review, re.M):
+                  pass
+              if m:
+                  blockers = int(m.group(1))
+                  final_review = (final_review[:m.start()] + final_review[m.end():]).rstrip()
+              else:    # no count given: count the blocker headings it wrote
+                  blockers = len(re.findall(r"^#{3,5}\s*🔴", final_review, re.M))
+          if not ok:
+              # The consolidation failed ({final_review}); post the individual reports rather than an error message.
+              print(f"Synthesis failed ({final_review}); posting the raw reports instead.")
+              final_review = (
+                  "_The final consolidation step failed, so these are the individual model reports, unmerged._\n\n"
+                  + "\n\n".join(f"<details><summary>{m}</summary>\n\n{text[:6000]}\n\n</details>" for m, text in reports.items())
+              )
 
+          def name_list(models):
+              names = [f"`{m}`" for m in models]
+              return names[0] if len(names) == 1 else (" and ".join(names) if len(names) == 2 else ", ".join(names[:-1]) + ", and " + names[-1])
+
+          # The footer credits only the models whose reports were used. A model that did not answer is listed above, as failed.
+          if consolidated:
+              credit = f"*Consolidated by `nvidia/nemotron-3.5-bolt-e4b` from independent analyses by {name_list(reports)}.*"
+          else:
+              credit = f"*Individual reports from {name_list(reports)}; the consolidation step failed, so they are not merged.*"
           final_body = (
+              "<!-- ai-pr-review -->\n"
               "## 🤖 Automated Code Review\n\n"
               f"{final_review}\n\n"
               f"{failed_models_section}"
               "---\n"
-              "*Consolidated by `nvidia/nemotron-3.5-bolt-e4b` from independent analyses by "
-              "`nvidia/nemotron-3.5-super-vl-120b-a12b`, `nvidia/nemotron-3.5-lightning-30b-a3b`, "
-              "`nvidia/nemotron-3-ultra-550b-a55b`, `z-ai/glm-5.3-flash`, `meta/muse-glimmer-30b`, "
-              "`deepseek-ai/deepseek-v4.1-flash`, `minimaxai/minimax-m3.1-flash`, and `poolside/laguna-xs-2.1`.*"
+              f"{credit}"
           )
 
           with open("review_comment.md", "w", encoding="utf-8") as out:
               out.write(final_body)
+          with open("blockers.txt", "w", encoding="utf-8") as out:
+              out.write(str(blockers))     # a failed consolidation never blocks: the raw reports alone are not a verdict
           EOF
 
-      - name: Post Comment to PR
-        if: steps.get_diff.outputs.empty == 'false'
+      - name: Post the review
+        id: post
+        if: steps.plan.outputs.action == 'review' && steps.get_diff.outputs.empty == 'false'
+        working-directory: ${{ runner.temp }}/ai-review
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # Edited in place only when this account wrote it (an app posts as "<slug>[bot]").
+          AUTHOR: ${{ steps.app.outputs.app-slug && format('{0}[bot]', steps.app.outputs.app-slug) || 'github-actions[bot]' }}
+        run: |
+          repo="repos/${{ github.repository }}"
+          BLOCKERS=$(cat blockers.txt 2>/dev/null || echo 0)
+
+          # 1. The full report: one comment per PR, edited in place on every push.
+          EXISTING=$(gh api --paginate "$repo/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.user.login == \"$AUTHOR\" and (.body | startswith(\"<!-- ai-pr-review -->\"))) | .id" | tail -1)
+          if [ -n "$EXISTING" ]; then
+            URL=$(gh api -X PATCH "$repo/issues/comments/$EXISTING" -F body=@review_comment.md --jq .html_url)
+          else
+            URL=$(gh api "$repo/issues/$PR_NUMBER/comments" -F body=@review_comment.md --jq .html_url)
+          fi
+
+          # 2. A formal review, which is what lists the bot under Reviewers (GitHub cannot request an app as a reviewer).
+          #    Blockers make it "request changes"; when they are gone the request is dismissed.
+          LAST=$(gh api --paginate "$repo/pulls/$PR_NUMBER/reviews" --jq ".[] | select(.user.login == \"$AUTHOR\") | [.id, .state] | @tsv" | tail -1)
+          LAST_ID=$(printf '%s' "$LAST" | cut -f1); LAST_STATE=$(printf '%s' "$LAST" | cut -f2)
+          if [ "$BLOCKERS" -gt 0 ]; then
+            BODY="Found $BLOCKERS blocker(s). Details: $URL"
+            if [ "$LAST_STATE" = "CHANGES_REQUESTED" ]; then
+              gh api -X PUT "$repo/pulls/$PR_NUMBER/reviews/$LAST_ID" -f body="$BODY" > /dev/null || true
+            else
+              gh api "$repo/pulls/$PR_NUMBER/reviews" -f event=REQUEST_CHANGES -f body="$BODY" > /dev/null
+            fi
+          else
+            if [ "$LAST_STATE" = "CHANGES_REQUESTED" ]; then
+              gh api -X PUT "$repo/pulls/$PR_NUMBER/reviews/$LAST_ID/dismissals" -f message="The blockers are resolved." -f event=DISMISS > /dev/null || true
+            fi
+            if [ -z "$LAST_ID" ] || [ "$LAST_STATE" = "CHANGES_REQUESTED" ] || [ "$LAST_STATE" = "DISMISSED" ]; then
+              gh api "$repo/pulls/$PR_NUMBER/reviews" -f event=COMMENT -f body="No blockers found. Details: $URL" > /dev/null
+            fi
+          fi
+
+          # 3. Hand the verdict to the Go/No-Go check below. THIS check only says whether Eve managed to leave a review.
+          echo "blockers=$BLOCKERS" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Report the Go/No-Go decision
+        if: always() && steps.gate.outputs.id != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHECK_ID: ${{ steps.gate.outputs.id }}
+          BLOCKERS: ${{ steps.post.outputs.blockers }}
+          URL: ${{ steps.post.outputs.url }}
+          EMPTY_DIFF: ${{ steps.get_diff.outputs.empty }}
         run: |
-          gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
-            -F body=@review_comment.md
+          if [ "$EMPTY_DIFF" = "true" ]; then
+            conclusion=success; title="Go: nothing to review"
+            summary="This pull request has no changes to review."
+          elif [ -z "$BLOCKERS" ]; then
+            conclusion=neutral; title="Eve could not review"
+            summary="No decision: the review did not complete. See the review check for why."
+          elif [ "$BLOCKERS" -gt 0 ]; then
+            conclusion=failure; title="No-Go: $BLOCKERS blocker(s)"
+            summary="Eve found $BLOCKERS blocker(s) (a bug that breaks at runtime, data loss or a critical security issue). See $URL"
+          else
+            conclusion=success; title="Go: no blockers"
+            summary="Eve found no blockers. See $URL"
+          fi
+          gh api -X PATCH "repos/${{ github.repository }}/check-runs/$CHECK_ID" -f status=completed -f conclusion="$conclusion" \
+            -f "output[title]=$title" -f "output[summary]=$summary" > /dev/null
