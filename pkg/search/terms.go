@@ -95,7 +95,7 @@ func splitValues(s string) ([]string, error) {
 // parseTerms takes the field terms out of a search box's text and returns the
 // words that are left (for the full-text search), the conditions, and whether
 // only threat intel matches were asked for. Words inside quotes are never read as terms.
-func (e *Engine) parseTerms(ctx context.Context, text string) (words string, conds []storage.Cond, threat bool, err error) {
+func (e *Engine) parseTerms(ctx context.Context, text string, q *Query) (words string, conds []storage.Cond, threat bool, err error) {
 	tokens := splitTokens(text)
 	drop := make([]bool, len(tokens))
 	isTerm := make([]bool, len(tokens))
@@ -144,7 +144,7 @@ func (e *Engine) parseTerms(ctx context.Context, text string) (words string, con
 		case "ip", "src_ip", "dst_ip", "user", "host", "program", "country", "asn", "severity", "category":
 			// checked below
 		case "source":
-			ids, serr := e.sourceIDs(ctx, vals)
+			ids, serr := e.sourceIDs(ctx, vals, q)
 			if serr != nil {
 				return "", nil, false, bad(serr.Error())
 			}
@@ -195,16 +195,25 @@ func (e *Engine) parseTerms(ctx context.Context, text string) (words string, con
 	return strings.Join(rest, " "), conds, threat, nil
 }
 
-// sourceIDs turns source names (or ids) into ids.
-func (e *Engine) sourceIDs(ctx context.Context, vals []string) ([]string, error) {
+// sourceIDs turns source names (or ids) into ids. A user limited to some sources
+// can name only those: any other name is "no source called", as if it didn't
+// exist, so the search can't be used to find out which sources there are.
+func (e *Engine) sourceIDs(ctx context.Context, vals []string, q *Query) ([]string, error) {
 	list, err := e.repo.ListSources(ctx)
 	if err != nil {
 		return nil, err
+	}
+	allowed := map[int64]bool{}
+	for _, id := range q.AllowedSources {
+		allowed[id] = true
 	}
 	var out []string
 	for _, v := range vals {
 		found := false
 		for _, s := range list {
+			if q.Restrict && !allowed[s.ID] {
+				continue
+			}
 			if strings.EqualFold(s.Name, v) || strconv.FormatInt(s.ID, 10) == v {
 				out = append(out, strconv.FormatInt(s.ID, 10))
 				found = true
