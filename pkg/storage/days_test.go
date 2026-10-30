@@ -29,7 +29,7 @@ func newOracle(t *testing.T) *oracle {
 	t.Cleanup(func() { db.Close() })
 	for _, s := range []string{
 		`CREATE TABLE events (id INTEGER PRIMARY KEY, timestamp INTEGER, severity_id INTEGER, message TEXT, source TEXT, host TEXT,
-			user_name TEXT, src_ip TEXT, dst_ip TEXT, fields TEXT, raw_data TEXT, source_id INTEGER)`,
+			user_name TEXT, src_ip TEXT, dst_ip TEXT, fields TEXT, fields_text TEXT, raw_data TEXT, source_id INTEGER)`,
 		`CREATE VIRTUAL TABLE events_fts USING fts5(` + ftsCols + `, content='events', content_rowid='id')`,
 	} {
 		if _, err := db.Exec(s); err != nil {
@@ -42,10 +42,10 @@ func newOracle(t *testing.T) *oracle {
 func (o *oracle) add(t *testing.T, recs []Record) {
 	t.Helper()
 	for _, r := range recs {
-		res, err := o.db.Exec(`INSERT INTO events (timestamp, severity_id, message, source, host, user_name, src_ip, dst_ip, fields, raw_data, source_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		res, err := o.db.Exec(`INSERT INTO events (timestamp, severity_id, message, source, host, user_name, src_ip, dst_ip, fields, fields_text, raw_data, source_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.Timestamp, r.SeverityID, cmp.Or(r.Message, r.RawData), nullable(r.Source), nullable(r.Host), nullable(r.UserName),
-			nullable(r.SrcIP), nullable(r.DstIP), nullable(string(r.Fields)), r.RawData, r.SourceID)
+			nullable(r.SrcIP), nullable(r.DstIP), nullable(string(r.Fields)), nullable(fieldsText(r.Fields)), r.RawData, r.SourceID)
 		if err != nil {
 			t.Fatal(err)
 		}

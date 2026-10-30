@@ -53,7 +53,7 @@ sends ten realistic test events a second, attacks included. See [Test logs](#tes
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.26` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.27` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -142,6 +142,7 @@ usually within seconds, then who issued it and until when. Or set it from the st
   Enter to open the results in the Database.
 - **Database**: every event, newest first, with full-text search, a **From mm/dd/yy to mm/dd/yy** date range and filters
   for source, severity, category, IPs, user, program, country and threat matches. Open an event for its details.
+  It loads 100 events at a time: scroll to the end, or choose **Show more events**, for the next 100.
   The address bar keeps the search, so it can be bookmarked or shared.
 - **Alerts**: alerts raised by the rules, by severity, with how many events and when. Open the events behind an alert,
   acknowledge it while you look into it, then close it. The **Rules** tab lists the rules; admins add, edit and switch them off.
@@ -227,8 +228,30 @@ The search API uses the same browser session (an `HttpOnly` cookie), so it is me
 `q` uses [FTS5 query syntax](https://www.sqlite.org/fts5.html#full_text_query_syntax): `failed AND ssh`,
 `"invalid user"`, `admin*`.
 
+Beside the words, `q` takes **field terms**, written `field=value`. A comma means "any of these", a space between terms
+means all of them apply, and quotes hold a value with spaces:
+
+| Term | Matches events where |
+|---|---|
+| `src_ip=10.0.0.1,10.0.0.2` | the source address is one of those |
+| `dst_ip=...` | the destination address is one of those |
+| `ip=192.168.48.21` | either address is |
+| `user="Jonathan Martinez",bob` | the user is one of those |
+| `host=web1` · `program=sshd` | the reporting host, or the program that wrote it |
+| `source=Firewall,Syslog` | the log source (its name, or id) is one of those |
+| `severity=high,critical` | the severity is (1-6, or info, low, medium, high, critical, fatal) |
+| `category=3` · `country=NL,DE` · `asn=AS15169` | the category, a country on either address, or an autonomous system on either address |
+| `threat=true` | it matched a threat intel list |
+| `action=login` | a field the parser picked out, named `action`, has that value (or, for a list, has it among its items) |
+
+So `failed src_ip=192.168.48.20,192.168.48.21 severity=high` finds the failed events from either address that are rated
+High. They work in the API's `q` too, and add to the filter boxes (both apply). OR and NOT can't be used with a term; the
+words beside them can use AND, OR and NOT as usual. Searching by a parser's field scans events, so add a date range when
+the database is large.
+
 Full-text search covers the parsed event: its message, program, host, user, source and destination addresses and the
-extra fields a parser picked out. The original line is kept for 24 hours after it arrives (shown in an event's details),
+**values** of the extra fields a parser picked out, not their names (so `failed` doesn't find an event that merely has a
+field called `failed`; use `failed=...` to ask about that field). The original line is kept for 24 hours after it arrives (shown in an event's details),
 then removed; the parsed event stays for the whole retention period and is what the Database page shows. Searching works
 the same before and after the original goes, so search for what the parser understood rather than for a stray piece of
 the raw text.
@@ -850,7 +873,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
   one file per UTC day by when they happened (`siemlite-events/2026-10-04.db`); everything else is in `siemlite.db`.
   A search reads the days newest first and stops as soon as the page is full; within a day, a search with many matches
   reads them newest first instead of sorting them all. Each day's `events_fts` is an external-content FTS5 table kept
-  in sync by a trigger and one bulk update per batch, so log text is not stored twice. It indexes the parsed message, program, host, user, addresses and fields, not the original line, which an hourly job clears 24 hours after the event arrived (by arrival, tracked with arrival-number watermarks, so late events keep theirs for a day too). Event ids carry their day, and an arrival number lets the alert
+  in sync by a trigger and one bulk update per batch, so log text is not stored twice. It indexes the parsed message, program, host, user, addresses and the values of the fields (not their names), not the original line, which an hourly job clears 24 hours after the event arrived (by arrival, tracked with arrival-number watermarks, so late events keep theirs for a day too). Event ids carry their day, and an arrival number lets the alert
   engine find late events filed in older days.
 - **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.
 - **`pkg/syslogd`**: UDP, TCP and TLS syslog listeners with a sender allowlist.

@@ -69,8 +69,21 @@ type Filter struct {
 	Restrict       bool
 	AllowedSources []int64
 	Match          string // raw FTS5 MATCH expression
-	Limit          int
-	Offset         int
+	// Conds are more conditions, each "this field is one of these values",
+	// from search terms like src_ip=1.2.3.4,5.6.7.8. All of them apply.
+	Conds  []Cond
+	Limit  int
+	Offset int
+}
+
+// Cond limits events to those where Field is one of Values. Field is one of
+// src_ip, dst_ip, ip (either), user, host, program, country, asn, severity,
+// category or source_id (values already checked by the caller), or else the
+// name of an extra field a parser found, which matches the value or, when the
+// field holds a list, any item in it.
+type Cond struct {
+	Field  string
+	Values []string
 }
 
 // Repository provides data access over a DB.
@@ -478,8 +491,59 @@ func filterWhere(f Filter) ([]string, []any) {
 	if f.ThreatOnly {
 		where = append(where, "e.threat = 1")
 	}
-
+	for _, c := range f.Conds {
+		cond, a := condSQL(c)
+		where, args = append(where, cond), append(args, a...)
+	}
 	return where, args
+}
+
+// condSQL is the condition for c, with its arguments.
+func condSQL(c Cond) (string, []any) {
+	vals := make([]any, len(c.Values))
+	for i, v := range c.Values {
+		vals[i] = v
+	}
+	in := "IN (?" + strings.Repeat(", ?", max(len(vals)-1, 0)) + ")"
+	repeat := func(n int) []any {
+		var out []any
+		for i := 0; i < n; i++ {
+			out = append(out, vals...)
+		}
+		return out
+	}
+	switch c.Field {
+	case "src_ip":
+		return "e.src_ip " + in, vals
+	case "dst_ip":
+		return "e.dst_ip " + in, vals
+	case "ip":
+		return "(e.src_ip " + in + " OR e.dst_ip " + in + ")", repeat(2)
+	case "user":
+		return "e.user_name " + in, vals
+	case "host":
+		return "e.host " + in, vals
+	case "program":
+		return "e.source " + in, vals
+	case "country":
+		return "(e.src_country " + in + " OR e.dst_country " + in + ")", repeat(2)
+	case "asn":
+		return "(e.src_asn " + in + " OR e.dst_asn " + in + ")", repeat(2)
+	case "severity":
+		return "e.severity_id " + in, vals
+	case "category":
+		return "e.category_uid " + in, vals
+	case "source_id":
+		return "e.source_id " + in, vals
+	}
+	// An extra field: its value, or an item of it when it is a list (parsers keep lists as JSON text).
+	path := `$."` + strings.ReplaceAll(c.Field, `"`, ``) + `"`
+	v := "json_extract(e.fields, ?)"
+	args := append([]any{path}, vals...)
+	args = append(args, path, path, path)
+	args = append(args, vals...)
+	return "(CAST(" + v + " AS TEXT) " + in + " OR CASE WHEN json_valid(" + v + ") AND json_type(" + v + ") = 'array' " +
+		"THEN EXISTS (SELECT 1 FROM json_each(" + v + ") WHERE CAST(value AS TEXT) " + in + ") ELSE 0 END)", args
 }
 
 // DeleteOlderThan deletes events with timestamp < cutoffMs and returns how

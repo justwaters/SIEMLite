@@ -206,7 +206,7 @@
   .syntax code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
   .filters-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
   .meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0 10px; font-size: 13px; color: var(--ink-2); }
-  .pager { display: flex; gap: 6px; }
+  .more { display: flex; justify-content: center; margin: 16px 0 4px; }
   .error { margin: 10px 0 0; padding: 10px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--sev-5); color: var(--sev-5); font-size: 13.5px; }
 
   .table-wrap { position: relative; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; overflow-x: auto; }
@@ -634,12 +634,12 @@
           <label class="field-label">Program <input class="input" id="f-program" placeholder="sshd"></label>
           <label class="field-label">Host <input class="input" id="f-host" placeholder="web1"></label>
           <label class="field-label">Country <input class="input" id="f-country" maxlength="2" placeholder="Two letters, e.g. NL"></label>
-          <label class="field-label">Results per page
-            <select class="select" id="f-limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
-          </label>
           <label class="check wide"><input type="checkbox" id="f-threat"> Only threat intel matches</label>
           <p class="syntax">Search for words or <code>"exact phrases"</code>, combine them with <code>AND</code>, <code>OR</code>
-            and <code>NOT</code>, and end a word with <code>*</code> to match its beginning: <code>failed AND ssh</code>, <code>admin*</code>.</p>
+            and <code>NOT</code>, and end a word with <code>*</code> to match its beginning: <code>failed AND ssh</code>, <code>admin*</code>.
+            Add field terms beside them, with commas for &ldquo;any of&rdquo;: <code>src_ip=10.0.0.1,10.0.0.2</code>, <code>ip=192.168.48.21</code>
+            (either side), <code>user="Jonathan Martinez"</code>, <code>severity=high,critical</code>, <code>source=Firewall</code>,
+            <code>host</code>, <code>program</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, or a field a parser found, like <code>action=login</code>.</p>
           <div class="filters-foot">
             <button type="button" class="btn" id="clear-filters">Clear filters</button>
             <button type="submit" class="btn btn-primary">Search</button>
@@ -648,11 +648,7 @@
       </form>
       <p id="db-error" class="error" role="alert" hidden></p>
       <div class="meta">
-        <span id="summary"></span>
-        <span class="pager">
-          <button class="btn btn-small" id="prev"><svg class="icon" aria-hidden="true"><use href="#i-left"/></svg>Newer</button>
-          <button class="btn btn-small" id="next">Older<svg class="icon" aria-hidden="true"><use href="#i-right"/></svg></button>
-        </span>
+        <span id="summary" role="status"></span>
       </div>
       <div class="table-wrap">
         <table class="data events">
@@ -661,6 +657,7 @@
           <tbody id="results"></tbody>
         </table>
       </div>
+      <div class="more" id="more-wrap" hidden><button class="btn" type="button" id="more">Show more events</button></div>
     </section>
 
     <!-- Alerts -->
@@ -2007,7 +2004,8 @@ for (const id of ["from", "to"]) {
 // --- Database ---
 const FILTERS = { "f-source": "source", "f-severity": "severity", "f-category": "category", "f-src_ip": "src_ip", "f-dst_ip": "dst_ip",
                   "f-user": "user", "f-program": "program", "f-host": "host", "f-country": "country" };
-let offset = 0;
+const PAGE = 100; // events loaded at a time
+let offset = 0, shown = new Set(), searchSeq = 0, moreBusy = false, activeQuery = "";
 async function openDatabase(params) {
   await fillSourceFilter();
   $("q").value = params.get("q") || "";
@@ -2065,42 +2063,75 @@ function searchParams() {
     $("to").setAttribute("aria-invalid", "true"); throw new Error("The end date is before the start date.");
   }
   const map = { q: "q", "f-severity": "severity", "f-category": "category", "f-src_ip": "src_ip", "f-dst_ip": "dst_ip",
-                "f-user": "user", "f-program": "source", "f-host": "host", "f-country": "country", "f-source": "source_id", "f-limit": "limit" };
+                "f-user": "user", "f-program": "source", "f-host": "host", "f-country": "country", "f-source": "source_id" };
   for (const [id, key] of Object.entries(map)) { const v = $(id).value.trim(); if (v) p.set(key, v); }
   if ($("f-threat").checked) p.set("threat", "true");
+  p.set("limit", String(PAGE));
   p.set("offset", String(offset));
   return p;
 }
+// runSearch starts a search and shows its first events; showMore adds the next
+// ones under them, for the same search as the first (whatever the boxes say now),
+// and a later search drops the answer to an earlier one.
 async function runSearch() {
+  const seq = ++searchSeq;
   $("db-error").hidden = true;
   updateFilterCount();
+  offset = 0;
   let p;
   try { p = searchParams(); } catch (err) { $("db-error").textContent = err.message; $("db-error").hidden = false; return; }
   syncHash();
+  activeQuery = p.toString();
   let data;
   try {
     data = await apiJSON("/api/v1/search?" + p);
   } catch (err) {
-    $("db-error").textContent = err.message; $("db-error").hidden = false; return;
+    if (seq === searchSeq) { $("db-error").textContent = err.message; $("db-error").hidden = false; }
+    return;
   }
-  $("summary").textContent = data.count
-    ? `Events ${nf.format(data.offset + 1)} to ${nf.format(data.offset + data.count)}, found in ${data.took_ms.toFixed(1)} ms`
-    : `Nothing found in ${data.took_ms.toFixed(1)} ms`;
-  $("prev").disabled = offset === 0;
-  $("next").disabled = data.count < data.limit;
+  if (seq !== searchSeq) return;
+  shown = new Set(data.events.map((ev) => ev.id));
+  offset = data.events.length;
   const body = $("results");
   if (!data.events.length) {
     const msg = totalEvents === 0 && isAdmin
       ? "No events yet. Add a source, or send test logs by running loggen -eps 10 on the server."
       : "No events match. Widen the dates or remove a filter.";
     body.replaceChildren(el("tr", { className: "empty" }, el("td", { colSpan: 7, textContent: msg })));
-    return;
-  }
-  body.replaceChildren(...data.events.map(renderRow));
+  } else body.replaceChildren(...data.events.map(renderRow));
+  showCount(data, data.count === PAGE);
 }
-$("db-form").onsubmit = (e) => { e.preventDefault(); offset = 0; runSearch(); };
-$("prev").onclick = () => { offset = Math.max(0, offset - Number($("f-limit").value)); runSearch(); };
-$("next").onclick = () => { offset += Number($("f-limit").value); runSearch(); };
+function showCount(data, more) {
+  $("summary").textContent = shown.size
+    ? `${more ? "Showing " : ""}${nf.format(shown.size)} ${shown.size === 1 ? "event" : "events"}, found in ${data.took_ms.toFixed(1)} ms`
+    : `Nothing found in ${data.took_ms.toFixed(1)} ms`;
+  $("more-wrap").hidden = !more;
+  $("more").disabled = false; $("more").textContent = "Show more events";
+}
+async function showMore() {
+  if (moreBusy || $("more-wrap").hidden) return;
+  const seq = searchSeq;
+  moreBusy = true;
+  $("more").disabled = true; $("more").textContent = "Loading…";
+  try {
+    const p = new URLSearchParams(activeQuery);
+    p.set("offset", String(offset));
+    const data = await apiJSON("/api/v1/search?" + p);
+    if (seq !== searchSeq) return;
+    // New events arriving move the pages along, so skip any already shown.
+    const fresh = data.events.filter((ev) => !shown.has(ev.id));
+    for (const ev of fresh) shown.add(ev.id);
+    offset += data.events.length;
+    $("results").append(...fresh.map(renderRow));
+    showCount(data, data.count === PAGE);
+  } catch (err) {
+    if (seq === searchSeq) { $("db-error").textContent = err.message; $("db-error").hidden = false; $("more").disabled = false; $("more").textContent = "Show more events"; }
+  } finally { moreBusy = false; }
+}
+$("more").onclick = showMore;
+// Scrolling to the button loads the next events, so the page keeps going like a feed.
+if ("IntersectionObserver" in window) new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) showMore(); }, { rootMargin: "400px" }).observe($("more-wrap"));
+$("db-form").onsubmit = (e) => { e.preventDefault(); runSearch(); };
 $("filters-btn").onclick = () => {
   const open = $("filters").hidden;
   $("filters").hidden = !open;
@@ -2113,7 +2144,7 @@ $("clear-filters").onclick = () => {
   offset = 0; runSearch();
 };
 for (const id of [...Object.keys(FILTERS), "f-threat"]) $(id).addEventListener("input", updateFilterCount);
-for (const id of ["f-source", "f-severity", "f-category", "f-threat", "f-limit"]) $(id).addEventListener("change", () => { offset = 0; runSearch(); });
+for (const id of ["f-source", "f-severity", "f-category", "f-threat"]) $(id).addEventListener("change", () => runSearch());
 
 function renderRow(ev) {
   const label = SEV[ev.severity_id] || String(ev.severity_id);

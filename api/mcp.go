@@ -88,7 +88,7 @@ func (s *Server) mcpServer() *mcp.Server {
 	}
 
 	searchProps := map[string]any{
-		"q":           prop("string", `Search words or "exact phrases" in the event text, combined with AND, OR, NOT; end a word with * to match its beginning.`),
+		"q":           prop("string", `Search words or "exact phrases" in the event text, combined with AND, OR, NOT; end a word with * to match its beginning. Field terms also work, with commas for "any of": src_ip=10.0.0.1,10.0.0.2, ip=192.168.48.21 (either address), user="Jane Doe", severity=high,critical, source=Firewall, or a parser's field such as action=login. Separate terms with spaces; they all apply.`),
 		"source_id":   prop("integer", "Only events from this source (an id from list_sources)."),
 		"program":     prop("string", "Only events from this program or product, such as sshd."),
 		"host":        prop("string", "Only events from this host."),
