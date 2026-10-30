@@ -176,6 +176,7 @@ jobs:
           import json
           import urllib.request
           import urllib.error
+          import http.client
           import time
           import random
           import re
@@ -202,52 +203,77 @@ jobs:
               diff_text = diff_text[:MAX_CHARS] + "\n\n... [Diff truncated due to size limits] ..."
 
           TRANSIENT_HTTP = (408, 429, 500, 502, 503, 504)
+          # Extra request settings for the heavy reasoning models: unrestrained they think for 5-7 minutes on a review, and
+          # at "low" effort they answer in about 100 seconds (measured against the live endpoint).
+          MODEL_EXTRA = {
+              "minimaxai/minimax-m3.1-flash": {"reasoning_effort": "low"},
+              "mistralai/mistral-large-4-1t-a52b": {"reasoning_effort": "low"},
+          }
 
           def query_nim(model_id, messages, temperature=0.7, timeout=120, retries=0, max_tokens=None, deadline=None):
               """Returns (True, text) on success or (False, reason) on any failure. A failure is never used as review text.
-              A busy endpoint (HTTP 429/5xx) or a dropped connection is retried `retries` times after a pause; anything else is
-              final, a timeout included: a model that has not answered in that long is hung, and asking again only waits again.
-              `max_tokens` bounds the answer (a reasoning model can otherwise think until the timeout and reply with nothing).
-              `deadline` (a time.time() value) is one shared budget: no attempt may run past it, and none starts without time left."""
+              The answer is STREAMED: NVIDIA's gateway cuts a silent request off with a 504 after about 5 minutes, which a slow
+              reasoning model hits, whereas a stream keeps sending tokens. `timeout` is how long the stream may stay SILENT.
+              A busy endpoint (HTTP 429/5xx) or a dropped connection is retried `retries` times after a pause; a silent stream is
+              not (a hung model does not recover). `max_tokens` bounds the answer. `deadline` (a time.time() value) is one shared
+              budget: no attempt may run past it, and none starts without time left."""
               payload = {
                   "model": model_id,
                   "messages": messages,
-                  "temperature": temperature
+                  "temperature": temperature,
+                  "stream": True,
+                  **MODEL_EXTRA.get(model_id, {}),
               }
               if max_tokens:
                   payload["max_tokens"] = max_tokens
               reason = "unknown error"
               for attempt in range(retries + 1):
-                  if deadline is not None:
-                      timeout = min(timeout, int(deadline - time.time()))
-                      if timeout < 30:
-                          return False, reason if attempt else "out of time before it could start"
+                  if deadline is not None and deadline - time.time() < 30:
+                      return False, reason if attempt else "out of time before it could start"
                   req = urllib.request.Request(
                       "https://integrate.api.nvidia.com/v1/chat/completions",
                       data=json.dumps(payload).encode("utf-8"),
                       headers={
                           "Authorization": f"Bearer {api_key}",
                           "Content-Type": "application/json",
-                          "Accept": "application/json"
+                          "Accept": "text/event-stream"
                       }
                   )
                   transient = False
                   try:
-                      with urllib.request.urlopen(req, timeout=timeout) as response:
-                          res_data = json.loads(response.read().decode("utf-8"))
-                          content = res_data["choices"][0]["message"].get("content")
-                          if not content or not content.strip():     # a reasoning model that ran out of tokens sends only its reasoning
-                              print(f"Empty reply from {model_id}")
-                              return False, "empty reply (ran out of tokens while reasoning)"
-                          return True, content
+                      parts, finish = [], None
+                      with urllib.request.urlopen(req, timeout=min(timeout, 90)) as response:
+                          for raw in response:
+                              if deadline is not None and time.time() > deadline:
+                                  print(f"{model_id} was still working at the time limit")
+                                  return False, "still working at the time limit"
+                              line = raw.decode("utf-8", errors="ignore").strip()
+                              if not line.startswith("data:"):
+                                  continue
+                              data = line[5:].strip()
+                              if data == "[DONE]":
+                                  break
+                              try:
+                                  choice = json.loads(data)["choices"][0]
+                              except (ValueError, KeyError, IndexError):
+                                  continue
+                              parts.append((choice.get("delta") or {}).get("content") or "")
+                              finish = choice.get("finish_reason") or finish
+                      content = "".join(parts)
+                      if not content.strip():                   # a reasoning model that ran out of tokens sends only its reasoning
+                          print(f"Empty reply from {model_id}")
+                          return False, "empty reply (ran out of tokens while reasoning)"
+                      if finish == "length":
+                          content += "\n\n_(This answer was cut off at the token limit.)_"
+                      return True, content
                   except urllib.error.HTTPError as e:
                       err_msg = e.read().decode("utf-8", errors="ignore")
                       print(f"Error querying {model_id} ({e.code}): {err_msg[:300]}")
                       reason, transient = f"HTTP {e.code}", e.code in TRANSIENT_HTTP
                   except (socket.timeout, TimeoutError):
-                      print(f"Timeout querying {model_id} after {timeout}s")
-                      reason, transient = f"no answer within {timeout}s", False
-                  except urllib.error.URLError as e:
+                      print(f"No data from {model_id} for {min(timeout, 90)}s")
+                      reason, transient = f"went silent for {min(timeout, 90)}s", False
+                  except (urllib.error.URLError, http.client.HTTPException, ConnectionError) as e:
                       print(f"Network error querying {model_id}: {e}")
                       reason, transient = "network error", True
                   except Exception as e:
