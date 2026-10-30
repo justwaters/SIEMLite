@@ -203,11 +203,12 @@ jobs:
 
           TRANSIENT_HTTP = (408, 429, 500, 502, 503, 504)
 
-          def query_nim(model_id, messages, temperature=0.7, timeout=120, retries=0, max_tokens=None):
+          def query_nim(model_id, messages, temperature=0.7, timeout=120, retries=0, max_tokens=None, deadline=None):
               """Returns (True, text) on success or (False, reason) on any failure. A failure is never used as review text.
               A busy endpoint (HTTP 429/5xx) or a dropped connection is retried `retries` times after a pause; anything else is
               final, a timeout included: a model that has not answered in that long is hung, and asking again only waits again.
-              `max_tokens` bounds the answer (a reasoning model can otherwise think until the timeout and reply with nothing)."""
+              `max_tokens` bounds the answer (a reasoning model can otherwise think until the timeout and reply with nothing).
+              `deadline` (a time.time() value) is one shared budget: no attempt may run past it, and none starts without time left."""
               payload = {
                   "model": model_id,
                   "messages": messages,
@@ -217,6 +218,10 @@ jobs:
                   payload["max_tokens"] = max_tokens
               reason = "unknown error"
               for attempt in range(retries + 1):
+                  if deadline is not None:
+                      timeout = min(timeout, int(deadline - time.time()))
+                      if timeout < 30:
+                          return False, reason if attempt else "out of time before it could start"
                   req = urllib.request.Request(
                       "https://integrate.api.nvidia.com/v1/chat/completions",
                       data=json.dumps(payload).encode("utf-8"),
@@ -285,14 +290,16 @@ jobs:
           ]
 
           # Define all analyzer models to run in parallel
+          # The slow reasoning models come FIRST, and all start together (below), so they get the whole time budget instead of
+          # waiting in a queue for a free worker. A full review from them takes 2-3 minutes on the shared endpoint.
           ANALYZER_MODELS = [
+              "minimaxai/minimax-m3.1-flash",
+              "mistralai/mistral-large-4-1t-a52b",
               "nvidia/nemotron-3.5-super-vl-120b-a12b",
               "nvidia/nemotron-3.5-lightning-30b-a3b",
               "nvidia/nemotron-3-ultra-550b-a55b",
               "meta/muse-glimmer-30b",
-              "minimaxai/minimax-m3.1-flash",
               "openai/gpt-oss-20b",
-              "mistralai/mistral-large-4-1t-a52b",
           ]
           # Tried and dropped because they never answered a review-sized prompt on the shared endpoint (they hang until the
           # timeout, some even for "reply ok"): z-ai/glm-5.3-flash, deepseek-ai/deepseek-v4.1-flash, poolside/laguna-xs-2.1.
@@ -300,10 +307,13 @@ jobs:
           print(f"Querying {len(ANALYZER_MODELS)} analyzer models in parallel...")
           reports = {}
           failed_models = []
-          # Four at a time, not all eight: the hosted endpoint is shared and rejects or stalls a burst of large requests.
-          with ThreadPoolExecutor(max_workers=4) as executor:
+          # One shared budget for the whole analysis stage: whatever has answered when it ends is used, the rest is listed as
+          # failed. It keeps a review's length predictable (about this long at worst) however busy the endpoint is.
+          ANALYSIS_BUDGET_SECONDS = 480
+          analysis_deadline = time.time() + ANALYSIS_BUDGET_SECONDS
+          with ThreadPoolExecutor(max_workers=len(ANALYZER_MODELS)) as executor:
               future_to_model = {
-                  executor.submit(query_nim, model, messages, 1.0, 300, 1, 8192): model
+                  executor.submit(query_nim, model, messages, 1.0, ANALYSIS_BUDGET_SECONDS, 1, 8192, analysis_deadline): model
                   for model in ANALYZER_MODELS
               }
               for future in future_to_model:
