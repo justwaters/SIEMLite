@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestParseTerms(t *testing.T) {
 		`action=login meta.users="Ann B"`:      {conds: []storage.Cond{{Field: "action", Values: []string{"login"}}, {Field: "meta.users", Values: []string{"Ann B"}}}},
 		`(src_ip=1.1.1.1)`:                     {words: `(src_ip=1.1.1.1)`},
 	} {
-		words, conds, threat, err := e.parseTerms(ctx, in)
+		words, conds, threat, err := e.parseTerms(ctx, in, &Query{})
 		if err != nil {
 			t.Errorf("%q: %v", in, err)
 			continue
@@ -68,7 +69,7 @@ func TestParseTerms(t *testing.T) {
 		`threat=maybe`:               "true or false",
 		`source=nothing-called-this`: "no source",
 	} {
-		if _, _, _, err := e.parseTerms(ctx, in); err == nil || !strings.Contains(err.Error(), why) {
+		if _, _, _, err := e.parseTerms(ctx, in, &Query{}); err == nil || !strings.Contains(err.Error(), why) {
 			t.Errorf("%q: error = %v, want one about %q", in, err, why)
 		}
 	}
@@ -147,5 +148,33 @@ func TestSearchWithFieldTerms(t *testing.T) {
 	// The old error for an unknown "=" is gone; a real mistake still is one.
 	if _, err := e.Search(ctx, Query{Text: `"unterminated`}); err == nil {
 		t.Error("a broken phrase should still be an invalid query")
+	}
+}
+
+// A user limited to some sources can't use source= to find out which sources
+// exist: one they may not see is "no source called", like one that isn't there.
+func TestSourceTermDoesNotRevealOtherSources(t *testing.T) {
+	e, repo := setup(t)
+	ctx := context.Background()
+	mine, err := repo.CreateTokenSource(ctx, "Mine", "k1", nil, false, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := repo.CreateTokenSource(ctx, "Secret", "k2", nil, false, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restricted := Query{Restrict: true, AllowedSources: []int64{mine}}
+	for _, name := range []string{"Secret", "secret", strconv.FormatInt(secret, 10), "Nothing-Like-It"} {
+		_, err := e.Search(ctx, Query{Text: "source=" + name, Restrict: restricted.Restrict, AllowedSources: restricted.AllowedSources})
+		if err == nil || !strings.Contains(err.Error(), "no source called") {
+			t.Errorf("source=%s as a limited user: %v, want the same error as for a source that doesn't exist", name, err)
+		}
+	}
+	if _, err := e.Search(ctx, Query{Text: "source=Mine", Restrict: true, AllowedSources: []int64{mine}}); err != nil {
+		t.Errorf("a limited user's own source: %v", err)
+	}
+	if _, err := e.Search(ctx, Query{Text: "source=Secret"}); err != nil {
+		t.Errorf("an unrestricted user can name any source: %v", err)
 	}
 }

@@ -82,7 +82,7 @@ func (e *Engine) Search(ctx context.Context, q Query) (*Result, error) {
 		return nil, &InvalidQueryError{"end is before start"}
 	}
 
-	words, conds, threat, err := e.parseTerms(ctx, q.Text)
+	words, conds, threat, err := e.parseTerms(ctx, q.Text, &q)
 	if err != nil {
 		return nil, err
 	}
