@@ -601,9 +601,13 @@ jobs:
               verdict = str(d.get("verdict", "")).lower()
               quote = str(d.get("quote") or "")
               reason = (str(d.get("trace") or "").strip() + " " + str(d.get("reason") or "").strip()).strip()[:500]
-              if verdict not in ("confirmed", "refuted") or len(norm(quote)) < 6:
+              # A quote may be several lines (the line that proves it and the one it acts on need not be adjacent), so EVERY quoted line
+              # must be in the file or its diff; one invented line and the whole verdict is not trusted.
+              pieces = [norm(l) for l in quote.splitlines() if len(norm(l)) >= 6]
+              if verdict not in ("confirmed", "refuted") or not pieces:
                   return "unclear", quote, reason or "no quoted proof"
-              if norm(quote) not in norm(text) and norm(quote) not in norm(file_diff(path)):
+              haystack = norm(text) + " " + norm(file_diff(path))
+              if any(p not in haystack for p in pieces):
                   return "unclear", quote, "its quoted proof does not appear in the code, so the verdict is not trusted"
               return verdict, quote, reason
 
