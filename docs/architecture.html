@@ -77,7 +77,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
   one file per UTC day by when they happened (<code>siemlite-events/2026-10-04.db</code>); everything else is in <code>siemlite.db</code>.
   A search reads the days newest first and stops as soon as the page is full; within a day, a search with many matches
   reads them newest first instead of sorting them all. Each day's <code>events_fts</code> is an external-content FTS5 table kept
-  in sync by a trigger and one bulk update per batch, so log text is not stored twice. It indexes the parsed message, program, host, user, addresses and fields, not the original line, which an hourly job clears 24 hours after the event arrived (by arrival, tracked with arrival-number watermarks, so late events keep theirs for a day too). Event ids carry their day, and an arrival number lets the alert
+  in sync by a trigger and one bulk update per batch, so log text is not stored twice. It indexes the parsed message, program, host, user, addresses and the values of the fields (not their names), not the original line, which an hourly job clears 24 hours after the event arrived (by arrival, tracked with arrival-number watermarks, so late events keep theirs for a day too). Event ids carry their day, and an arrival number lets the alert
   engine find late events filed in older days.</li>
 <li><strong><code>pkg/ingest</code></strong>: enriches each event, then a buffered channel and worker pool that flushes in batches.</li>
 <li><strong><code>pkg/syslogd</code></strong>: UDP, TCP and TLS syslog listeners with a sender allowlist.</li>
