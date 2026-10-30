@@ -62,8 +62,65 @@ are refused. Standard users limited to some sources only ever see events from th
 The search API uses the same browser session (an <code>HttpOnly</code> cookie), so it is meant for the UI rather than scripts.</p>
 <p><code>q</code> uses <a href="https://www.sqlite.org/fts5.html#full_text_query_syntax">FTS5 query syntax</a>: <code>failed AND ssh</code>,
 <code>"invalid user"</code>, <code>admin*</code>.</p>
+<p>Beside the words, <code>q</code> takes <strong>field terms</strong>, written <code>field=value</code>. A comma means "any of these", a space between terms
+means all of them apply, and quotes hold a value with spaces:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Matches events where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src_ip=10.0.0.1,10.0.0.2</code></td>
+<td>the source address is one of those</td>
+</tr>
+<tr>
+<td><code>dst_ip=...</code></td>
+<td>the destination address is one of those</td>
+</tr>
+<tr>
+<td><code>ip=192.168.48.21</code></td>
+<td>either address is</td>
+</tr>
+<tr>
+<td><code>user="Jonathan Martinez",bob</code></td>
+<td>the user is one of those</td>
+</tr>
+<tr>
+<td><code>host=web1</code> · <code>program=sshd</code></td>
+<td>the reporting host, or the program that wrote it</td>
+</tr>
+<tr>
+<td><code>source=Firewall,Syslog</code></td>
+<td>the log source (its name, or id) is one of those</td>
+</tr>
+<tr>
+<td><code>severity=high,critical</code></td>
+<td>the severity is (1-6, or info, low, medium, high, critical, fatal)</td>
+</tr>
+<tr>
+<td><code>category=3</code> · <code>country=NL,DE</code> · <code>asn=AS15169</code></td>
+<td>the category, a country on either address, or an autonomous system on either address</td>
+</tr>
+<tr>
+<td><code>threat=true</code></td>
+<td>it matched a threat intel list</td>
+</tr>
+<tr>
+<td><code>action=login</code></td>
+<td>a field the parser picked out, named <code>action</code>, has that value (or, for a list, has it among its items)</td>
+</tr>
+</tbody>
+</table></div>
+<p>So <code>failed src_ip=192.168.48.20,192.168.48.21 severity=high</code> finds the failed events from either address that are rated
+High. They work in the API's <code>q</code> too, and add to the filter boxes (both apply). OR and NOT can't be used with a term; the
+words beside them can use AND, OR and NOT as usual. Searching by a parser's field scans events, so add a date range when
+the database is large.</p>
 <p>Full-text search covers the parsed event: its message, program, host, user, source and destination addresses and the
-extra fields a parser picked out. The original line is kept for 24 hours after it arrives (shown in an event's details),
+<strong>values</strong> of the extra fields a parser picked out, not their names (so <code>failed</code> doesn't find an event that merely has a
+field called <code>failed</code>; use <code>failed=...</code> to ask about that field). The original line is kept for 24 hours after it arrives (shown in an event's details),
 then removed; the parsed event stays for the whole retention period and is what the Database page shows. Searching works
 the same before and after the original goes, so search for what the parser understood rather than for a stray piece of
 the raw text.</p>

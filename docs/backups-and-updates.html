@@ -97,6 +97,10 @@ checks it against the release's <code>SHA256SUMS</code>, swaps it in for the run
 seconds. Nothing changes if the download or check fails. Updates are recorded in the audit log. Make a backup
 first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
 Pass <code>-update-check=false</code> (or <code>SIEMLITE_UPDATE_CHECK=false</code>) to stop SIEMLite contacting GitHub at all.</p>
+<p><strong>Everyone is signed out when SIEMLite changes version</strong>, however it was updated (the button, <code>docker compose pull</code>, a new
+binary, or going back to an older one), so people sign in again on the new version. Restarting the same version keeps
+sessions. The audit log records it ("SIEMLite changed from v0.25 to v0.26: everyone was signed out"), and the person who
+used <strong>Update and restart</strong> is told why when the sign-in page comes back.</p>
 <ul>
 <li><strong>A plain program</strong> is replaced in place. The button appears when SIEMLite can write to its own folder.</li>
 <li><strong>Docker</strong> can't replace the program inside the image, so the update is saved in the data volume
