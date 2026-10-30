@@ -97,3 +97,55 @@ func TestSearchIgnoresFieldNames(t *testing.T) {
 	defer db2.Close()
 	check(NewRepository(db2), "after upgrading a version 3 day file")
 }
+
+// The text the index holds for a day written now is the text the upgrade makes
+// for an older day: the same values in the same order.
+func TestFieldsTextMatchesTheUpgrade(t *testing.T) {
+	db, err := sql.Open("sqlite", "file::memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	for _, doc := range []string{
+		`{"action":"digest","id":1782,"meta.failed":"[]","meta.users":"[\"Jonathan Martinez\",\"Ann B\"]"}`,
+		`{"b":"two","a":"one","c":"three"}`,
+		`{"z":1.5,"y":"last","x":"first"}`,
+		`{"only":"one"}`,
+	} {
+		// Events store their fields as Go writes a map: keys in order.
+		var m map[string]any
+		if err := json.Unmarshal([]byte(doc), &m); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ := json.Marshal(m)
+		var viaSQL sql.NullString
+		if err := db.QueryRow(`SELECT group_concat(value, ' ') FROM json_tree(?) WHERE type IN ('text', 'integer', 'real')`, string(stored)).Scan(&viaSQL); err != nil {
+			t.Fatal(err)
+		}
+		if got := fieldsText(stored); got != viaSQL.String {
+			t.Errorf("fieldsText(%s) = %q, the upgrade makes %q", stored, got, viaSQL.String)
+		}
+	}
+}
+
+// A field name that isn't one a parser could have made is not a way into the
+// query: it matches nothing, and nothing is harmed.
+func TestOddFieldNamesMatchNothing(t *testing.T) {
+	ctx := context.Background()
+	_, repo := openTemp(t)
+	now := time.Now().UnixMilli()
+	if err := repo.InsertBatch(ctx, []Record{{Timestamp: now, CategoryUID: 3, ClassUID: 3002, SeverityID: 1, Message: "hello", RawData: "x",
+		Fields: json.RawMessage(`{"action":"digest"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{`a"); DROP TABLE events; --`, `x" OR 1=1 --`, `$.action`, `a b`, ``, `1abc`, "a\nb"} {
+		got, err := repo.Search(ctx, Filter{Conds: []Cond{{Field: name, Values: []string{"digest", `' OR '1'='1`}}}, Limit: 10})
+		if err != nil || len(got) != 0 {
+			t.Errorf("field %q: %d events, %v; want none and no error", name, len(got), err)
+		}
+	}
+	if got, err := repo.Search(ctx, Filter{Conds: []Cond{{Field: "action", Values: []string{"digest"}}}, Limit: 10}); err != nil || len(got) != 1 {
+		t.Errorf("a real field after all that: %d events, %v", len(got), err)
+	}
+}

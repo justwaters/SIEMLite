@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -498,6 +499,8 @@ func filterWhere(f Filter) ([]string, []any) {
 	return where, args
 }
 
+var fieldNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*$`)
+
 // condSQL is the condition for c, with its arguments.
 func condSQL(c Cond) (string, []any) {
 	vals := make([]any, len(c.Values))
@@ -537,7 +540,12 @@ func condSQL(c Cond) (string, []any) {
 		return "e.source_id " + in, vals
 	}
 	// An extra field: its value, or an item of it when it is a list (parsers keep lists as JSON text).
-	path := `$."` + strings.ReplaceAll(c.Field, `"`, ``) + `"`
+	// The name goes in as a bound JSON path, never into the SQL text; names with anything
+	// but the characters a field name has (the search box allows no others) match nothing.
+	if !fieldNameRe.MatchString(c.Field) {
+		return "0", nil
+	}
+	path := `$."` + c.Field + `"`
 	v := "json_extract(e.fields, ?)"
 	args := append([]any{path}, vals...)
 	args = append(args, path, path, path)
