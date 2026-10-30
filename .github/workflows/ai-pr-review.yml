@@ -303,7 +303,7 @@ jobs:
           # Four at a time, not all eight: the hosted endpoint is shared and rejects or stalls a burst of large requests.
           with ThreadPoolExecutor(max_workers=4) as executor:
               future_to_model = {
-                  executor.submit(query_nim, model, messages, 1.0, 240, 1, 4096): model
+                  executor.submit(query_nim, model, messages, 1.0, 300, 1, 8192): model
                   for model in ANALYZER_MODELS
               }
               for future in future_to_model:
@@ -373,7 +373,7 @@ jobs:
               ],
               temperature=0.4,
               timeout=180,
-              max_tokens=4096
+              max_tokens=4096        # the consolidation is not a reasoning model; its summary is short
           )
           consolidated = ok
           blockers = 0
