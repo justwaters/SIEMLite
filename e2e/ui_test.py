@@ -418,6 +418,35 @@ def main(binary, loggen):
             rows = " ".join(page.locator("tr.ev").all_inner_texts())
             check("INTERNAL" in rows and "Sign-in failed" in rows, "a failed sign-in is in the audit log from INTERNAL")
 
+            # The Database loads 100 events at a time, with a button (and scrolling) for more.
+            page.goto(url + "#/database")
+            page.locator("tr.ev").nth(99).wait_for()  # (the page changes its hash, so the earlier results stay up until these arrive)
+            check(page.locator("tr.ev").count() == 100, f"the Database starts with 100 events ({page.locator('tr.ev').count()})")
+            check(page.locator("#prev, #next").count() == 0, "there are no Newer and Older buttons")
+            check(page.is_visible("#more"), "a Show more events button is under the table")
+            page.click("#more")
+            page.locator("tr.ev").nth(199).wait_for()
+            ids = page.locator("tr.ev").count()
+            check(ids >= 200, f"Show more events adds the next 100 ({ids} shown)")
+            # Field terms beside the words, the format the search box is meant to take.
+            page.fill("#q", "source=INTERNAL")
+            page.press("#q", "Enter")
+            sources = set()
+            for _ in range(100):  # the earlier results stay up until the new ones arrive
+                page.wait_for_selector("tr.ev")
+                sources = {t.strip() for t in page.locator("tr.ev td:nth-child(3)").all_inner_texts()}
+                if sources == {"INTERNAL"}:
+                    break
+                time.sleep(0.1)
+            check(page.is_hidden("#db-error") and sources == {"INTERNAL"}, f"a source=INTERNAL term narrows the search ({sources})")
+            page.fill("#q", "severity=high,critical ip=198.51.100.141,203.0.113.7")
+            page.press("#q", "Enter")
+            page.wait_for_selector("#summary:not(:empty)")
+            check(page.is_hidden("#db-error"), "a search with several field terms and comma lists is accepted")
+            page.fill("#q", "")
+            page.press("#q", "Enter")
+            page.wait_for_selector("tr.ev")
+
             # Dragging the | between two column headers resizes the columns,
             # with a real mouse (the Database table sizes its columns with <col>s).
             first = page.locator("table.events thead th").first

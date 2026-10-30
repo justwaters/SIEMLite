@@ -43,7 +43,8 @@ type Query struct {
 	Restrict       bool
 	AllowedSources []int64
 
-	// Text is a raw FTS5 expression, e.g. `failed AND "invalid user"`.
+	// Text is an FTS5 expression, e.g. `failed AND "invalid user"`, which may
+	// also hold field terms such as src_ip=10.0.0.1,10.0.0.2 (see terms.go).
 	Text string
 
 	Limit  int // default 100, max 1000
@@ -81,7 +82,14 @@ func (e *Engine) Search(ctx context.Context, q Query) (*Result, error) {
 		return nil, &InvalidQueryError{"end is before start"}
 	}
 
+	words, conds, threat, err := e.parseTerms(ctx, q.Text)
+	if err != nil {
+		return nil, err
+	}
+	q.Text, q.ThreatOnly = words, q.ThreatOnly || threat
+
 	f := storage.Filter{
+		Conds:          conds,
 		CategoryUID:    q.CategoryUID,
 		ClassUID:       q.ClassUID,
 		SeverityID:     q.SeverityID,

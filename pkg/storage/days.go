@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,7 +99,8 @@ var daySchema = []string{
 		threat       INTEGER NOT NULL DEFAULT 0,
 		enrichment   TEXT,
 		source_id    INTEGER,
-		fields       TEXT
+		fields       TEXT,
+		fields_text  TEXT                      -- the values in fields, without their names, for the search index
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_lookup ON events(timestamp DESC, category_uid, severity_id)`,
@@ -114,29 +117,33 @@ var daySchema = []string{
 	// multi-row inserts and large transactions that stores events several
 	// times faster.
 	ftsDeleteTrigger,
-	`PRAGMA user_version = 3`,
+	`PRAGMA user_version = 4`,
 }
 
 // dayVersion is the day file format. Version 3 stores the parsed message and
 // indexes the parsed event instead of the original line, which is removed
-// after a day (versions 1 and 2 indexed the original line).
-const dayVersion = 3
+// after a day (versions 1 and 2 indexed the original line). Version 4 indexes
+// the values of the extra fields a parser found but not their names, so a
+// search for "failed" doesn't find an event that merely has a field called
+// failed.
+const dayVersion = 4
 
 // ftsCols are the columns of events the search index covers: what the parser
 // made of the line, so searching still works after the original is removed.
 // The delete trigger must pass exactly these values.
-const ftsCols = `message, source, host, user_name, src_ip, dst_ip, fields`
+const ftsCols = `message, source, host, user_name, src_ip, dst_ip, fields_text`
 
 const (
 	ftsTable = `CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(` + ftsCols + `, content='events', content_rowid='id')`
 
 	ftsDeleteTrigger = `CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
-		INSERT INTO events_fts(events_fts, rowid, ` + ftsCols + `) VALUES ('delete', old.id, old.message, old.source, old.host, old.user_name, old.src_ip, old.dst_ip, old.fields);
+		INSERT INTO events_fts(events_fts, rowid, ` + ftsCols + `) VALUES ('delete', old.id, old.message, old.source, old.host, old.user_name, old.src_ip, old.dst_ip, old.fields_text);
 	END`
 )
 
-// migrateDay brings a day file from version 1 or 2 up to the current one:
-// every event's message becomes its original line (all that was kept), and
+// migrateDay brings a day file from an older version up to the current one:
+// every event's message becomes its original line (all that was kept) if it
+// has none, the values of the extra fields are copied to their own column, and
 // the search index is rebuilt over the parsed columns. It runs in one write
 // transaction that checks the version again once it holds the lock, so two
 // processes opening the same files migrate it once.
@@ -178,6 +185,16 @@ func migrateDay(ctx context.Context, path string) error {
 		stmts = append(stmts, `ALTER TABLE events ADD COLUMN message TEXT NOT NULL DEFAULT ''`)
 	}
 	stmts = append(stmts, `UPDATE events SET message = raw_data WHERE message = ''`)
+	var hasFieldsText int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'fields_text'`).Scan(&hasFieldsText); err != nil {
+		return err
+	}
+	if hasFieldsText == 0 {
+		stmts = append(stmts, `ALTER TABLE events ADD COLUMN fields_text TEXT`)
+	}
+	// json_tree walks every value, not the names. (A line whose fields aren't valid JSON has none to index.)
+	stmts = append(stmts, `UPDATE events SET fields_text = (SELECT group_concat(value, ' ') FROM json_tree(events.fields) WHERE type IN ('text', 'integer', 'real'))
+		WHERE fields IS NOT NULL AND json_valid(fields)`)
 	stmts = append(stmts, ftsTable, ftsDeleteTrigger, `INSERT INTO events_fts(events_fts) VALUES ('rebuild')`)
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -426,7 +443,46 @@ func (d *days) allocate(ctx context.Context, n int) (int64, error) {
 }
 
 const insertCols = `seq, legacy_id, timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, message, raw_data,
-	source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, source_id, fields`
+	source, host, src_country, dst_country, src_asn, dst_asn, threat, enrichment, source_id, fields, fields_text`
+
+// fieldsText is the values of an event's extra fields (a JSON object), joined by
+// spaces and without their names: what the search index holds for them.
+func fieldsText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return ""
+	}
+	var parts []string
+	var walk func(any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case string:
+			if t != "" {
+				parts = append(parts, t)
+			}
+		case float64:
+			parts = append(parts, strconv.FormatFloat(t, 'f', -1, 64))
+		case []any:
+			for _, e := range t {
+				walk(e)
+			}
+		case map[string]any:
+			keys := make([]string, 0, len(t))
+			for k := range t {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			for _, k := range keys {
+				walk(t[k])
+			}
+		}
+	}
+	walk(v)
+	return strings.Join(parts, " ")
+}
 
 // insert stores records in their days' files, one transaction per day.
 // legacy is set when moving events from the main database: they keep their
@@ -473,7 +529,7 @@ func (d *days) insert(ctx context.Context, recs []Record, legacy bool) error {
 	return nil
 }
 
-// rowsPerInsert is how many events go in one INSERT statement (each has 21
+// rowsPerInsert is how many events go in one INSERT statement (each has 22
 // values; SQLite allows 32766).
 const rowsPerInsert = 200
 
@@ -497,8 +553,8 @@ func insertDay(ctx context.Context, w *sql.DB, recs []Record, idx []int, verb st
 			st.Close()
 		}
 	}()
-	row := "(" + strings.TrimSuffix(strings.Repeat("?, ", 21), ", ") + ")"
-	args := make([]any, 0, rowsPerInsert*21)
+	row := "(" + strings.TrimSuffix(strings.Repeat("?, ", 22), ", ") + ")"
+	args := make([]any, 0, rowsPerInsert*22)
 	for start := 0; start < len(idx); start += rowsPerInsert {
 		chunk := idx[start:min(start+rowsPerInsert, len(idx))]
 		stmt, ok := stmts[len(chunk)]
@@ -521,7 +577,7 @@ func insertDay(ctx context.Context, w *sql.DB, recs []Record, idx []int, verb st
 				nullable(rec.SrcIP), nullable(rec.DstIP), nullable(rec.UserName), cmp.Or(rec.Message, rec.RawData), rec.RawData,
 				nullable(rec.Source), nullable(rec.Host), nullable(rec.SrcCountry), nullable(rec.DstCountry),
 				nullableInt(rec.SrcASN), nullableInt(rec.DstASN), rec.Threat, nullable(string(rec.Enrichment)),
-				nullableInt64(rec.SourceID), nullable(string(rec.Fields)))
+				nullableInt64(rec.SourceID), nullable(string(rec.Fields)), nullable(fieldsText(rec.Fields)))
 		}
 		if _, err := stmt.ExecContext(ctx, args...); err != nil {
 			return fmt.Errorf("insert records %d-%d: %w", chunk[0], chunk[len(chunk)-1], err)
