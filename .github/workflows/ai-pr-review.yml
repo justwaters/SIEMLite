@@ -48,7 +48,7 @@ jobs:
         contains(github.event.comment.body, '@eve-fisni') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ${{ vars.EVE_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       # The runner's workspace is NOT clean between jobs, and Python puts the current directory first on its import path.
       # Everything here runs in a fresh per-job directory, and Python runs in isolated mode (-I), so no leftover file from an
@@ -162,6 +162,30 @@ jobs:
             echo "empty=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The CURRENT version of each changed file, read through the API (the pull request is never checked out and none of its code
+      # is run). A diff alone makes the reviewers say "missing" about things the rest of the file already does; this code is
+      # shown to them and is what every blocker is checked against. Only the job token is used here, never the NVIDIA key.
+      - name: Fetch the changed files' code
+        if: steps.plan.outputs.action == 'review' && steps.get_diff.outputs.empty == 'false'
+        working-directory: ${{ runner.temp }}/ai-review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          mkdir -p context && : > context/index.tsv
+          gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" \
+            --jq '.[] | select(.status != "removed") | [.changes, .filename, .contents_url] | @tsv' | sort -rn | head -40 > files.tsv || true
+          n=0; total=0
+          while IFS=$'\t' read -r changes path url; do
+            case "$path" in *.png|*.jpg|*.jpeg|*.gif|*.svg|*.ico|*.woff|*.woff2|*.ttf|*.zip|*.gz|*.lock|*.sum|*.min.js|*.min.css|*.map|*.pdf|*.db|*.bin) continue ;; esac
+            n=$((n + 1)); [ "$n" -gt 25 ] && break
+            if ! curl -fsS --max-time 20 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" "$url" | head -c 150000 > "context/$n"; then rm -f "context/$n"; continue; fi
+            if grep -qP '\x00' "context/$n"; then rm -f "context/$n"; continue; fi
+            printf '%s\t%s\n' "$n" "$path" >> context/index.tsv
+            total=$((total + $(wc -c < "context/$n"))); [ "$total" -gt 600000 ] && break
+          done < files.tsv
+          echo "Fetched the code of $(wc -l < context/index.tsv) changed file(s)."
+
       - name: Run Multi-Model Review Pipeline
         if: steps.plan.outputs.action == 'review' && steps.get_diff.outputs.empty == 'false'
         working-directory: ${{ runner.temp }}/ai-review
@@ -197,23 +221,32 @@ jobs:
 
           with open("pr_diff.patch", "r", encoding="utf-8", errors="ignore") as f:
               diff_text = f.read()
+          full_diff = diff_text      # the whole diff, for locating changed lines and for the verification pass
 
           MAX_CHARS = 60000   # big diffs make every model slow; the hosted endpoint is shared and often busy
           if len(diff_text) > MAX_CHARS:
               diff_text = diff_text[:MAX_CHARS] + "\n\n... [Diff truncated due to size limits] ..."
 
           TRANSIENT_HTTP = (408, 429, 500, 502, 503, 504)
-          # Extra request settings for the heavy reasoning models: unrestrained they think for 5-7 minutes on a review, and
-          # at "low" effort they answer in about 100 seconds (measured against the live endpoint).
+          # Extra request settings per model, measured against the live endpoint with a review-sized prompt. Left to think freely, these
+          # models spend their whole token budget on reasoning on a large pull request and send back NOTHING (an "empty reply"):
+          #  - "reasoning_effort: low" fixes minimax, mistral-large-4, gpt-oss and muse (they then answer in 1-3 minutes);
+          #  - nemotron-lightning and nemotron-ultra ignore it, but "enable_thinking: false" works (ultra: 61 s, a full review).
+          THINK_OFF = {"chat_template_kwargs": {"enable_thinking": False}}
           MODEL_EXTRA = {
               "minimaxai/minimax-m3.1-flash": {"reasoning_effort": "low"},
               "mistralai/mistral-large-4-1t-a52b": {"reasoning_effort": "low"},
+              "openai/gpt-oss-20b": {"reasoning_effort": "low"},
+              "meta/muse-glimmer-30b": {"reasoning_effort": "low"},
+              "nvidia/nemotron-3.5-lightning-30b-a3b": THINK_OFF,
+              "nvidia/nemotron-3-ultra-550b-a55b": THINK_OFF,
+              "nvidia/nemotron-3.5-super-vl-120b-a12b": THINK_OFF,
           }
 
           def query_nim(model_id, messages, temperature=0.7, timeout=120, retries=0, max_tokens=None, deadline=None):
               """Returns (True, text) on success or (False, reason) on any failure. A failure is never used as review text.
               The answer is STREAMED: NVIDIA's gateway cuts a silent request off with a 504 after about 5 minutes, which a slow
-              reasoning model hits, whereas a stream keeps sending tokens. `timeout` is how long the stream may stay SILENT.
+              reasoning model hits, whereas a stream keeps sending tokens. `timeout` is how long the stream may stay SILENT (a big prompt can wait in the endpoint's queue for minutes before the first token).
               A busy endpoint (HTTP 429/5xx) or a dropped connection is retried `retries` times after a pause; a silent stream is
               not (a hung model does not recover). `max_tokens` bounds the answer. `deadline` (a time.time() value) is one shared
               budget: no attempt may run past it, and none starts without time left."""
@@ -242,7 +275,7 @@ jobs:
                   transient = False
                   try:
                       parts, finish = [], None
-                      with urllib.request.urlopen(req, timeout=min(timeout, 90)) as response:
+                      with urllib.request.urlopen(req, timeout=min(timeout, 240)) as response:
                           for raw in response:
                               if deadline is not None and time.time() > deadline:
                                   print(f"{model_id} was still working at the time limit")
@@ -271,8 +304,8 @@ jobs:
                       print(f"Error querying {model_id} ({e.code}): {err_msg[:300]}")
                       reason, transient = f"HTTP {e.code}", e.code in TRANSIENT_HTTP
                   except (socket.timeout, TimeoutError):
-                      print(f"No data from {model_id} for {min(timeout, 90)}s")
-                      reason, transient = f"went silent for {min(timeout, 90)}s", False
+                      print(f"No data from {model_id} for {min(timeout, 240)}s")
+                      reason, transient = f"went silent for {min(timeout, 240)}s", False
                   except (urllib.error.URLError, http.client.HTTPException, ConnectionError) as e:
                       print(f"Network error querying {model_id}: {e}")
                       reason, transient = "network error", True
@@ -286,7 +319,76 @@ jobs:
                   time.sleep(pause)
               return False, reason
 
-          # Inspection prompt combining the Diff + PR Intent
+          # ---- The code around the change ---------------------------------------------------------------------------------------
+          # A diff alone makes a reviewer say "missing" about things that exist elsewhere in the file (a guard, a lock, an index, a
+          # DROP statement). The workflow fetched the current version of each changed file through the API (it never checks the pull
+          # request out). Those files are shown to the analyzers, and every Blocker and Warning is VERIFIED against the whole file.
+          FILES = {}      # path -> the file's current text
+          try:
+              with open("context/index.tsv", encoding="utf-8") as f:
+                  for line in f:
+                      n, _, path = line.rstrip("\n").partition("\t")
+                      if n and path:
+                          with open(f"context/{n}", encoding="utf-8", errors="replace") as c:
+                              FILES[path] = c.read()
+          except OSError:
+              pass
+          print(f"Code available for {len(FILES)} changed file(s).")
+
+
+          def changed_ranges(diff):
+              """{path: [(first, last)]}: the new-side line ranges each hunk of the diff covers."""
+              out, path = {}, None
+              for line in diff.splitlines():
+                  if line.startswith("+++ "):
+                      path = line[4:].strip()
+                      path = path[2:] if path.startswith("b/") else (None if path == "/dev/null" else path)
+                  elif line.startswith("@@") and path:
+                      m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
+                      if m:
+                          start, length = int(m.group(1)), int(m.group(2) or 1)
+                          out.setdefault(path, []).append((start, start + max(length, 1) - 1))
+              return out
+
+
+          def numbered(text, first=1, last=None):
+              lines = text.splitlines()
+              last = len(lines) if last is None else min(last, len(lines))
+              return "\n".join(f"{i}: {lines[i - 1]}" for i in range(first, last + 1))
+
+
+          def code_windows(text, ranges, margin=60, budget=9000):
+              """The lines around each changed range (merged where they touch), numbered, up to `budget` characters."""
+              n = len(text.splitlines())
+              spans = []
+              for a, b in sorted(ranges):
+                  a, b = max(1, a - margin), min(n, b + margin)
+                  if spans and a <= spans[-1][1] + 1:
+                      spans[-1][1] = max(spans[-1][1], b)
+                  else:
+                      spans.append([a, b])
+              out, used = [], 0
+              for a, b in spans:
+                  chunk = numbered(text, a, b)
+                  if used + len(chunk) > budget:
+                      out.append("... [more surrounding code omitted] ...")
+                      break
+                  out.append(chunk)
+                  used += len(chunk)
+              return "\n...\n".join(out)
+
+
+          CONTEXT_CHARS = 40000
+          context_parts, context_used = [], 0
+          for path, ranges in changed_ranges(full_diff).items():
+              if path in FILES and context_used < CONTEXT_CHARS:
+                  w = code_windows(FILES[path], ranges)
+                  if w:
+                      context_parts.append(f"### {path} (current version, line numbers on the left)\n```\n{w}\n```")
+                      context_used += len(w)
+          context_text = "\n\n".join(context_parts) or "(the surrounding code was not available: say 'cannot tell' about anything outside the diff)"
+
+          # Inspection prompt combining the Diff + PR Intent + the code around it
           analysis_prompt = f"""You are an expert code reviewer. Your task is to review the provided code changes (git diff format) and offer constructive feedback.
 
           The changes were made as part of the following task:
@@ -304,18 +406,26 @@ jobs:
           - Cross-reference the PR's stated intent with the actual changes and flag discrepancies.
           - If the diff looks sound, confirm that no critical issues were detected.
 
+          Evidence rules. A finding that breaks them is a WRONG finding, and wrong findings cost the author time:
+          - Quote, verbatim, the line(s) of code that prove each Blocker or Warning, and say whether the quote is from the diff or from the surrounding code.
+          - Before saying something is MISSING (a guard, a lock, an index, a validation, a cleanup, a DROP, a limit), look for it in the surrounding code below. If you cannot see all the code that could handle it, write "cannot tell from what is shown" instead of asserting it.
+          - Do not report a problem the code already prevents (for example a value passed as a bound query parameter is not an injection).
+          - A Blocker is only a defect the code itself demonstrably has: it crashes, loses or exposes data, or is a security hole. Everything else is a Warning.
+
           Git Diff:
           ```diff
           {diff_text}
           ```
+
+          The current version of the changed files, around each change. Code outside the diff matters: a problem that looks real in the diff may already be handled here.
+          {context_text}
           """
 
           messages = [
-              {"role": "system", "content": "You are an expert code reviewer focused on producing actionable, balanced feedback."},
+              {"role": "system", "content": "You are an expert code reviewer focused on producing accurate, evidenced feedback. You never assert something is missing without checking the surrounding code."},
               {"role": "user", "content": analysis_prompt}
           ]
 
-          # Define all analyzer models to run in parallel
           # The slow reasoning models come FIRST, and all start together (below), so they get the whole time budget instead of
           # waiting in a queue for a free worker. A full review from them takes 2-3 minutes on the shared endpoint.
           ANALYZER_MODELS = [
@@ -329,6 +439,9 @@ jobs:
           ]
           # Tried and dropped because they never answered a review-sized prompt on the shared endpoint (they hang until the
           # timeout, some even for "reply ok"): z-ai/glm-5.3-flash, deepseek-ai/deepseek-v4.1-flash, poolside/laguna-xs-2.1.
+          CONSOLIDATOR = "nvidia/nemotron-3-ultra-550b-a55b"      # merges the reports into structured findings (the largest, and reliably fast with thinking off)
+          VERIFIER = "nvidia/nemotron-3-ultra-550b-a55b"          # re-checks each finding against the whole file; its quote is verified by code
+          VERIFIER2 = "openai/gpt-oss-20b"                          # a BLOCKER needs a second, different model to agree: a quote proves where, not that the claim is true
 
           print(f"Querying {len(ANALYZER_MODELS)} analyzer models in parallel...")
           reports = {}
@@ -354,91 +467,253 @@ jobs:
               print("Every analyzer model failed; not posting a review.")
               sys.exit(1)
 
-          # Only reports that succeeded are shown to the synthesizer (failure text is never fed into the prompt).
-          formatted_reports = "\n\n".join(
-              [f"### Report from {m}:\n{text}" for m, text in reports.items()]
-          )
+          # Only reports that succeeded are shown to the consolidator (failure text is never fed into the prompt).
+          formatted_reports = "\n\n".join([f"### Report from {m}:\n{text}" for m, text in reports.items()])
 
           failed_models_section = ""
           if failed_models:
               failed_models_section = "\n\n### ⚠️ Models that failed to respond:\n" + "\n".join([f"- `{m}` ({why})" for m, why in failed_models]) + "\n"
 
-          # Synthesis prompt
-          synthesis_prompt = f"""You are a Principal Software Architect synthesizing {len(ANALYZER_MODELS)} automated code review reports into an executive GitHub PR review comment.
+          # ---- Consolidation: structured findings, not prose --------------------------------------------------------------------
+          consolidation_prompt = f"""You are a Principal Software Architect consolidating {len(reports)} independent automated code reviews of one pull request into a single list of findings.
 
-          ### PR Context:
-          - **Title**: {pr_title}
-          - **Description**: {pr_body}
+          Pull request title: {pr_title}
+          Description: {pr_body}
 
-          ### Raw Engine Reports:
+          The reports:
           {formatted_reports}
 
-          ### Output Rules & GitHub Markdown Requirements:
-          0. A Blocker is only something the diff itself proves will break at runtime, lose or expose data, or is a critical security issue. Never call something a Blocker because it is missing from the diff (code outside the diff may define it), because a single report claims it, or as a style or preference point. When in doubt it is a Warning.
-          1. **Never place multiline code blocks inside table cells** (this breaks GitHub Markdown tables). Use tables ONLY for brief 1-line summaries.
-          2. Structure the review into these exact sections:
+          Rules:
+          - Output ONLY one JSON object: no prose before or after it, no code fences.
+          - Merge duplicates. Keep a finding only if it is concrete AND a report quoted the code that proves it. Drop vague, stylistic and speculative findings, and anything a report asserts that another report's quoted code contradicts.
+          - "priority": "blocker" ONLY for a defect the code itself demonstrably has (it crashes, loses or exposes data, or is a security hole). Anything else is "warning" (worth fixing) or "info". When unsure, choose the lower priority.
+          - "file" is the repository path as it appears in the diff; "line" is a number or null.
+          - "evidence" is the exact code copied verbatim from a report (one or two lines). "reports" is how many of the reports raised the finding.
+          - At most 8 findings, the most important first. If nothing is wrong, "findings" is an empty list.
 
-          ### 🚦 Executive Verdict
-          - A 1-2 sentence overall assessment of stability and merge-readiness.
-          - A concise Markdown summary table:
-          | Priority | File & Line | Summary | Confidence |
-          |---|---|---|---|
-          | 🔴 Blocker | `api/alerts.go:119` | Missing zero/negative validation | High |
-          | 🟡 Warning | `pkg/alerts/engine.go:43` | Unused mutex in Check() | High |
+          The JSON shape:
+          {{"verdict": "<one or two sentences: is it stable and ready to merge?>", "findings": [{{"priority": "blocker|warning|info", "file": "path", "line": 0, "title": "short title", "impact": "the exact risk", "fix": "a concise fix", "evidence": "verbatim code", "reports": 1}}]}}
+          """
+          print(f"Consolidating with {CONSOLIDATOR}...")
+          ok, consolidated_raw = query_nim(
+              CONSOLIDATOR,
+              [
+                  {"role": "system", "content": "You are an expert review consolidator. You output only the requested JSON."},
+                  {"role": "user", "content": consolidation_prompt}
+              ],
+              temperature=0.2,
+              timeout=200,
+              retries=1,
+              max_tokens=6000
+          )
 
-          ### 🛠️ Actionable Findings
-          For each finding, create an individual block formatted like this:
 
-          #### 🔴 [Blocker/Warning/Info]: Short Title
-          - **File**: `path/to/file.go:L123`
-          - **Impact**: Explain the exact runtime risk or bug.
-          - **Suggested Fix**:
-          ```go
-          // Clean, runnable code snippet here
+          def unescape(text):
+              """Some models double-escape: a literal backslash-n inside a JSON string. Show it as a line break."""
+              return text.replace("\\n", "\n") if "\\n" in text and "\n" not in text else text
+
+
+          def parse_json_object(text):
+              try:
+                  return json.loads(text[text.index("{"): text.rindex("}") + 1])
+              except (ValueError, AttributeError):
+                  return None
+
+
+          data = parse_json_object(consolidated_raw) if ok else None
+          findings = []
+          if isinstance(data, dict) and isinstance(data.get("findings"), list):
+              for f in data["findings"][:8]:
+                  if isinstance(f, dict) and str(f.get("priority", "")).lower() in ("blocker", "warning", "info"):
+                      findings.append({
+                          "priority": str(f["priority"]).lower(),
+                          "file": re.sub(r":\d+.*$", "", str(f.get("file") or "")).strip().lstrip("./").strip("`"),
+                          "line": f.get("line") if isinstance(f.get("line"), int) else None,
+                          "title": str(f.get("title") or "Untitled")[:140],
+                          "impact": unescape(str(f.get("impact") or ""))[:600],
+                          "fix": unescape(str(f.get("fix") or ""))[:800],
+                          "evidence": unescape(str(f.get("evidence") or ""))[:500],
+                          "reports": f.get("reports") if isinstance(f.get("reports"), int) else 1,
+                      })
+
+          # ---- Verification: every Blocker and Warning is checked against the WHOLE file, with proof ---------------------------
+          def norm(text):
+              text = re.sub(r"(?m)^\s*\d+:\s?", "", text)          # drop the line numbers the prompts add
+              return re.sub(r"\s+", " ", text).strip()
+
+
+          def file_diff(path):
+              parts = re.split(r"(?m)^diff --git ", full_diff)
+              for p in parts:
+                  if p.startswith(f"a/{path} ") or f" b/{path}\n" in p.split("\n", 1)[0] + "\n":
+                      return "diff --git " + p
+              return ""
+
+
+          def find_file(path):
+              if path in FILES:
+                  return path
+              for known in FILES:
+                  if path and (known.endswith("/" + path) or path.endswith("/" + known)):
+                      return known
+              return None
+
+
+          def verify(f, deadline, model):
+              """-> (verdict, quote, reason): 'confirmed' / 'refuted' / 'unclear'. A verdict only counts when its quote really is
+              in the code (checked here, not trusted)."""
+              path = find_file(f["file"])
+              if not path:
+                  return "unclear", "", "the file's code was not available to check this against"
+              text = FILES[path]
+              if len(text) <= 70000:
+                  shown = numbered(text)
+              else:
+                  line = f["line"] or 1
+                  shown = numbered(text, max(1, line - 400), line + 400) + "\n... [the rest of the file is not shown] ..."
+              prompt = f"""You are checking ONE claim from an automated code review. Reviewers often get this wrong: they see only a diff and say something is missing, unguarded or broken when the code elsewhere in the file already handles it. Read the WHOLE file below before you answer.
+
+          Claim ({f['priority']}): {f['title']}
+          File: {path}   Line: {f['line']}
+          Impact claimed: {f['impact']}
+          Evidence the reviewer quoted: {f['evidence']}
+
+          The complete current file {path} (line numbers on the left):
+          ```
+          {shown}
           ```
 
-          Finish with exactly one last line, nothing after it: `BLOCKERS: <n>` where <n> is the number of 🔴 Blocker findings above (0 if there are none).
-          """
+          The diff for this file:
+          ```diff
+          {file_diff(path)[:20000]}
+          ```
 
-          print("Synthesizing final comment with Nemotron 3.5 Bolt E4B...")
-          ok, final_review = query_nim(
-              "nvidia/nemotron-3.5-bolt-e4b",
-              [
-                  {"role": "system", "content": "You are an expert review consolidator that produces clear, actionable GitHub PR feedback."},
-                  {"role": "user", "content": synthesis_prompt}
-              ],
-              temperature=0.4,
-              timeout=180,
-              max_tokens=4096        # the consolidation is not a reasoning model; its summary is short
-          )
-          consolidated = ok
-          blockers = 0
-          if ok:
-              m = None
-              for m in re.finditer(r"^\s*`?BLOCKERS:\s*(\d+)`?\s*$", final_review, re.M):
-                  pass
-              if m:
-                  blockers = int(m.group(1))
-                  final_review = (final_review[:m.start()] + final_review[m.end():]).rstrip()
-              else:    # no count given: count the blocker headings it wrote
-                  blockers = len(re.findall(r"^#{3,5}\s*🔴", final_review, re.M))
-          if not ok:
-              # The consolidation failed ({final_review}); post the individual reports rather than an error message.
-              print(f"Synthesis failed ({final_review}); posting the raw reports instead.")
+          Decide whether the claim is TRUE of this code. Do not trust the claim or its wording: TRACE one concrete input or situation through the actual code, line by line, and see what really happens. A test that passes, or a function whose input comes from code that already normalises it, is evidence AGAINST a claim that it fails. If the trace shows the code works, the claim is refuted.
+          Reply with ONLY a JSON object, no code fences:
+          {{"verdict": "confirmed" or "refuted" or "unclear", "quote": "one or two lines copied EXACTLY from the code above that prove your verdict (for refuted: the line that already handles it)", "trace": "two or three sentences: the concrete case you traced and what the code does with it", "reason": "one sentence"}}
+          confirmed = the defect is really there for a concrete case you traced. refuted = the code already prevents it, or the claim is about something that is not in the code. unclear = you cannot tell."""
+              ok, raw = query_nim(model, [
+                  {"role": "system", "content": "You verify code review claims strictly against the code. You output only the requested JSON."},
+                  {"role": "user", "content": prompt}], 0.1, 240, 1, 3000, deadline)
+              d = parse_json_object(raw) if ok else None
+              if not isinstance(d, dict):
+                  return "unclear", "", "the verification step gave no usable answer"
+              verdict = str(d.get("verdict", "")).lower()
+              quote = str(d.get("quote") or "")
+              reason = (str(d.get("trace") or "").strip() + " " + str(d.get("reason") or "").strip()).strip()[:500]
+              if verdict not in ("confirmed", "refuted") or len(norm(quote)) < 6:
+                  return "unclear", quote, reason or "no quoted proof"
+              if norm(quote) not in norm(text) and norm(quote) not in norm(file_diff(path)):
+                  return "unclear", quote, "its quoted proof does not appear in the code, so the verdict is not trusted"
+              return verdict, quote, reason
+
+
+          checked = [f for f in findings if f["priority"] in ("blocker", "warning")]
+          if checked:
+              print(f"Verifying {len(checked)} finding(s) against the full files with {VERIFIER} (blockers also with {VERIFIER2})...")
+              verify_deadline = time.time() + 270
+              jobs = []
+              with ThreadPoolExecutor(max_workers=min(8, len(checked) * 2)) as executor:
+                  for f in checked:
+                      for model in ([VERIFIER, VERIFIER2] if f["priority"] == "blocker" else [VERIFIER]):
+                          jobs.append((f, model, executor.submit(verify, f, verify_deadline, model)))
+                  results = {}
+                  for f, model, fut in jobs:
+                      try:
+                          results.setdefault(id(f), []).append(fut.result())
+                      except Exception as e:                      # a failed check never stops the review
+                          results.setdefault(id(f), []).append(("unclear", "", f"the check failed ({type(e).__name__})"))
+              for f in checked:
+                  rs = results[id(f)]
+                  verdicts = {r[0] for r in rs}
+                  if len(verdicts) == 1 and verdicts != {"unclear"}:
+                      f["verdict"], f["quote"], f["why"] = rs[0]
+                  else:       # the checks disagreed or could not tell: nothing is proved either way
+                      f["verdict"], f["quote"] = "unclear", rs[0][1]
+                      f["why"] = "the independent checks did not agree" if len(rs) > 1 and "unclear" not in verdicts else rs[0][2]
+          for f in findings:
+              f.setdefault("verdict", "n/a")
+
+          # What each finding becomes: only a CONFIRMED blocker is a blocker. A refuted claim is dismissed; one that could not be
+          # proved either way is shown, but as an unverified warning, never as a blocker.
+          shown_findings, dismissed = [], []
+          for f in findings:
+              if f["verdict"] == "refuted":
+                  dismissed.append(f)
+                  continue
+              if f["priority"] == "blocker" and f["verdict"] != "confirmed":
+                  f["priority"], f["note"] = "warning", "claimed as a blocker, but not confirmed"
+              shown_findings.append(f)
+          blockers = sum(1 for f in shown_findings if f["priority"] == "blocker")
+
+
+          def cell(text):
+              return re.sub(r"\s+", " ", str(text)).replace("|", "\\|").strip()
+
+
+          def render_finding(f):
+              icon = {"blocker": "🔴 Blocker", "warning": "🟡 Warning", "info": "ℹ️ Info"}[f["priority"]]
+              check = {"confirmed": "✔ verified against the full file", "unclear": "unverified", "n/a": ""}.get(f["verdict"], "")
+              loc = f"{f['file']}:{f['line']}" if f["file"] and f["line"] else f["file"]
+              out = [f"#### {icon}: {f['title']}" + (f"  ·  {check}" if check else ""), f"- **File**: `{loc or 'not stated'}`"]
+              if f.get("note"):
+                  out.append(f"- **Note**: {f['note']}.")
+              if f["impact"]:
+                  out.append(f"- **Impact**: {f['impact']}")
+              if f["evidence"]:
+                  out.append("- **Evidence**:\n```\n" + f["evidence"] + "\n```")
+              if f.get("why") and f["verdict"] in ("confirmed", "unclear"):
+                  out.append(f"- **Verification**: {f['why']}")
+              if f["fix"]:
+                  out.append("- **Suggested fix**:\n```\n" + f["fix"] + "\n```")
+              return "\n".join(out)
+
+
+          if isinstance(data, dict):
+              consolidated = True
+              verdict_text = str(data.get("verdict") or "").strip()[:600] or "No overall verdict was given."
+              if blockers:
+                  verdict_text += f"\n\n**{blockers} verified blocker(s): resolve before merging.**"
+              rows = ["| Priority | File & Line | Summary | Check |", "|---|---|---|---|"]
+              for f in shown_findings:
+                  loc = f"{f['file']}:{f['line']}" if f["file"] and f["line"] else f["file"]
+                  pr_icon = {"blocker": "🔴 Blocker", "warning": "🟡 Warning", "info": "ℹ️ Info"}[f["priority"]]
+                  check = {"confirmed": "✔ verified", "unclear": "unverified", "n/a": "—"}.get(f["verdict"], "—")
+                  rows.append(f"| {pr_icon} | `{cell(loc or '-')}` | {cell(f['title'])} | {check} |")
+              review_md = "### 🚦 Executive Verdict\n" + verdict_text + "\n\n"
+              if shown_findings:
+                  review_md += "\n".join(rows) + "\n\n### 🛠️ Actionable Findings\n\n" + "\n\n".join(render_finding(f) for f in shown_findings) + "\n"
+              else:
+                  review_md += "No findings.\n"
+              if dismissed:
+                  review_md += f"\n<details><summary>Considered and dismissed after checking the code ({len(dismissed)})</summary>\n\n"
+                  for f in dismissed:
+                      proof = cell(f["quote"]).replace("`", "'")[:200] if f.get("quote") else ""
+                      review_md += f"- **{cell(f['title'])}** (`{cell(f['file'])}`): {cell(f.get('why', '')).rstrip('.')}." + (f" Proof: `{proof}`" if proof else "") + "\n"
+                  review_md += "\n</details>\n"
+              final_review = review_md
+          else:
+              # The consolidation failed or was not valid JSON: post the individual reports rather than an error, and block nothing.
+              consolidated = False
+              blockers = 0
+              print(f"Consolidation failed ({consolidated_raw if not ok else 'invalid JSON'}); posting the raw reports instead.")
               final_review = (
-                  "_The final consolidation step failed, so these are the individual model reports, unmerged._\n\n"
+                  "_The consolidation step failed, so these are the individual model reports, unmerged and UNVERIFIED._\n\n"
                   + "\n\n".join(f"<details><summary>{m}</summary>\n\n{text[:6000]}\n\n</details>" for m, text in reports.items())
               )
+
 
           def name_list(models):
               names = [f"`{m}`" for m in models]
               return names[0] if len(names) == 1 else (" and ".join(names) if len(names) == 2 else ", ".join(names[:-1]) + ", and " + names[-1])
 
+
           # The footer credits only the models whose reports were used. A model that did not answer is listed above, as failed.
           if consolidated:
-              credit = f"*Consolidated by `nvidia/nemotron-3.5-bolt-e4b` from independent analyses by {name_list(reports)}.*"
+              credit = (f"*Findings consolidated by `{CONSOLIDATOR}` from independent analyses by {name_list(reports)}. "
+                        f"Each blocker and warning was re-checked against the whole file by `{VERIFIER}`, and a verdict counts only when the code it quotes is really in the file.*")
           else:
-              credit = f"*Individual reports from {name_list(reports)}; the consolidation step failed, so they are not merged.*"
+              credit = f"*Individual reports from {name_list(reports)}; the consolidation step failed, so they are not merged or verified.*"
           final_body = (
               "<!-- ai-pr-review -->\n"
               "## 🤖 Automated Code Review\n\n"
@@ -451,7 +726,7 @@ jobs:
           with open("review_comment.md", "w", encoding="utf-8") as out:
               out.write(final_body)
           with open("blockers.txt", "w", encoding="utf-8") as out:
-              out.write(str(blockers))     # a failed consolidation never blocks: the raw reports alone are not a verdict
+              out.write(str(blockers))     # only a CONFIRMED blocker counts; a failed consolidation never blocks
           EOF
 
       - name: Post the review
