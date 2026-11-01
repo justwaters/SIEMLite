@@ -240,16 +240,21 @@ func (s *Service) Apply(ctx context.Context, e *Env, id string) (message string,
 	return message, run, res, err
 }
 
+// CleanNote trims a reason and cuts it to the length that is kept.
+func CleanNote(note string) string {
+	note = strings.TrimSpace(note)
+	if r := []rune(note); len(r) > maxNote {
+		note = string(r[:maxNote])
+	}
+	return note
+}
+
 // Accept records that the risk of a warning or failure is accepted.
 func (s *Service) Accept(ctx context.Context, id, by, note string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	note = strings.TrimSpace(note)
-	switch {
-	case note == "":
+	if note = CleanNote(note); note == "" {
 		return ErrNoteEmpty
-	case len(note) > maxNote:
-		note = note[:maxNote]
 	}
 	var run Run
 	if err := s.load(ctx, keyLast, &run); err != nil {

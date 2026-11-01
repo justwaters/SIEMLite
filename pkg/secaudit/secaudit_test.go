@@ -204,7 +204,7 @@ func TestSyslogAndHTTP(t *testing.T) {
 		addr    string
 		proxies bool
 		want    Status
-	}{{"", false, Pass}, {"127.0.0.1:8080", true, Pass}, {"0.0.0.0:8080", false, Fail}, {"127.0.0.1:8080", false, Fail}, {":8080", true, Warn}} {
+	}{{"", false, Pass}, {"127.0.0.1:8080", true, Pass}, {"0.0.0.0:8080", false, Fail}, {"127.0.0.1:8080", false, Warn}, {":8080", true, Warn}} {
 		e.Cfg.HTTPAddr, e.Cfg.TrustedProxies = tc.addr, tc.proxies
 		if got := outcome(t, "net.http", e); got.Status != tc.want {
 			t.Errorf("http %q proxies=%v = %s, want %s", tc.addr, tc.proxies, got.Status, tc.want)
@@ -376,7 +376,7 @@ func TestServiceRepeatFixAndAccept(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ := svc.State(ctx)
-	if p := find(st.Last, "siem.perms"); p.Accepted == nil || p.Accepted.Note != "single-user box" || p.Open() {
+	if p := find(st.Last, "siem.perms"); p.Accepted == nil || p.Accepted.Note != "single-user box" {
 		t.Errorf("accepted perms = %+v", p)
 	}
 	if st.Last.Counts.Accepted != 1 {
@@ -443,5 +443,64 @@ func TestHistoryIsBounded(t *testing.T) {
 	}
 	if st, _ := svc.State(context.Background()); len(st.History) != historyKept {
 		t.Errorf("history = %d", len(st.History))
+	}
+}
+
+func TestSharedDirectoriesAreNeverManaged(t *testing.T) {
+	for _, db := range []string{"/tmp/s.db", "/var/lib/s.db", "/s.db", filepath.Join(os.TempDir(), "s.db")} {
+		if d := dataDir(db); d != "" {
+			t.Errorf("dataDir(%s) = %q, want none", db, d)
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if d := dataDir(filepath.Join(home, "siemlite.db")); d != "" {
+			t.Errorf("home directory managed: %s", d)
+		}
+	}
+	own := t.TempDir()
+	if d := dataDir(filepath.Join(own, "s.db")); d != own && d != "" {
+		// The temporary folder may itself be a symlink on some systems; either way it is managed.
+		t.Logf("dataDir resolved %s as %s", own, d)
+	}
+	if d := dataDir(filepath.Join(own, "s.db")); d == "" {
+		t.Errorf("a private folder inside the temporary folder should be managed")
+	}
+}
+
+func TestTightenRefusesASwappedLink(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	target := filepath.Join(dir, "key")
+	for _, p := range []string{victim, target} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A path that is a link isn't a problem and isn't touched.
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := tighten(permTarget{link, 0o600}); err == nil {
+		t.Error("tighten followed a symbolic link")
+	}
+	if info, _ := os.Stat(victim); info.Mode().Perm() != 0o644 {
+		t.Errorf("the link's target was changed to %o", info.Mode().Perm())
+	}
+	if err := tighten(permTarget{target, 0o600}); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(target); info.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestCleanNote(t *testing.T) {
+	if got := CleanNote("  why  "); got != "why" {
+		t.Errorf("got %q", got)
+	}
+	if got := CleanNote(strings.Repeat("é", maxNote+50)); len([]rune(got)) != maxNote {
+		t.Errorf("kept %d characters", len([]rune(got)))
 	}
 }

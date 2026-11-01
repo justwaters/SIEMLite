@@ -243,7 +243,7 @@ func checkSudo(_ context.Context, e *Env) Outcome {
 	}
 	var service []string
 	for _, a := range accts {
-		if admins[a.name] && a.name != "root" && a.uid < 1000 && !strings.HasSuffix(a.shell, "bash") && !strings.HasSuffix(a.shell, "sh") {
+		if admins[a.name] && a.name != "root" && a.uid < 1000 && (strings.HasSuffix(a.shell, "nologin") || strings.HasSuffix(a.shell, "false")) {
 			service = append(service, a.name)
 		}
 	}

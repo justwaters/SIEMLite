@@ -52,6 +52,9 @@ func checkPlainHTTP(_ context.Context, e *Env) Outcome {
 		return Outcome{Status: Pass, Detail: "Plain HTTP is off."}
 	case onlyLocal(c.HTTPAddr) && c.TrustedProxies:
 		return Outcome{Status: Pass, Detail: "Plain HTTP listens on " + c.HTTPAddr + ", this machine only, for a trusted reverse proxy."}
+	case onlyLocal(c.HTTPAddr) && !c.TrustedProxies:
+		return Outcome{Status: Warn, Detail: "Plain HTTP listens on " + c.HTTPAddr + " (this machine only) but no reverse proxy is trusted, so every request appears to come from the proxy's address. Sign-in lockouts and the audit log then can't tell people apart.",
+			Fix: "Set -trusted-proxies to your reverse proxy's address, or turn -http-addr off if you don't use one."}
 	case !c.TrustedProxies:
 		return Outcome{Status: Fail, Detail: "Plain HTTP is listening on " + c.HTTPAddr + " with no trusted proxy configured: sign-ins and logs cross the network unencrypted, and every request appears to come from the proxy.",
 			Fix: "Set -trusted-proxies to your reverse proxy's address, bind -http-addr to 127.0.0.1 (or a private interface only the proxy can reach), or turn -http-addr off."}
