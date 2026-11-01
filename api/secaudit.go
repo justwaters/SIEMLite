@@ -28,7 +28,8 @@ func (s *Server) auditReady(w http.ResponseWriter) bool {
 // auditEnv returns the checks' view of this installation: the flags it was
 // started with plus what the database knows now.
 func (s *Server) auditEnv(ctx context.Context) (*secaudit.Env, error) {
-	cfg := s.deps.SecConfig
+	cfg := s.deps.SecConfig // a copy: the counts below are per run
+	cfg.EnabledAdmins = 0
 	cfg.Version = s.deps.Version
 	cfg.TrustedProxies = s.deps.Proxies.Configured()
 	users, err := s.deps.Repo.ListUsers(ctx)
@@ -56,13 +57,17 @@ func (s *Server) auditEnv(ctx context.Context) (*secaudit.Env, error) {
 		}
 	}
 	if s.deps.Backups != nil {
-		if set, err := s.deps.Backups.Settings(ctx); err == nil {
-			cfg.BackupIntervalHours = set.IntervalHours
+		// If backups can't be read the check is skipped, not reported as off.
+		set, serr := s.deps.Backups.Settings(ctx)
+		list, lerr := s.deps.Backups.List()
+		if err := errors.Join(serr, lerr); err != nil {
+			s.deps.Logger.Warn("security audit: backups not read", "err", err)
+		} else {
+			cfg.BackupDir, cfg.BackupIntervalHours = s.deps.Backups.Dir(), set.IntervalHours
+			if len(list) > 0 {
+				cfg.LastBackup = time.UnixMilli(list[0].CreatedAt) // newest first
+			}
 		}
-		if list, err := s.deps.Backups.List(); err == nil && len(list) > 0 {
-			cfg.LastBackup = time.UnixMilli(list[0].CreatedAt) // newest first
-		}
-		cfg.BackupDir = s.deps.Backups.Dir()
 	}
 	if s.deps.Updates != nil {
 		st := s.deps.Updates.Check(ctx, false)
@@ -113,7 +118,10 @@ func (s *Server) handleAuditRun(w http.ResponseWriter, r *http.Request) {
 // stateWith returns the page's state with run as the last run, so the reply
 // to a run has the history that includes it.
 func (s *Server) stateWith(ctx context.Context, run *secaudit.Run) secaudit.State {
-	st, _ := s.deps.SecAudit.State(ctx)
+	st, err := s.deps.SecAudit.State(ctx)
+	if err != nil {
+		s.deps.Logger.Warn("security audit: state not read", "err", err)
+	}
 	if run != nil {
 		st.Last = run
 	}

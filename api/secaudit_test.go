@@ -47,6 +47,7 @@ func TestSecurityAuditAPI(t *testing.T) {
 	e := &env{t: t, srv: srv, repo: repo, worker: worker}
 	e.user("root", auth.RoleAdmin)
 	e.user("pat", auth.RoleStandard)
+	e.user("ann", auth.RoleAdmin)
 	root, pat := e.client(), e.client()
 	e.login(root, "root", password)
 	e.login(pat, "pat", password)
@@ -92,6 +93,22 @@ func TestSecurityAuditAPI(t *testing.T) {
 	if st.Last.By != "root" || st.Last.Host != "testhost" || st.Last.Version != "v9" || st.Last.Counts.Fail == 0 {
 		t.Errorf("run = %+v", st.Last.Counts)
 	}
+
+	// Counts are per run: a second run sees the same two Admins, not four.
+	admins := func(s secaudit.State) string {
+		for _, r := range s.Last.Results {
+			if r.ID == "access.admins" {
+				return r.Detail
+			}
+		}
+		return ""
+	}
+	first := admins(st)
+	var again secaudit.State
+	if got := e.call(root, "POST", "/api/v1/security-audit/run", nil, &again, nil); got != 200 || admins(again) != first || !strings.HasPrefix(first, "2 accounts") {
+		t.Errorf("admins on run 1 = %q, on run 2 = %q", first, admins(again))
+	}
+	st = again
 
 	// Accept, then withdraw.
 	if got := e.call(root, "PUT", "/api/v1/security-audit/checks/siem.perms/accept", map[string]string{"note": " "}, nil, nil); got != 400 {
