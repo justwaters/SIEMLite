@@ -250,6 +250,29 @@
   .matches span { display: block; color: var(--ink-2); font-size: 13px; }
   pre.raw { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--surface); white-space: pre-wrap; word-break: break-all; font: 12.5px/1.6 var(--mono); }
 
+  /* Security audit */
+  .audit-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 0 12px; }
+  .audit-cat { margin-bottom: 16px; padding: 0; }
+  .audit-cat > h2 { padding: 14px 20px 10px; }
+  .finding { padding: 14px 20px; border-top: 1px solid var(--rule); display: grid; gap: 4px; }
+  .finding-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .finding-head b { font-weight: 600; }
+  .finding p { margin: 0; max-width: 90ch; }
+  .finding .fix { color: var(--ink-2); }
+  .finding .fix b { color: var(--ink); font-weight: 500; }
+  .finding .row-actions { margin-top: 8px; justify-content: flex-start; flex-wrap: wrap; }
+  .finding.quiet { padding: 10px 20px; }
+  .finding.quiet .detail { color: var(--ink-2); font-size: 14px; }
+  .finding.accepted .detail, .finding.accepted .fix { color: var(--ink-2); }
+  .state { display: inline-block; min-width: 4.2em; text-align: center; font-size: 12.5px; padding: 1px 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
+  .state.sev-2 { box-shadow: inset 0 0 0 1px var(--sev-2); color: var(--sev-2); }
+  .state.sev-3 { box-shadow: inset 0 0 0 1px var(--sev-3); color: var(--sev-3); }
+  .state.sev-4 { box-shadow: inset 0 0 0 1px var(--sev-4); color: var(--sev-4); }
+  .state.sev-5 { box-shadow: inset 0 0 0 1px var(--sev-5); color: var(--sev-5); }
+  .sev-note { font-size: 12.5px; color: var(--ink-2); }
+  .change { font-size: 12.5px; font-weight: 500; }
+  .audit-figures { grid-template-columns: repeat(4, 1fr); margin-bottom: 0; }
+  #audit-reason { min-height: 90px; font: inherit; }
   /* Admin lists */
   .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
   .data td.actions { width: 1%; white-space: nowrap; }
@@ -481,6 +504,7 @@
   <symbol id="i-parsers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-4.5 5L8 17m8-10 4.5 5L16 17M13.5 5l-3 14"/></symbol>
   <symbol id="i-alerts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
   <symbol id="i-integrations" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5v4m6-4v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l7 2.5v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
   <symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
@@ -530,6 +554,7 @@
       <a class="nav-item admin-only" href="#/users" data-nav="users"><svg class="icon"><use href="#i-users"/></svg>Users</a>
       <a class="nav-item admin-only" href="#/integrations" data-nav="integrations"><svg class="icon"><use href="#i-integrations"/></svg>Integrations</a>
       <a class="nav-item admin-only" href="#/system" data-nav="system"><svg class="icon"><use href="#i-system"/></svg>System</a>
+      <a class="nav-item admin-only" href="#/security" data-nav="security"><svg class="icon"><use href="#i-shield"/></svg>Security audit</a>
     </nav>
     <div class="side-foot">
       <div id="status" aria-live="polite"></div>
@@ -1167,6 +1192,39 @@
       <p class="notice" id="system-msg" role="status" hidden></p>
     </section>
 
+    <section id="view-security" class="page" aria-labelledby="security-title" hidden>
+      <div class="page-head">
+        <div><h1 id="security-title">Security audit</h1>
+          <p>Checks SIEMLite's own setup and the server it runs on. Nothing is changed except SIEMLite's own file permissions, and only when you choose to. Fix what it finds, then recheck to confirm.</p></div>
+        <div class="page-actions">
+          <a class="btn" id="audit-report" href="/api/v1/security-audit/report" download hidden>Download report</a>
+          <button class="btn btn-primary" id="audit-run">Run audit</button>
+        </div>
+      </div>
+      <div class="figures audit-figures" id="audit-figures" hidden>
+        <div class="figure"><div class="label">Failed</div><div class="value" id="au-fail">0</div><div class="sub" id="au-when"></div></div>
+        <div class="figure"><div class="label">Warnings</div><div class="value" id="au-warn">0</div><div class="sub" id="au-by"></div></div>
+        <div class="figure"><div class="label">Passed</div><div class="value" id="au-pass">0</div></div>
+        <div class="figure"><div class="label">Accepted or skipped</div><div class="value" id="au-other">0</div></div>
+      </div>
+      <p class="notice" id="audit-msg" role="status" hidden></p>
+      <div class="audit-bar" id="audit-bar" hidden>
+        <div class="seg" role="group" aria-label="Show">
+          <button type="button" data-audit-filter="open" aria-pressed="true">Needs action</button>
+          <button type="button" data-audit-filter="all" aria-pressed="false">Everything</button>
+        </div>
+      </div>
+      <p class="empty-note" id="audit-empty">No audit has been run yet. Choose Run audit; it takes a few seconds.</p>
+      <div id="audit-list"></div>
+      <div class="table-wrap" id="audit-history-wrap" hidden>
+        <table class="data">
+          <caption class="visually-hidden">Earlier audits</caption>
+          <thead><tr><th>Run</th><th>By</th><th>Failed</th><th>Warnings</th><th>Passed</th><th>Accepted</th></tr></thead>
+          <tbody id="audit-history"></tbody>
+        </table>
+      </div>
+    </section>
+
     <footer>SIEMLite is open source under the AGPL-3.0. <a href="https://github.com/justwaters/SIEMLite" target="_blank" rel="noopener">Get the source code</a></footer>
   </main>
 </div>
@@ -1368,6 +1426,20 @@
     <div class="dialog-actions">
       <button class="btn" value="cancel">Cancel</button>
       <button class="btn btn-primary" id="c-ok" value="ok"></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-accept">
+  <form method="dialog" id="accept-form">
+    <h2 id="accept-title">Accept this risk</h2>
+    <p id="accept-body">The finding stays on the list as accepted, with your reason, and comes back if it gets worse.</p>
+    <label class="field-label">Why is it acceptable?
+      <textarea id="audit-reason" required maxlength="500" placeholder="For example: a cloud security group filters this port"></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn btn-primary" value="ok">Accept risk</button>
     </div>
   </form>
 </dialog>
@@ -1739,13 +1811,13 @@ $("logout").onclick = async () => {
 };
 
 // --- Routing: #/page or #/page?query ---
-const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "parsers", "parser", "integrations", "system", "account"];
+const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "parsers", "parser", "integrations", "system", "security", "account"];
 function route() {
   const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
   let [view, arg] = path.split("/");
   if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
   if (view === "parsers" && arg) view = "parser";
-  if (!isAdmin && ["users", "sources", "parsers", "parser", "integrations", "system"].includes(view)) view = "dashboard";
+  if (!isAdmin && ["users", "sources", "parsers", "parser", "integrations", "system", "security"].includes(view)) view = "dashboard";
   if (view === "alerts" && me.limited) view = "dashboard";
   for (const v of VIEWS) $("view-" + v).hidden = v !== view;
   const navKey = view === "parser" ? "parsers" : view;
@@ -1755,8 +1827,8 @@ function route() {
   setMenu(false);
   const params = new URLSearchParams(query || "");
   ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources,
-     parsers: openParsers, parser: () => openParserEditor(arg), integrations: openIntegrations, system: openSystem, account: openAccount, alerts: () => openAlerts(params) })[view]();
-  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", integrations: "Integrations", system: "System", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
+     parsers: openParsers, parser: () => openParserEditor(arg), integrations: openIntegrations, system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
+  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
   if (view !== "system") { clearTimeout(backupPoll); clearTimeout(tlsPoll); }
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
@@ -3230,6 +3302,128 @@ async function applyUpdate(u) {
   try { sessionStorage.setItem("siemlite.updated", "1"); } catch {}
   waitForRestart("Updating SIEMLite", "SIEMLite is restarting on the new version. This page reloads when it\u2019s back.");
 }
+// --- Security audit ---
+let audit = null, auditFilter = "open", auditBusy = false;
+const AUDIT_STATUS = { pass: "Pass", warn: "Warning", fail: "Failed", skip: "Skipped" };
+const AUDIT_SEV = { low: 2, medium: 3, high: 4, critical: 5 };
+const AUDIT_CHANGE = { new: "New since the last audit", worse: "Worse than the last audit", resolved: "Resolved since the last audit" };
+async function openAudit() {
+  notice($("audit-msg"), "");
+  try { audit = await apiJSON("/api/v1/security-audit"); }
+  catch (err) { notice($("audit-msg"), err.message); return; }
+  renderAudit();
+}
+function auditCounts() {
+  const c = { pass: 0, warn: 0, fail: 0, skip: 0, accepted: 0 };
+  for (const r of audit.last.results) {
+    if (r.status === "pass") c.pass++;
+    else if (r.status === "skip") c.skip++;
+    else if (r.accepted) c.accepted++;
+    else c[r.status]++;
+  }
+  return c;
+}
+function renderAudit() {
+  const last = audit && audit.last;
+  show($("audit-empty"), !last);
+  for (const id of ["audit-figures", "audit-bar", "audit-report"]) show($(id), !!last);
+  show($("audit-history-wrap"), !!last && audit.history.length > 1);
+  const list = $("audit-list");
+  list.replaceChildren();
+  if (!last) return;
+  const c = auditCounts();
+  $("au-fail").textContent = nf.format(c.fail); $("au-warn").textContent = nf.format(c.warn);
+  $("au-pass").textContent = nf.format(c.pass); $("au-other").textContent = nf.format(c.accepted + c.skip);
+  $("au-other").title = `${c.accepted} accepted, ${c.skip} skipped`;
+  $("au-when").textContent = `${ago(last.at)}${last.host ? ", " + last.host : ""}`;
+  $("au-by").textContent = last.by ? `Run by ${last.by}` : "";
+  for (const b of document.querySelectorAll("[data-audit-filter]")) b.setAttribute("aria-pressed", String(b.dataset.auditFilter === auditFilter));
+  const cats = [...new Set(last.results.map((r) => r.category))];
+  let shown = 0;
+  for (const cat of cats) {
+    const rows = last.results.filter((r) => r.category === cat && (auditFilter === "all" || r.status !== "pass" && r.status !== "skip" && !r.accepted));
+    if (!rows.length) continue;
+    shown += rows.length;
+    list.append(el("section", { className: "panel audit-cat", "aria-label": cat }, el("h2", { textContent: cat }), ...rows.map(auditRow)));
+  }
+  if (!shown) list.append(el("p", { className: "empty-note", textContent: c.fail + c.warn ? "" : "Nothing needs action. Every check passed, was skipped or has an accepted risk." }));
+  const h = $("audit-history");
+  h.replaceChildren(...audit.history.slice().reverse().map((x) => el("tr", {},
+    el("td", { textContent: new Date(x.at).toLocaleString() }), el("td", { textContent: x.by || "" }),
+    el("td", { textContent: nf.format(x.counts.fail) }), el("td", { textContent: nf.format(x.counts.warn) }),
+    el("td", { textContent: nf.format(x.counts.pass) }), el("td", { textContent: nf.format(x.counts.accepted) }))));
+}
+function auditRow(r) {
+  const open = r.status === "warn" || r.status === "fail";
+  const sev = open && !r.accepted ? " sev-" + (AUDIT_SEV[r.severity] || 3) : "";
+  const quiet = !open;
+  const row = el("div", { className: "finding" + (quiet ? " quiet" : "") + (r.accepted ? " accepted" : "") });
+  const head = el("div", { className: "finding-head" },
+    el("span", { className: "state" + sev, textContent: r.accepted ? "Accepted" : AUDIT_STATUS[r.status] }),
+    el("b", { textContent: r.title }),
+    open ? el("span", { className: "sev-note", textContent: `${r.severity[0].toUpperCase()}${r.severity.slice(1)} severity` }) : "",
+    r.change ? el("span", { className: "change", textContent: AUDIT_CHANGE[r.change] }) : "");
+  row.append(head, el("p", { className: "detail", textContent: r.detail }));
+  if (r.fix) row.append(el("p", { className: "fix" }, el("b", { textContent: "To fix: " }), r.fix));
+  if (r.accepted) row.append(el("p", { className: "fix", textContent: `Accepted by ${r.accepted.by}, ${shortDate(r.accepted.at)}: ${r.accepted.note}` }));
+  const acts = el("div", { className: "row-actions" });
+  if (open && !r.accepted && r.can_apply) acts.append(el("button", { className: "btn btn-small btn-primary", textContent: r.apply_label || "Fix it", onclick: () => auditFix(r) }));
+  if (open || r.change === "resolved") acts.append(el("button", { className: "btn btn-small", textContent: "Recheck", onclick: () => auditRecheck(r) }));
+  if (open && !r.accepted) acts.append(el("button", { className: "btn btn-small", textContent: "Accept risk", onclick: () => auditAccept(r) }));
+  if (r.accepted) acts.append(el("button", { className: "btn btn-small", textContent: "Withdraw acceptance", onclick: () => auditUnaccept(r) }));
+  if (acts.children.length) row.append(acts);
+  return row;
+}
+// Replace one result with its newer version and redraw.
+function auditReplace(res) {
+  audit.last.results = audit.last.results.map((x) => x.id === res.id ? res : x);
+  renderAudit();
+}
+async function auditCall(btn, path, opts) {
+  if (auditBusy) return null;
+  auditBusy = true; if (btn) btn.disabled = true;
+  notice($("audit-msg"), "");
+  try { return await apiJSON(path, opts); }
+  catch (err) { notice($("audit-msg"), err.message); return null; }
+  finally { auditBusy = false; if (btn) btn.disabled = false; }
+}
+$("audit-run").onclick = async () => {
+  const btn = $("audit-run"); btn.textContent = "Running…";
+  const st = await auditCall(btn, "/api/v1/security-audit/run", { method: "POST" });
+  btn.textContent = "Run audit";
+  if (!st) return;
+  audit = st; renderAudit();
+  const c = st.last.counts;
+  notice($("audit-msg"), c.fail + c.warn ? `${c.fail} failed and ${c.warn} warnings to look at.` : "Nothing needs action.", !(c.fail + c.warn));
+};
+async function auditRecheck(r) {
+  const out = await auditCall(null, `/api/v1/security-audit/checks/${encodeURIComponent(r.id)}/recheck`, { method: "POST" });
+  if (!out) return;
+  auditReplace(out.result);
+  notice($("audit-msg"), out.result.status === "pass" ? `Resolved: ${r.title}.` : `Still open: ${r.title}.`, out.result.status === "pass");
+}
+async function auditFix(r) {
+  if (!(await confirmAction(`${r.apply_label || "Fix"}?`, "SIEMLite will change its own files as described under To fix, then check again. The change is recorded in the audit log.", r.apply_label || "Fix it"))) return;
+  const out = await auditCall(null, `/api/v1/security-audit/checks/${encodeURIComponent(r.id)}/fix`, { method: "POST" });
+  if (!out) return;
+  auditReplace(out.result);
+  notice($("audit-msg"), `${out.message} ${out.result.status === "pass" ? "The check now passes." : "The check still doesn't pass."}`, out.result.status === "pass");
+}
+async function auditAccept(r) {
+  const d = $("dlg-accept");
+  $("audit-reason").value = "";
+  const ok = await new Promise((resolve) => { d.onclose = () => resolve(d.returnValue === "ok"); d.returnValue = ""; d.showModal(); });
+  if (!ok) return;
+  const st = await auditCall(null, `/api/v1/security-audit/checks/${encodeURIComponent(r.id)}/accept`,
+    { method: "PUT", json: { note: $("audit-reason").value } });
+  if (st) { audit = st; renderAudit(); }
+}
+async function auditUnaccept(r) {
+  const st = await auditCall(null, `/api/v1/security-audit/checks/${encodeURIComponent(r.id)}/accept`, { method: "DELETE" });
+  if (st) { audit = st; renderAudit(); }
+}
+for (const b of document.querySelectorAll("[data-audit-filter]")) b.onclick = () => { auditFilter = b.dataset.auditFilter; if (audit) renderAudit(); };
+
 // --- Integrations ---
 const INTEGRATION_STATE = { on: "On", off: "Off", needs_setup: "Not set up", error: "Problem" };
 function renderIntegration(it) {

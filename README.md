@@ -152,6 +152,7 @@ usually within seconds, then who issued it and until when. Or set it from the st
 - **Parsers** (admins): build, upload, export and edit parsers.
 - **Integrations** (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, sign-in with Microsoft Entra ID, and AI Parsers.
 - **System** (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
+- **Security audit** (admins): checks SIEMLite's setup and the server it runs on, and tracks each finding until it is fixed. See [Security audit](#security-audit).
 - **Account** (everyone; select your name at the bottom of the sidebar): your role and what it lets you see, the theme (System, Light
   or Dark), signing out, and how you sign in: a local password, which you can change here, or Microsoft Entra ID.
 
@@ -583,6 +584,37 @@ into the username field is never stored. Every failed sign-in is recorded until 
 recorded once, not each retry. Beyond 600 failed sign-ins a minute (a flood from many addresses) the rest are counted
 in one Critical event, which raises an alert. Every analyst who isn't limited to some sources can
 read the audit log and acknowledge or close alerts.
+
+## Security audit
+
+The **Security audit** page (admins) runs a repeatable set of read-only checks and lists what needs action, worst first,
+with what was found and how to fix it. Choose **Run audit**; it takes a few seconds.
+
+| Group | Checks |
+|---|---|
+| SIEMLite | not running as root; database, secret key, TLS key and backups folder not readable by other users; backups made and recent; SIEMLite up to date; Docker socket not mounted in the container |
+| Network | HTTPS certificate valid and trusted; plain HTTP reachable only by the reverse proxy; syslog allowlist; no unexpected or risky services listening (Linux) |
+| Access | the built-in `admin` account kept to the server; few Admin accounts |
+| Host (Linux, not in a container) | SSH settings (`sshd_config`, including `Include` files); a firewall is active; no extra UID 0 account or empty password; sudo groups; permissions of `/etc/passwd`, `/etc/shadow` and `sshd_config`; kernel network and memory settings; automatic security updates |
+
+A check ends as **Pass**, **Warning**, **Failed** or **Skipped**. A skip means it couldn't look (another operating system, a
+container, no permission to read `/etc/shadow`), and says why; it is not a pass. Colour shows how severe a finding is.
+
+To resolve a finding:
+
+1. Follow its **To fix** text, then choose **Recheck** to run just that check. The page says whether it now passes.
+2. For permissions on SIEMLite's own files, **Tighten permissions** does it for you, after asking. It never follows links
+   and touches only the paths SIEMLite was started with. Nothing on the host (SSH, firewall, accounts) is ever changed.
+3. If the risk is acceptable (a cloud firewall does the job, say), choose **Accept risk** and give the reason. It stays on
+   the list as accepted, with who and why, and comes back if the finding gets worse. **Withdraw acceptance** undoes it.
+
+**Run audit** again at any time: each finding is marked new, worse or resolved since the last run, and the page keeps the
+last 30 runs. **Download report** saves the last run as Markdown (add `?format=json` to the address for JSON).
+Runs, fixes and accepted risks are recorded in the [audit log](#audit-log) as `security_audit.*` events.
+
+Run SIEMLite as an unprivileged user (it should be). Some host checks, such as empty passwords in `/etc/shadow` or rules loaded
+by hand with `iptables`, need root to read, so they are skipped or say so rather than asking SIEMLite to run as root.
+Inside the Docker image only the SIEMLite, network and access checks apply: the container can't see the host.
 
 ## Backups
 

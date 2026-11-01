@@ -45,6 +45,7 @@ import (
 	"siemlite/pkg/parser"
 	"siemlite/pkg/retention"
 	"siemlite/pkg/search"
+	"siemlite/pkg/secaudit"
 	"siemlite/pkg/secret"
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
@@ -414,6 +415,11 @@ func run() error {
 		DB: db, Repo: repo, Ingest: worker, Search: engine, Retention: cleaner,
 		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc,
 		Backups: backups, Started: started, Version: version(), Updates: updates, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, entraSvc, aiSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
+		SecAudit: secaudit.New(repo, hostname()), SecConfig: secaudit.Config{
+			DBPath: *dbPath, SecretKeyPath: secret.KeyPath(*dbPath), TLSKeyPath: *keyFile, ACMEDir: filepath.Join(filepath.Dir(*dbPath), "acme"),
+			Addr: *addr, LocalAddr: *localAddr, HTTPAddr: *httpAddr, SyslogUDP: *syslogUDP, SyslogTCP: *syslogTCP, SyslogTLS: *syslogTLS,
+			SyslogAllow: splitList(*syslogAllow),
+		},
 		Restart: func() {
 			select {
 			case restartCh <- struct{}{}:
@@ -1102,4 +1108,21 @@ func reportLateBatch(repo *storage.Repository, log *audit.Logger, b ingest.LateB
 	slog.Warn("mass ingestion of late logs", "source", name, "stored", b.Stored, "refused", b.Refused,
 		"oldest", b.Oldest.UTC().Format(time.RFC3339), "newest", b.Newest.UTC().Format(time.RFC3339))
 	log.LateBatch(context.Background(), name, b, retentionDays)
+}
+
+// hostname names this machine in security audit reports.
+func hostname() string {
+	h, _ := os.Hostname()
+	return h
+}
+
+// splitList splits a comma-separated flag, dropping blanks.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
