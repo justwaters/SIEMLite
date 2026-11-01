@@ -34,6 +34,7 @@ import (
 	"siemlite/pkg/parser"
 	"siemlite/pkg/retention"
 	"siemlite/pkg/search"
+	"siemlite/pkg/secaudit"
 	"siemlite/pkg/sources"
 	"siemlite/pkg/storage"
 	"siemlite/pkg/syslogd"
@@ -82,7 +83,11 @@ type Deps struct {
 	Version string          // e.g. "v0.7"
 	Audit   *audit.Logger   // optional: records actions as INTERNAL events
 	Alerts  *alerts.Engine  // optional: alert rules
-	Logger  *slog.Logger
+	// SecAudit runs the Security audit page's checks (optional); SecConfig is
+	// what they need to know of how SIEMLite was started.
+	SecAudit  *secaudit.Service
+	SecConfig secaudit.Config
+	Logger    *slog.Logger
 }
 
 // Server is the HTTP API.
@@ -200,6 +205,13 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/v1/system/signin", s.handleSaveSignin)
 	admin("GET /api/v1/system/update", s.handleUpdateStatus)
 	admin("POST /api/v1/system/update", s.handleApplyUpdate)
+	admin("GET /api/v1/security-audit", s.handleAuditState)
+	admin("POST /api/v1/security-audit/run", s.handleAuditRun)
+	admin("GET /api/v1/security-audit/report", s.handleAuditReport)
+	admin("POST /api/v1/security-audit/checks/{id}/recheck", s.handleAuditRecheck)
+	admin("POST /api/v1/security-audit/checks/{id}/fix", s.handleAuditFix)
+	admin("PUT /api/v1/security-audit/checks/{id}/accept", s.handleAuditAccept)
+	admin("DELETE /api/v1/security-audit/checks/{id}/accept", s.handleAuditUnaccept)
 	admin("GET /api/v1/integrations", s.handleListIntegrations)
 	admin("POST /api/v1/integrations/{id}/enabled", s.handleSetIntegrationEnabled)
 	admin("GET /api/v1/integrations/email", s.handleGetEmail)
