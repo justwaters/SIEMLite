@@ -112,10 +112,6 @@ type Result struct {
 	Accepted *Acceptance `json:"accepted,omitempty"`
 }
 
-// Open is whether the result still needs action: it is a warning or failure
-// and nobody has accepted the risk.
-func (r Result) Open() bool { return r.Status.Open() && r.Accepted == nil }
-
 // Env is what the checks look at. Tests replace the pieces.
 type Env struct {
 	Root string // the file system's root; "/" outside tests

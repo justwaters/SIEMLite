@@ -31,9 +31,6 @@ func (s *Server) auditEnv(ctx context.Context) (*secaudit.Env, error) {
 	cfg := s.deps.SecConfig
 	cfg.Version = s.deps.Version
 	cfg.TrustedProxies = s.deps.Proxies.Configured()
-	if cfg.LocalAddr == "" {
-		cfg.LocalAddr = s.deps.LocalAddr
-	}
 	users, err := s.deps.Repo.ListUsers(ctx)
 	if err != nil {
 		return nil, err
@@ -191,7 +188,7 @@ func (s *Server) handleAuditAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, audit.Entry{Action: "security_audit.accept", Severity: ocsf.SeverityMedium,
-		Message: fmt.Sprintf("%s accepted the risk of security audit check %s: %s", who, id, req.Note), Fields: map[string]string{"target": id}})
+		Message: fmt.Sprintf("%s accepted the risk of security audit check %s: %s", who, id, secaudit.CleanNote(req.Note)), Fields: map[string]string{"target": id}})
 	writeJSON(w, http.StatusOK, s.stateWith(r.Context(), nil))
 }
 

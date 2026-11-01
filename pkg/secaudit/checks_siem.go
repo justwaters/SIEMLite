@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -77,11 +78,37 @@ func (e *Env) permTargets() []permTarget {
 	add(c.TLSKeyPath, 0o600)
 	add(c.DBPath, 0o600)
 	if c.DBPath != "" {
-		add(filepath.Dir(c.DBPath), 0o700)
+		if dir := dataDir(c.DBPath); dir != "" {
+			add(dir, 0o700)
+		}
 	}
 	add(c.BackupDir, 0o700)
 	add(c.ACMEDir, 0o700)
 	return t
+}
+
+// sharedDirs are directories other things live in; SIEMLite never manages
+// their permissions, even when the database sits directly in one.
+var sharedDirs = []string{"/", "/tmp", "/var", "/var/tmp", "/var/lib", "/home", "/root", "/srv", "/opt", "/etc", "/usr", "/Users"}
+
+// dataDir returns the folder holding the database, or "" when that folder is
+// shared (a system folder, a temporary or home folder, or a sticky one), where
+// tightening it would break other programs and users.
+func dataDir(dbPath string) string {
+	dir, err := filepath.Abs(filepath.Dir(dbPath))
+	if err != nil {
+		return ""
+	}
+	if slices.Contains(sharedDirs, dir) || dir == filepath.Clean(os.TempDir()) {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil && dir == home {
+		return ""
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode()&fs.ModeSticky != 0 {
+		return ""
+	}
+	return dir
 }
 
 // permProblem describes a path that is more open than max, and whether other
@@ -131,16 +158,35 @@ func applyPerms(_ context.Context, e *Env) (string, error) {
 		if _, _, bad := permProblem(t); !bad {
 			continue
 		}
-		info, err := os.Lstat(t.path)
-		if err != nil {
+		if err := tighten(t); err != nil {
 			return "", err
-		}
-		if err := os.Chmod(t.path, info.Mode().Perm()&t.max); err != nil {
-			return "", fmt.Errorf("couldn't change %s: %w", t.path, err)
 		}
 		n++
 	}
 	return fmt.Sprintf("Tightened the permissions of %d paths.", n), nil
+}
+
+// tighten clears the permission bits above t.max. It changes the file it
+// opened, and refuses if that isn't the file it examined, so a link swapped in
+// meanwhile can't redirect the change.
+func tighten(t permTarget) error {
+	before, err := os.Lstat(t.path)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(t.path)
+	if err != nil {
+		return fmt.Errorf("couldn't open %s: %w", t.path, err)
+	}
+	defer f.Close()
+	after, err := f.Stat()
+	if err != nil || !os.SameFile(before, after) {
+		return fmt.Errorf("%s changed while it was being checked; run the audit again", t.path)
+	}
+	if err := f.Chmod(after.Mode().Perm() & t.max); err != nil {
+		return fmt.Errorf("couldn't change %s: %w", t.path, err)
+	}
+	return nil
 }
 
 func checkBackups(_ context.Context, e *Env) Outcome {

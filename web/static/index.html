@@ -272,6 +272,9 @@
   .sev-note { font-size: 12.5px; color: var(--ink-2); }
   .change { font-size: 12.5px; font-weight: 500; }
   .audit-figures { grid-template-columns: repeat(4, 1fr); margin-bottom: 0; }
+  .audit-figures button.figure { border: 0; border-radius: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  .audit-figures button.figure:hover, .audit-figures button.figure[aria-pressed="true"] { background: var(--raised); }
+  .audit-figures button.figure:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
   #audit-reason { min-height: 90px; font: inherit; }
   /* Admin lists */
   .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
@@ -1202,10 +1205,10 @@
         </div>
       </div>
       <div class="figures audit-figures" id="audit-figures" hidden>
-        <div class="figure"><div class="label">Failed</div><div class="value" id="au-fail">0</div><div class="sub" id="au-when"></div></div>
-        <div class="figure"><div class="label">Warnings</div><div class="value" id="au-warn">0</div><div class="sub" id="au-by"></div></div>
-        <div class="figure"><div class="label">Passed</div><div class="value" id="au-pass">0</div></div>
-        <div class="figure"><div class="label">Accepted or skipped</div><div class="value" id="au-other">0</div></div>
+        <button type="button" class="figure" data-audit-filter="fail" aria-pressed="false"><div class="label">Failed</div><div class="value" id="au-fail">0</div><div class="sub" id="au-when"></div></button>
+        <button type="button" class="figure" data-audit-filter="warn" aria-pressed="false"><div class="label">Warnings</div><div class="value" id="au-warn">0</div><div class="sub" id="au-by"></div></button>
+        <button type="button" class="figure" data-audit-filter="pass" aria-pressed="false"><div class="label">Passed</div><div class="value" id="au-pass">0</div></button>
+        <button type="button" class="figure" data-audit-filter="other" aria-pressed="false"><div class="label">Accepted or skipped</div><div class="value" id="au-other">0</div></button>
       </div>
       <p class="notice" id="audit-msg" role="status" hidden></p>
       <div class="audit-bar" id="audit-bar" hidden>
@@ -3341,17 +3344,29 @@ function renderAudit() {
   const cats = [...new Set(last.results.map((r) => r.category))];
   let shown = 0;
   for (const cat of cats) {
-    const rows = last.results.filter((r) => r.category === cat && (auditFilter === "all" || r.status !== "pass" && r.status !== "skip" && !r.accepted));
+    const rows = last.results.filter((r) => r.category === cat && auditMatches(r));
     if (!rows.length) continue;
     shown += rows.length;
     list.append(el("section", { className: "panel audit-cat", "aria-label": cat }, el("h2", { textContent: cat }), ...rows.map(auditRow)));
   }
-  if (!shown) list.append(el("p", { className: "empty-note", textContent: c.fail + c.warn ? "" : "Nothing needs action. Every check passed, was skipped or has an accepted risk." }));
+  if (!shown) list.append(el("p", { className: "empty-note", textContent: auditFilter === "open" ? "Nothing needs action. Every check passed, was skipped or has an accepted risk." : "No checks in this group." }));
   const h = $("audit-history");
   h.replaceChildren(...audit.history.slice().reverse().map((x) => el("tr", {},
     el("td", { textContent: new Date(x.at).toLocaleString() }), el("td", { textContent: x.by || "" }),
     el("td", { textContent: nf.format(x.counts.fail) }), el("td", { textContent: nf.format(x.counts.warn) }),
     el("td", { textContent: nf.format(x.counts.pass) }), el("td", { textContent: nf.format(x.counts.accepted) }))));
+}
+// Whether a result belongs under the chosen filter: a state from the figures
+// above, "open" (failed or warning, not accepted) or "all".
+function auditMatches(r) {
+  const accepted = !!r.accepted && (r.status === "warn" || r.status === "fail");
+  switch (auditFilter) {
+    case "all": return true;
+    case "fail": case "warn": return r.status === auditFilter && !accepted;
+    case "pass": return r.status === "pass";
+    case "other": return r.status === "skip" || accepted;
+    default: return (r.status === "warn" || r.status === "fail") && !accepted;
+  }
 }
 function auditRow(r) {
   const open = r.status === "warn" || r.status === "fail";
@@ -3422,7 +3437,11 @@ async function auditUnaccept(r) {
   const st = await auditCall(null, `/api/v1/security-audit/checks/${encodeURIComponent(r.id)}/accept`, { method: "DELETE" });
   if (st) { audit = st; renderAudit(); }
 }
-for (const b of document.querySelectorAll("[data-audit-filter]")) b.onclick = () => { auditFilter = b.dataset.auditFilter; if (audit) renderAudit(); };
+// Choosing the state already chosen goes back to what needs action.
+for (const b of document.querySelectorAll("[data-audit-filter]")) b.onclick = () => {
+  auditFilter = b.classList.contains("figure") && b.dataset.auditFilter === auditFilter ? "open" : b.dataset.auditFilter;
+  if (audit) renderAudit();
+};
 
 // --- Integrations ---
 const INTEGRATION_STATE = { on: "On", off: "Off", needs_setup: "Not set up", error: "Problem" };
