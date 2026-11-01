@@ -50,6 +50,50 @@ warn about the self-signed certificate unless you trust `siemlite.crt` or supply
 Nothing to look at yet? Run the log generator next to it, which SIEMLite sets up on first start: `loggen -eps 10`
 sends ten realistic test events a second, attacks included. See [Test logs](#test-logs).
 
+### Install as a service (Linux)
+
+On Ubuntu or any other systemd Linux server, SIEMLite installs itself. Download the release for your machine (or build
+it), then run it with the `install` subcommand as root:
+
+```sh
+sudo ./siemlite install --dry-run   # print what it would do, change nothing
+sudo ./siemlite install             # install, or update an existing install
+```
+
+It is a subcommand, not something the program does by itself, so running `./siemlite` to try it never touches the system.
+The installer:
+
+1. Copies the program to `/usr/local/bin/siemlite` (root-owned, replaced atomically).
+2. Creates the `siemlite` system user (no login, no home) and `/var/lib/siemlite` (mode 0700, owned by that user) for the
+   database, certificate and backups.
+3. Writes `/etc/siemlite/siemlite.env` from the defaults: HTTPS on `0.0.0.0:8443` and syslog on UDP and TCP 514
+   (`--no-syslog` leaves syslog off). Settings are `SIEMLITE_<FLAG>=value` lines, as in [Options](#options).
+4. Writes the hardened `siemlite.service` (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
+   `Restart=on-failure`; the one capability, binding ports below 1024, is granted only while the settings listen on one).
+5. Creates the `admin` account and prints its password **once, on your terminal** (it does not go to the journal), then
+   runs `systemctl daemon-reload`, `enable` and `start`.
+
+The service runs as an unprivileged user, so the [Security audit](#security-audit) checks for that and for file
+permissions pass.
+
+**Updating:** download the new release and run `sudo ./siemlite install` again. It replaces the program atomically,
+restarts the service and says what changed (`program: v0.27 -> v0.28`). It keeps the data, never overwrites
+`siemlite.env`, and rewrites the unit only if you haven't edited it; if you have, yours is kept and the new one is saved
+as `siemlite.service.new` to compare. Put changes to the unit in a drop-in (`systemctl edit siemlite`) so updates can
+refresh the rest. It refuses to go back to an older version unless you add `--allow-downgrade`.
+
+**Removing:** `sudo siemlite install --uninstall` removes the service and program and keeps the data, settings and user;
+add `--purge` to delete those too. `--dry-run` works with both.
+
+It refuses, changing nothing and exiting non-zero, when it isn't run as root, the OS isn't Linux, systemd isn't running,
+or it is inside a container (use [Docker](#run-with-docker) there).
+
+**How this relates to the other ways to update.** Docker has its own path (`./update.sh`) and the installer won't run in a
+container, so they never meet. The **System** page's [Update and restart](#updates) button cannot replace the program
+of a service installed this way, on purpose: the program is root-owned and the service can't write to it, so a flaw in
+SIEMLite can't swap the program that an admin later runs with `sudo`. The card says it can't write to
+`/usr/local/bin`; update with `sudo ./siemlite install` instead. The System page still tells you when a release is out.
+
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
@@ -656,7 +700,7 @@ binary, or going back to an older one), so people sign in again on the new versi
 sessions. The audit log records it ("SIEMLite changed from v0.25 to v0.26: everyone was signed out"), and the person who
 used **Update and restart** is told why when the sign-in page comes back.
 
-- **A plain program** is replaced in place. The button appears when SIEMLite can write to its own folder.
+- **A plain program** is replaced in place. The button appears when SIEMLite can write to its own folder. A [systemd service installed with `siemlite install`](#install-as-a-service-linux) can't, by design: update it with `sudo ./siemlite install`.
 - **Docker** can't replace the program inside the image, so the update is saved in the data volume
   (`/data/bin`) and the image's program hands over to it each time it starts. It survives restarts and
   `docker compose up -d`. When you later rebuild or pull an image that is as new, the saved copy is removed
@@ -880,7 +924,7 @@ by spaces.
 | `-backup-dir` | `<db dir>/backups` | Folder for database backups |
 | `-update-check` | `true` | Check GitHub for new releases and offer updates on the System page |
 
-`siemlite version` prints the version.
+`siemlite version` prints the version. `siemlite install` installs it as a service (see [Install as a service](#install-as-a-service-linux)).
 
 ## How it works
 

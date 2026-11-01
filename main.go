@@ -83,6 +83,8 @@ func main() {
 		err = runSignin(os.Args[2:])
 	} else if len(os.Args) > 1 && os.Args[1] == "backups" {
 		err = runBackups(os.Args[2:])
+	} else if len(os.Args) > 1 && os.Args[1] == "install" {
+		err = runInstall(os.Args[2:])
 	} else {
 		err = run()
 		if errors.Is(err, errRestart) {
