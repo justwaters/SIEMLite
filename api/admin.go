@@ -579,6 +579,11 @@ func (s *Server) handleParserTemplates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, parser.Templates)
 }
 
+// handleParserSeverityDefaults gives the rules a new parser rates events by, for the editor's Reset button.
+func (s *Server) handleParserSeverityDefaults(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, parser.DefaultSeverityRules())
+}
+
 func (s *Server) handleGetParser(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {

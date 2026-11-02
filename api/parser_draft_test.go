@@ -102,7 +102,8 @@ func TestSIEMLiteDraftsAParser(t *testing.T) {
 		t.Fatalf("events for the failed login = %d, want one per body", res.Count)
 	}
 	ev := res.Events[0]
-	if ev.UserName != "jmartinez" || ev.SrcIP != "203.0.113.7" || ev.SeverityID != 3 || !strings.Contains(string(ev.Fields), `"action":"login_failed"`) {
+	// login_failed rates Low: "fail" is Low in the default keyword ratings.
+	if ev.UserName != "jmartinez" || ev.SrcIP != "203.0.113.7" || ev.SeverityID != 2 || !strings.Contains(string(ev.Fields), `"action":"login_failed"`) {
 		t.Errorf("event = user %q src %q sev %d fields %s", ev.UserName, ev.SrcIP, ev.SeverityID, ev.Fields)
 	}
 	// Plain text still goes line by line.

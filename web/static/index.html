@@ -839,7 +839,8 @@
             <select class="select" id="pe-sev-field"></select>
             <span>When the value matches (regex), use</span>
             <div class="rules" id="pe-rules"></div>
-            <div><button type="button" class="btn btn-small" id="pe-add-rule">Add rule</button></div>
+            <div><button type="button" class="btn btn-small" id="pe-add-rule">Add rule</button>
+              <button type="button" class="btn btn-small" id="pe-reset-rules" title="Replace the rules with the default keyword ratings">Reset</button></div>
           </div>
           <div>
             <h2 style="margin-bottom:8px">Fields</h2>
@@ -2826,7 +2827,8 @@ $("parser-upload").onchange = async (e) => {
 // --- Parser editor ---
 let editId = null, templates = [], previewTimer = null, previewSeq = 0, knownFields = [];
 const pe = (id) => $("pe-" + id);
-function sevOptions(sel) { return [1, 2, 3, 4, 5, 6, 0].map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === sel })); }
+// Fatal is not offered for a parser; a parser that already uses it keeps it.
+function sevOptions(sel) { return [1, 2, 3, 4, 5, 6, 0].filter((n) => n !== 6 || sel === 6).map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === sel })); }
 async function openParserEditor(arg) {
   pe("error").hidden = true;
   editId = arg && arg !== "new" ? Number(arg) : null;
@@ -2874,6 +2876,15 @@ function ruleRow(match = "", sev = 2) {
   row.addEventListener("change", () => schedulePreview());
   return row;
 }
+let defaultRules = null;
+// Replaces the rules with the defaults: keywords such as "breach" or "disable" and how severe each is.
+async function resetRules() {
+  try { defaultRules = defaultRules || await apiJSON("/api/v1/parsers/severity-defaults"); }
+  catch (err) { pe("error").textContent = err.message; pe("error").hidden = false; return; }
+  pe("rules").replaceChildren(...defaultRules.map((r) => ruleRow(r.match, r.severity)));
+  schedulePreview(0);
+}
+pe("reset-rules").onclick = resetRules;
 pe("add-rule").onclick = () => { pe("rules").append(ruleRow()); pe("rules").lastChild.querySelector("input").focus(); };
 function syncEditor() {
   const fmt = pe("format").value;
@@ -2902,6 +2913,8 @@ function readDefinition() {
 }
 for (const id of ["name", "desc", "pattern", "samples"]) pe(id).addEventListener("input", () => schedulePreview());
 for (const id of ["format", "strip", "category", "sev-from", "fixed", "sev-field"]) pe(id).addEventListener("change", () => { syncEditor(); schedulePreview(0); });
+// Choosing "from a field" on a parser with no rules yet starts it with the defaults.
+pe("sev-from").addEventListener("change", () => { if (pe("sev-from").value === "field" && !pe("rules").children.length) resetRules(); });
 pe("sev-field").addEventListener("change", () => (sevFieldWanted = pe("sev-field").value));
 pe("template").onchange = () => {
   const t = templates[Number(pe("template").value)];
