@@ -451,7 +451,17 @@ def main(binary, loggen):
             # with a real mouse (the Database table sizes its columns with <col>s).
             first = page.locator("table.events thead th").first
             w0 = first.bounding_box()["width"]
-            grip = first.locator(".col-grip").bounding_box()
+            # Measure the grip once the layout has settled: a drag aimed at a
+            # position that is still moving grabs nothing ("156px to 156px").
+            grip_loc = first.locator(".col-grip")
+            grip, prev = None, None
+            for _ in range(40):
+                grip = grip_loc.bounding_box()
+                if grip == prev:
+                    break
+                prev = grip
+                page.wait_for_timeout(100)
+            w0 = first.bounding_box()["width"]
             x, y = grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2
             page.mouse.move(x, y)
             page.mouse.down()
