@@ -123,7 +123,10 @@ func TestStressEverythingAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	loop("syslog", func(i int) {
-		if _, err := fmt.Fprintf(conn, "<38>Oct  3 10:00:00 fw kernel: stress syslog %d DROP src=198.51.100.%d\n", i, i%200); err != nil {
+		// Stamped now: a fixed RFC 3164 date (it has no year) falls behind the
+		// 30-day retention cutoff below once that date is a month old, and the
+		// retention loop would then delete these events.
+		if _, err := fmt.Fprintf(conn, "<38>%s fw kernel: stress syslog %d DROP src=198.51.100.%d\n", time.Now().Format(time.Stamp), i, i%200); err != nil {
 			fail("syslog: %v", err)
 			return
 		}
