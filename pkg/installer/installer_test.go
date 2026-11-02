@@ -512,3 +512,14 @@ func TestUnreadableCgroupIsNotAContainer(t *testing.T) {
 		t.Error("a docker cgroup should read as a container")
 	}
 }
+
+func TestLocalUserIsOnlyWhatPasswdHolds(t *testing.T) {
+	h := newHost(t, "v0.28")
+	if h.env.localUser(User) {
+		t.Fatal("siemlite isn't in /etc/passwd yet")
+	}
+	h.append("/etc/passwd", User+":x:999:999::"+DataDir+":/usr/sbin/nologin\n")
+	if !h.env.localUser(User) || h.env.localUser("siemli") {
+		t.Error("localUser must match the whole name")
+	}
+}
