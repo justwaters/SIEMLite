@@ -25,8 +25,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -132,7 +134,10 @@ func (e *Env) inContainer() bool {
 	if e.exists("/.dockerenv") || e.exists("/run/.containerenv") {
 		return true
 	}
-	cg, _ := e.read("/proc/1/cgroup")
+	cg, ok := e.read("/proc/1/cgroup")
+	if !ok {
+		return false // not readable (no /proc): nothing to tell, so not a container
+	}
 	for _, w := range []string{"docker", "kubepods", "containerd", "libpod"} {
 		if strings.Contains(cg, w) {
 			return true
@@ -353,7 +358,11 @@ func (e *Env) planInstall(ctx context.Context, o Options) (*result, error) {
 			// The password goes in on stdin, never in argv; the account is made
 			// as the service's own user so the database is owned by it.
 			if _, err := e.ExecAs(ctx, User, DataDir, pw+"\n", BinPath, "users", "create", "-db", dbPath, "-username", adminName, "-role", "admin"); err != nil {
-				note("admin: couldn't create the first account (%v); SIEMLite creates one itself when it starts and prints its password in the log: journalctl -u %s", err, UnitName)
+				// Not fatal: SIEMLite makes its own first admin when it starts with no
+				// users, but the person must know to look for it, so say it now too.
+				msg := fmt.Sprintf("WARNING: couldn't create the first admin account (%v). SIEMLite creates one itself when it starts and prints its password in the log: journalctl -u %s", err, UnitName)
+				e.printf("  %s\n", msg)
+				note("%s", msg)
 				return nil
 			}
 			r.password = pw
@@ -446,6 +455,9 @@ func (e *Env) planUninstall(o Options) (*result, error) {
 		add("delete the data folder "+DataDir, func(context.Context) error { return os.RemoveAll(e.p(DataDir)) })
 		add("delete the settings "+ConfDir, func(context.Context) error { return os.RemoveAll(e.p(ConfDir)) })
 		if e.userExists(User) {
+			if !e.Have("userdel") {
+				return nil, Refusal{"userdel isn't on the PATH, so the " + User + " user can't be deleted (leave out --purge to keep it)"}
+			}
 			add("delete the user "+User, func(ctx context.Context) error { _, err := e.Exec(ctx, "userdel", User); return err })
 		}
 		note("removed SIEMLite, its data, its settings and the %s user", User)
@@ -457,8 +469,13 @@ func (e *Env) planUninstall(o Options) (*result, error) {
 
 // ---- the user ----
 
-// userExists reads /etc/passwd under Root.
+// userExists asks the system (so users from LDAP or SSSD count) when running
+// on the real root, and reads /etc/passwd under Root otherwise.
 func (e *Env) userExists(name string) bool {
+	if e.Root == "/" {
+		_, err := user.Lookup(name)
+		return err == nil
+	}
 	text, ok := e.read("/etc/passwd")
 	if !ok {
 		return false
@@ -522,11 +539,12 @@ func needsLowPorts(envText string) bool {
 			continue
 		}
 		v = strings.Trim(strings.TrimSpace(v), `"'`)
-		i := strings.LastIndex(v, ":")
-		if i < 0 {
+		// host:port, :port or [v6]:port; a bare IPv6 address has no port to read.
+		_, ps, err := net.SplitHostPort(v)
+		if err != nil {
 			continue
 		}
-		if port, err := strconv.Atoi(v[i+1:]); err == nil && port > 0 && port < 1024 {
+		if port, err := strconv.Atoi(ps); err == nil && port > 0 && port < 1024 {
 			return true
 		}
 	}
@@ -697,7 +715,8 @@ func fileSum(name string) ([]byte, error) {
 
 // ---- running programs ----
 
-const execTimeout = 60 * time.Second
+// execTimeout bounds one command, including a systemctl start on a slow host.
+const execTimeout = 3 * time.Minute
 
 // run is the real Exec: a shell-free command with a minimal environment.
 func run(ctx context.Context, name string, args ...string) (string, error) {
