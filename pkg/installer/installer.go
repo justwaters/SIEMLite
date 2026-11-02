@@ -233,6 +233,9 @@ func (e *Env) planInstall(ctx context.Context, o Options) (*result, error) {
 		return nil, Refusal{"can't tell where this program is, so can't copy it"}
 	}
 	binSame := sameFile(e.p(BinPath), e.Self) || (binHere && sameContent(e.p(BinPath), e.Self))
+	if e.userExists(User) && !e.localUser(User) {
+		return nil, Refusal{"an account named " + User + " exists but not in /etc/passwd (it comes from a directory such as LDAP or SSSD); the installer won't run the service as an account it can't vouch for. Remove or rename it, or install by hand"}
+	}
 	if !e.userExists(User) && !e.Have("useradd") {
 		return nil, Refusal{"useradd isn't on the PATH, so the " + User + " user can't be created"}
 	}
@@ -454,7 +457,7 @@ func (e *Env) planUninstall(o Options) (*result, error) {
 	if o.Purge {
 		add("delete the data folder "+DataDir, func(context.Context) error { return os.RemoveAll(e.p(DataDir)) })
 		add("delete the settings "+ConfDir, func(context.Context) error { return os.RemoveAll(e.p(ConfDir)) })
-		if e.userExists(User) {
+		if e.localUser(User) {
 			if !e.Have("userdel") {
 				return nil, Refusal{"userdel isn't on the PATH, so the " + User + " user can't be deleted (leave out --purge to keep it)"}
 			}
@@ -469,13 +472,21 @@ func (e *Env) planUninstall(o Options) (*result, error) {
 
 // ---- the user ----
 
-// userExists asks the system (so users from LDAP or SSSD count) when running
-// on the real root, and reads /etc/passwd under Root otherwise.
+// userExists reports whether the account exists anywhere the system looks
+// (so a directory user such as LDAP or SSSD counts), on the real root, and
+// reads /etc/passwd under Root otherwise.
 func (e *Env) userExists(name string) bool {
 	if e.Root == "/" {
 		_, err := user.Lookup(name)
 		return err == nil
 	}
+	return e.localUser(name)
+}
+
+// localUser reports whether name is in this machine's own /etc/passwd. The
+// installer only runs the service as an account it can vouch for: one from a
+// directory could have any uid, groups or shell.
+func (e *Env) localUser(name string) bool {
 	text, ok := e.read("/etc/passwd")
 	if !ok {
 		return false
