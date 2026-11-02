@@ -5,6 +5,8 @@
 #   NVIDIA. Set the repository variable AI_REVIEW_ENABLED=false to turn Eve off.
 # - It never checks out the pull request's code (it reads the diff through the API), because it runs with
 #   pull_request_target and holds secrets. Keep it that way.
+# - Every blocker and warning is checked against the code (and the project's own notes, .github/eve-context.md on the default branch) before
+#   it is shown: a claim that cannot be proved is kept out of the findings, and a confirmed one is rated by who could trigger it.
 # - Two checks: "Eve / review" passes whenever a review was left; "Eve - Go/No-Go Decision" fails on blockers (a bug that
 #   breaks at runtime, data loss or a critical security issue) and is neutral when no review completed.
 # - A formal review is submitted too (that is what lists Eve under Reviewers): "Request changes" while there are blockers.
@@ -186,6 +188,19 @@ jobs:
           done < files.tsv
           echo "Fetched the code of $(wc -l < context/index.tsv) changed file(s)."
 
+      # Facts about the project that its code does not show (what a flag means, who runs what, what is by design). They are read from
+      # the BASE branch, never from the pull request, so a pull request cannot write its own instructions for the reviewers.
+      - name: Read the project's review notes
+        if: steps.plan.outputs.action == 'review' && steps.get_diff.outputs.empty == 'false'
+        working-directory: ${{ runner.temp }}/ai-review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.repository.default_branch }}
+        run: |
+          gh api "repos/${{ github.repository }}/contents/.github/eve-context.md?ref=$BASE_REF" -H "Accept: application/vnd.github.raw+json" 2>/dev/null \
+            | head -c 12000 > eve-context.md || : > eve-context.md
+          echo "Project review notes: $(wc -c < eve-context.md) bytes."
+
       - name: Run Multi-Model Review Pipeline
         if: steps.plan.outputs.action == 'review' && steps.get_diff.outputs.empty == 'false'
         working-directory: ${{ runner.temp }}/ai-review
@@ -227,6 +242,7 @@ jobs:
           if len(diff_text) > MAX_CHARS:
               diff_text = diff_text[:MAX_CHARS] + "\n\n... [Diff truncated due to size limits] ..."
 
+          # eve:nim-begin
           TRANSIENT_HTTP = (408, 429, 500, 502, 503, 504)
           # Extra request settings per model, measured against the live endpoint with a review-sized prompt. Left to think freely, these
           # models spend their whole token budget on reasoning on a large pull request and send back NOTHING (an "empty reply"):
@@ -319,6 +335,7 @@ jobs:
                   time.sleep(pause)
               return False, reason
 
+          # eve:nim-end
           # ---- The code around the change ---------------------------------------------------------------------------------------
           # A diff alone makes a reviewer say "missing" about things that exist elsewhere in the file (a guard, a lock, an index, a
           # DROP statement). The workflow fetched the current version of each changed file through the API (it never checks the pull
@@ -351,10 +368,12 @@ jobs:
               return out
 
 
+          # eve:numbered-begin
           def numbered(text, first=1, last=None):
               lines = text.splitlines()
               last = len(lines) if last is None else min(last, len(lines))
               return "\n".join(f"{i}: {lines[i - 1]}" for i in range(first, last + 1))
+          # eve:numbered-end
 
 
           def code_windows(text, ranges, margin=60, budget=9000):
@@ -386,6 +405,14 @@ jobs:
                   if w:
                       context_parts.append(f"### {path} (current version, line numbers on the left)\n```\n{w}\n```")
                       context_used += len(w)
+          try:
+              with open("eve-context.md", "r", encoding="utf-8", errors="ignore") as f:
+                  PROJECT_NOTES = f.read().strip()[:12000]
+          except OSError:
+              PROJECT_NOTES = ""
+          notes_block = ("Facts about this project that its code does not show. They come from its maintainers: treat them as true, and do not report "
+                         "as a defect anything they say is intended.\n" + PROJECT_NOTES + "\n") if PROJECT_NOTES else ""
+
           context_text = "\n\n".join(context_parts) or "(the surrounding code was not available: say 'cannot tell' about anything outside the diff)"
 
           # Inspection prompt combining the Diff + PR Intent + the code around it
@@ -412,6 +439,7 @@ jobs:
           - Do not report a problem the code already prevents (for example a value passed as a bound query parameter is not an injection).
           - A Blocker is only a defect the code itself demonstrably has: it crashes, loses or exposes data, or is a security hole. Everything else is a Warning.
 
+          {notes_block}
           Git Diff:
           ```diff
           {diff_text}
@@ -508,6 +536,7 @@ jobs:
           )
 
 
+          # eve:parse-begin
           def unescape(text):
               """Some models double-escape: a literal backslash-n inside a JSON string. Show it as a line break."""
               return text.replace("\\n", "\n") if "\\n" in text and "\n" not in text else text
@@ -518,6 +547,7 @@ jobs:
                   return json.loads(text[text.index("{"): text.rindex("}") + 1])
               except (ValueError, AttributeError):
                   return None
+          # eve:parse-end
 
 
           data = parse_json_object(consolidated_raw) if ok else None
@@ -537,6 +567,10 @@ jobs:
                       })
 
           # ---- Verification: every Blocker and Warning is checked against the WHOLE file, with proof ---------------------------
+          # eve:checks-begin
+          RANK = {"info": 0, "warning": 1, "blocker": 2}
+
+
           def norm(text):
               text = re.sub(r"(?m)^\s*\d+:\s?", "", text)          # drop the line numbers the prompts add
               return re.sub(r"\s+", " ", text).strip()
@@ -560,11 +594,12 @@ jobs:
 
 
           def verify(f, deadline, model):
-              """-> (verdict, quote, reason): 'confirmed' / 'refuted' / 'unclear'. A verdict only counts when its quote really is
-              in the code (checked here, not trusted)."""
+              """-> (verdict, quote, reason, severity, attacker). verdict is 'confirmed' / 'refuted' / 'unclear'; a verdict only counts when its
+              quote really is in the code (checked here, not trusted). For a confirmed defect, severity is what it deserves once who can trigger
+              it, and what they already hold, are taken into account."""
               path = find_file(f["file"])
               if not path:
-                  return "unclear", "", "the file's code was not available to check this against"
+                  return "unclear", "", "the file's code was not available to check this against", "", ""
               text = FILES[path]
               if len(text) <= 70000:
                   shown = numbered(text)
@@ -578,7 +613,7 @@ jobs:
           Impact claimed: {f['impact']}
           Evidence the reviewer quoted: {f['evidence']}
 
-          The complete current file {path} (line numbers on the left):
+          {notes_block}The complete current file {path} (line numbers on the left):
           ```
           {shown}
           ```
@@ -588,28 +623,86 @@ jobs:
           {file_diff(path)[:20000]}
           ```
 
-          Decide whether the claim is TRUE of this code. Do not trust the claim or its wording: TRACE one concrete input or situation through the actual code, line by line, and see what really happens. A test that passes, or a function whose input comes from code that already normalises it, is evidence AGAINST a claim that it fails. If the trace shows the code works, the claim is refuted.
+          Decide whether the claim is TRUE of this code. Do not trust the claim or its wording: TRACE one concrete input or situation through the actual code, line by line, and see what really happens. A test that passes, or a function whose input comes from code that already normalises it, is evidence AGAINST a claim that it fails. If the trace shows the code works, the claim is refuted. If the claim depends on code in ANOTHER file (what a flag or a field means, who calls this), and you cannot see it, answer unclear: never guess.
+
+          Then judge how serious a CONFIRMED defect really is. Ask: who can trigger it, and what can they ALREADY do? A defect only someone who is already root (or already holds the access the code uses) can reach is not a privilege or security problem. One that needs input no real caller sends, or a failure elsewhere first, is hypothetical. One whose real effect is a wrong result or a failed command is a warning.
           Reply with ONLY a JSON object, no code fences:
-          {{"verdict": "confirmed" or "refuted" or "unclear", "quote": "one or two lines copied EXACTLY from the code above that prove your verdict (for refuted: the line that already handles it)", "trace": "two or three sentences: the concrete case you traced and what the code does with it", "reason": "one sentence"}}
-          confirmed = the defect is really there for a concrete case you traced. refuted = the code already prevents it, or the claim is about something that is not in the code. unclear = you cannot tell."""
+          {{"verdict": "confirmed" or "refuted" or "unclear", "quote": "one or two lines copied EXACTLY from the code above that prove your verdict (for refuted: the line that already handles it)", "trace": "two or three sentences: the concrete case you traced and what the code does with it", "reason": "one sentence", "attacker": "one sentence: who triggers it and what they already hold", "severity": "blocker" or "warning" or "info"}}
+          confirmed = the defect is really there for a concrete case you traced. refuted = the code already prevents it, or the claim is about something that is not in the code. unclear = you cannot tell.
+          severity (for a confirmed defect): blocker = in ordinary use, or by someone with LESS access than the code has, it crashes, loses or exposes data, or hands out access they did not have; warning = a real flaw whose effect is limited, hypothetical or self-inflicted; info = hardening or style."""
               ok, raw = query_nim(model, [
                   {"role": "system", "content": "You verify code review claims strictly against the code. You output only the requested JSON."},
                   {"role": "user", "content": prompt}], 0.1, 240, 1, 3000, deadline)
               d = parse_json_object(raw) if ok else None
               if not isinstance(d, dict):
-                  return "unclear", "", "the verification step gave no usable answer"
+                  return "unclear", "", "the verification step gave no usable answer", "", ""
               verdict = str(d.get("verdict", "")).lower()
               quote = str(d.get("quote") or "")
               reason = (str(d.get("trace") or "").strip() + " " + str(d.get("reason") or "").strip()).strip()[:500]
+              severity = str(d.get("severity") or "").lower()
+              severity = severity if severity in RANK else ""
+              attacker = str(d.get("attacker") or "").strip()[:300]
               # A quote may be several lines (the line that proves it and the one it acts on need not be adjacent), so EVERY quoted line
               # must be in the file or its diff; one invented line and the whole verdict is not trusted.
               pieces = [norm(l) for l in quote.splitlines() if len(norm(l)) >= 6]
               if verdict not in ("confirmed", "refuted") or not pieces:
-                  return "unclear", quote, reason or "no quoted proof"
+                  return "unclear", quote, reason or "no quoted proof", "", ""
               haystack = norm(text) + " " + norm(file_diff(path))
               if any(p not in haystack for p in pieces):
-                  return "unclear", quote, "its quoted proof does not appear in the code, so the verdict is not trusted"
-              return verdict, quote, reason
+                  return "unclear", quote, "its quoted proof does not appear in the code, so the verdict is not trusted", "", ""
+              return verdict, quote, reason, severity, attacker
+
+
+          def combine(f, rs):
+              """Fold one finding's checks (one per verifier model) into f: its verdict and proof; for a confirmed defect, the severity it
+              deserves: the LOWEST any verifier gave, and never above what the reviewers said."""
+              verdicts = {r[0] for r in rs}
+              if len(verdicts) == 1 and verdicts != {"unclear"}:
+                  f["verdict"], f["quote"], f["why"] = rs[0][0], rs[0][1], rs[0][2]
+                  if f["verdict"] == "confirmed":
+                      given = [r for r in rs if r[3] in RANK]
+                      if given:
+                          low = min(given, key=lambda r: RANK[r[3]])
+                          if RANK[low[3]] < RANK[f["priority"]]:
+                              f["note"] = (f"the reviewers rated it {f['priority']}; weighing who can trigger it and what they already hold, it is a {low[3]}"
+                                           + (f" ({low[4].rstrip('.')})" if low[4] else ""))
+                              f["priority"] = low[3]
+              else:       # the checks disagreed or could not tell: nothing is proved either way
+                  f["verdict"], f["quote"] = "unclear", rs[0][1]
+                  f["why"] = "the independent checks did not agree" if len(rs) > 1 and "unclear" not in verdicts else rs[0][2]
+
+
+          def triage(findings):
+              """-> (shown, unconfirmed, dismissed). A refuted claim is dismissed. A blocker or warning the checks could not prove is NOT shown
+              as a finding: it goes in a collapsed list of suspicions. What is shown is confirmed, or an info that needed no check."""
+              shown, unconfirmed, dismissed = [], [], []
+              for f in findings:
+                  if f["verdict"] == "refuted":
+                      dismissed.append(f)
+                  elif f["priority"] in ("blocker", "warning") and f["verdict"] != "confirmed":
+                      unconfirmed.append(f)
+                  else:
+                      shown.append(f)
+              return shown, unconfirmed, dismissed
+
+
+          def flat(text):
+              return re.sub(r"\s+", " ", str(text)).strip()
+
+
+          def render_unconfirmed(unconfirmed):
+              if not unconfirmed:
+                  return ""
+              out = [f"\n<details><summary>Suspicions the checks could not confirm ({len(unconfirmed)}): not counted, never blockers</summary>\n",
+                     "The reviewers raised these, but checking the code could not prove them (the proof was missing, or the checks could not tell or did not agree). "
+                     "Worth a glance; each kind of claim like this has been wrong before.\n"]
+              for f in unconfirmed:
+                  loc = f"{f['file']}:{f['line']}" if f["file"] and f["line"] else f["file"]
+                  why = flat(f.get("why", "")).rstrip(".")[:240]
+                  out.append(f"- **{flat(f['title'])}** (`{loc or 'file not stated'}`): {flat(f['impact'])[:240]}" + (f" _Not confirmed: {why}._" if why else ""))
+              out.append("\n</details>\n")
+              return "\n".join(out)
+          # eve:checks-end
 
 
           checked = [f for f in findings if f["priority"] in ("blocker", "warning")]
@@ -626,28 +719,17 @@ jobs:
                       try:
                           results.setdefault(id(f), []).append(fut.result())
                       except Exception as e:                      # a failed check never stops the review
-                          results.setdefault(id(f), []).append(("unclear", "", f"the check failed ({type(e).__name__})"))
+                          results.setdefault(id(f), []).append(("unclear", "", f"the check failed ({type(e).__name__})", "", ""))
               for f in checked:
-                  rs = results[id(f)]
-                  verdicts = {r[0] for r in rs}
-                  if len(verdicts) == 1 and verdicts != {"unclear"}:
-                      f["verdict"], f["quote"], f["why"] = rs[0]
-                  else:       # the checks disagreed or could not tell: nothing is proved either way
-                      f["verdict"], f["quote"] = "unclear", rs[0][1]
-                      f["why"] = "the independent checks did not agree" if len(rs) > 1 and "unclear" not in verdicts else rs[0][2]
+                  combine(f, results[id(f)])
           for f in findings:
               f.setdefault("verdict", "n/a")
 
-          # What each finding becomes: only a CONFIRMED blocker is a blocker. A refuted claim is dismissed; one that could not be
-          # proved either way is shown, but as an unverified warning, never as a blocker.
-          shown_findings, dismissed = [], []
-          for f in findings:
-              if f["verdict"] == "refuted":
-                  dismissed.append(f)
-                  continue
-              if f["priority"] == "blocker" and f["verdict"] != "confirmed":
-                  f["priority"], f["note"] = "warning", "claimed as a blocker, but not confirmed"
-              shown_findings.append(f)
+          # What each finding becomes: only a CONFIRMED blocker is a blocker. A refuted claim is dismissed; a blocker or warning that could
+          # not be proved either way is kept out of the findings, in a collapsed list of suspicions; a confirmed one may be lowered to
+          # the severity it deserves once who can trigger it, and what they already hold, are weighed.
+          shown_findings, unconfirmed, dismissed = triage(findings)
+          lowered = [f for f in shown_findings if f.get("note")]
           blockers = sum(1 for f in shown_findings if f["priority"] == "blocker")
 
 
@@ -675,9 +757,22 @@ jobs:
 
           if isinstance(data, dict):
               consolidated = True
-              verdict_text = str(data.get("verdict") or "").strip()[:600] or "No overall verdict was given."
-              if blockers:
-                  verdict_text += f"\n\n**{blockers} verified blocker(s): resolve before merging.**"
+              # The reviewers' own summary was written BEFORE the checks, so it can still call something critical that the checks refuted.
+              # The verdict is built from what the checks found; the reviewers' words are kept only when the checks changed nothing.
+              reviewers_said = str(data.get("verdict") or "").strip()[:600]
+              confirmed = sum(1 for f in shown_findings if f["verdict"] == "confirmed")
+              counts = [f"{confirmed} finding(s) confirmed against the code"] if confirmed else []
+              if unconfirmed:
+                  counts.append(f"{len(unconfirmed)} suspicion(s) the checks could not confirm")
+              if dismissed:
+                  counts.append(f"{len(dismissed)} claim(s) dismissed after checking")
+              if lowered:
+                  counts.append(f"{len(lowered)} lowered in severity")
+              verdict_text = (f"**{blockers} verified blocker(s): resolve before merging.**" if blockers else "**No verified blockers.**")
+              if counts:
+                  verdict_text += " " + "; ".join(counts) + "."
+              if reviewers_said and not (unconfirmed or dismissed or lowered):
+                  verdict_text += "\n\n" + reviewers_said
               rows = ["| Priority | File & Line | Summary | Check |", "|---|---|---|---|"]
               for f in shown_findings:
                   loc = f"{f['file']}:{f['line']}" if f["file"] and f["line"] else f["file"]
@@ -689,6 +784,7 @@ jobs:
                   review_md += "\n".join(rows) + "\n\n### 🛠️ Actionable Findings\n\n" + "\n\n".join(render_finding(f) for f in shown_findings) + "\n"
               else:
                   review_md += "No findings.\n"
+              review_md += render_unconfirmed(unconfirmed)
               if dismissed:
                   review_md += f"\n<details><summary>Considered and dismissed after checking the code ({len(dismissed)})</summary>\n\n"
                   for f in dismissed:
@@ -715,7 +811,8 @@ jobs:
           # The footer credits only the models whose reports were used. A model that did not answer is listed above, as failed.
           if consolidated:
               credit = (f"*Findings consolidated by `{CONSOLIDATOR}` from independent analyses by {name_list(reports)}. "
-                        f"Each blocker and warning was re-checked against the whole file by `{VERIFIER}`, and a verdict counts only when the code it quotes is really in the file.*")
+                        f"Each blocker and warning was re-checked against the whole file by `{VERIFIER}` (blockers also by `{VERIFIER2}`), a verdict counts only when the code it quotes is really in the file, "
+                        f"and a confirmed finding is rated by who could trigger it and what they already hold. Claims the checks could not prove are listed apart, never as findings.*")
           else:
               credit = f"*Individual reports from {name_list(reports)}; the consolidation step failed, so they are not merged or verified.*"
           final_body = (
