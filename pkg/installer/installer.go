@@ -298,7 +298,9 @@ func (e *Env) planInstall(ctx context.Context, o Options) (*result, error) {
 			defer f.Close()
 			return writeAtomic(e.p(BinPath), f, 0o755)
 		})
-		if r.oldVer == "" {
+		if binHere && r.oldVer == "" {
+			note("program: replaced the one in %s (its version couldn't be read) with %s", BinPath, e.Version)
+		} else if r.oldVer == "" {
 			note("program: installed %s", e.Version)
 		} else {
 			note("program: %s -> %s", r.oldVer, e.Version)
@@ -622,6 +624,9 @@ func decideUnit(existing string, exists bool, want string) unitDecision {
 	if existing == want {
 		return unitKeep
 	}
+	if strings.TrimSpace(existing) == "" {
+		return unitWrite // nothing of the admin's to keep
+	}
 	first, body, _ := strings.Cut(existing, "\n")
 	if sum, ok := strings.CutPrefix(first, unitHeader); ok && sum == checksum(body) {
 		return unitWrite // ours, untouched: safe to replace
@@ -654,7 +659,15 @@ func writeAtomic(dest string, src io.Reader, mode fs.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), dest)
+	if err := os.Rename(tmp.Name(), dest); err != nil {
+		return err
+	}
+	// Persist the rename itself, so a power cut can't bring the old file back.
+	if d, err := os.Open(filepath.Dir(dest)); err == nil {
+		d.Sync()
+		d.Close()
+	}
+	return nil
 }
 
 func sameFile(a, b string) bool {

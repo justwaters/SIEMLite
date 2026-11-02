@@ -442,7 +442,7 @@ func TestDecideUnit(t *testing.T) {
 		"edited body":      {old + "Environment=X=1\n", true, unitEdited},
 		"hand-written":     {"[Service]\nExecStart=/x\n", true, unitEdited},
 		"edited checksum":  {strings.Replace(old, "NoNewPrivileges=true", "NoNewPrivileges=false", 1), true, unitEdited},
-		"empty but exists": {"", true, unitEdited},
+		"empty but exists": {"", true, unitWrite},
 	} {
 		if got := decideUnit(tc.existing, tc.exists, want); got != tc.want {
 			t.Errorf("%s: got %v, want %v", name, got, tc.want)
