@@ -22,15 +22,17 @@ func runAs(ctx context.Context, name, dir, stdin, prog string, args ...string) (
 	if err != nil {
 		return "", err
 	}
-	uid, _ := strconv.ParseUint(u.Uid, 10, 32)
-	gid, _ := strconv.ParseUint(u.Gid, 10, 32)
+	uid, gid, err := parseIDs(u)
+	if err != nil {
+		return "", err
+	}
 	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Dir = dir
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "HOME=" + dir}
 	cmd.Stdin = strings.NewReader(stdin)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid}}
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	// The umask is process-wide, which is fine: the installer runs one step at a time.
@@ -49,7 +51,23 @@ func chownTo(path, name string) error {
 	if err != nil {
 		return err
 	}
-	uid, _ := strconv.Atoi(u.Uid)
-	gid, _ := strconv.Atoi(u.Gid)
-	return os.Chown(path, uid, gid)
+	uid, gid, err := parseIDs(u)
+	if err != nil {
+		return err
+	}
+	return os.Chown(path, int(uid), int(gid))
+}
+
+// parseIDs reads the numeric uid and gid of u. A value that does not parse is
+// an error: it must never fall back to 0, which is root.
+func parseIDs(u *user.User) (uid, gid uint32, err error) {
+	u64, err := strconv.ParseUint(u.Uid, 10, 32)
+	if err != nil {
+		return 0, 0, fmt.Errorf("user %q has an invalid uid %q: %w", u.Username, u.Uid, err)
+	}
+	g64, err := strconv.ParseUint(u.Gid, 10, 32)
+	if err != nil {
+		return 0, 0, fmt.Errorf("user %q has an invalid gid %q: %w", u.Username, u.Gid, err)
+	}
+	return uint32(u64), uint32(g64), nil
 }
