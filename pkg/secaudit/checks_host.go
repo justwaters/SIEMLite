@@ -104,7 +104,7 @@ func checkSSH(_ context.Context, e *Env) Outcome {
 		bad = append(bad, "X11 forwarding is on (X11Forwarding yes)")
 	}
 	if len(bad) == 0 {
-		return Outcome{Status: Pass, Detail: "sshd refuses root passwords and empty passwords, and accepts keys only."}
+		return Outcome{Status: Pass, Detail: "sshd refuses root passwords and empty passwords, and has password authentication off."}
 	}
 	return Outcome{Status: worst, Detail: "In sshd_config, " + strings.Join(bad, "; ") + ".",
 		Fix: "Edit /etc/ssh/sshd_config (or a file in /etc/ssh/sshd_config.d/): set PermitRootLogin prohibit-password, PasswordAuthentication no, " +
@@ -375,7 +375,7 @@ func checkAutoUpdates(ctx context.Context, e *Env) Outcome {
 		return o
 	}
 	if conf, err := e.read("/etc/apt/apt.conf.d/20auto-upgrades"); err == nil {
-		if strings.Contains(strings.ReplaceAll(conf, " ", ""), `Unattended-Upgrade"1"`) {
+		if strings.Contains(strings.Join(strings.Fields(conf), ""), `Unattended-Upgrade"1"`) {
 			return Outcome{Status: Pass, Detail: "unattended-upgrades is turned on."}
 		}
 		return Outcome{Status: Warn, Detail: "unattended-upgrades is installed but not turned on.",

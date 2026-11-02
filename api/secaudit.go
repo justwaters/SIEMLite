@@ -9,6 +9,7 @@ import (
 
 	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
+	"siemlite/pkg/certs"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/secaudit"
 )
@@ -48,8 +49,10 @@ func (s *Server) auditEnv(ctx context.Context) (*secaudit.Env, error) {
 	cfg.BuiltinAdmin, cfg.AdminLocalOnly = sg.AdminAccount, sg.Enforced.AdminLocalOnly
 	if s.deps.Certs != nil {
 		st := s.deps.Certs.Status(ctx)
+		// Let's Encrypt's certificate is served only in that mode (and only for
+		// its domain); otherwise everyone gets the self-signed one.
 		served := st.SelfSigned
-		if st.LetsEncrypt != nil {
+		if st.Mode == certs.ModeLetsEncrypt && st.LetsEncrypt != nil {
 			served = *st.LetsEncrypt
 		}
 		if served.NotAfter != 0 {

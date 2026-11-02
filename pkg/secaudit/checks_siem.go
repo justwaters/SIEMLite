@@ -131,16 +131,21 @@ func checkPerms(_ context.Context, e *Env) Outcome {
 		return Outcome{Status: Skip, Detail: "File modes aren't checked on Windows."}
 	}
 	var problems []string
-	world := false
+	world, examined := false, 0
 	for _, t := range e.permTargets() {
+		if _, err := os.Lstat(t.path); err == nil {
+			examined++
+		}
 		if msg, w, bad := permProblem(t); bad {
 			problems = append(problems, msg)
 			world = world || w
 		}
 	}
 	switch {
+	case len(problems) == 0 && examined == 0:
+		return Outcome{Status: Skip, Detail: "None of SIEMLite's data paths could be found to examine."}
 	case len(problems) == 0:
-		return Outcome{Status: Pass, Detail: "The database, its folder, the secret key, the TLS key and the backups folder aren't open to other users."}
+		return Outcome{Status: Pass, Detail: fmt.Sprintf("The %d database, key and backup paths that exist aren't open to other users.", examined)}
 	case world:
 		return Outcome{Status: Fail, Detail: "Other users on this server can read SIEMLite's data: " + strings.Join(problems, "; ") + ".",
 			Fix: "Use Tighten permissions, or run chmod yourself. The secret key unlocks stored credentials and the TLS key lets anyone impersonate this server."}
