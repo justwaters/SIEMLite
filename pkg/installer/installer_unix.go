@@ -33,6 +33,7 @@ func runAs(ctx context.Context, name, dir, stdin, prog string, args ...string) (
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
+	// The umask is process-wide, which is fine: the installer runs one step at a time.
 	old := syscall.Umask(0o077)
 	err = cmd.Run()
 	syscall.Umask(old)
