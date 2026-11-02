@@ -53,3 +53,15 @@ func TestRegistry(t *testing.T) {
 		t.Error("Get found a missing id")
 	}
 }
+
+// leaky reports itself enabled while it has nothing set up, as a saved "on" setting can.
+type leaky struct{ fake }
+
+func (l *leaky) Info(context.Context) (Info, error) { return Info{Enabled: true}, nil }
+
+func TestNotSetUpIsNeverOn(t *testing.T) {
+	info := Describe(context.Background(), &leaky{fake{id: "mcp", name: "Agents"}})
+	if info.State != StateNeedsSetup || info.Enabled {
+		t.Errorf("an integration with nothing set up = state %q, enabled %v; want %q, off", info.State, info.Enabled, StateNeedsSetup)
+	}
+}
