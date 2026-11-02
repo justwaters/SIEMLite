@@ -3,6 +3,7 @@ package installer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -420,6 +421,9 @@ func TestNeedsLowPorts(t *testing.T) {
 		{"SIEMLITE_SYSLOG_UDP=:5514\nSIEMLITE_SYSLOG_TLS=[::]:6514", false},
 		{"SIEMLITE_SYSLOG_ALLOW=10.0.0.0/8:80", false}, // not a listen address
 		{"SIEMLITE_ADDR=localhost", false},
+		{"SIEMLITE_ADDR=::1", false}, // a bare IPv6 address has no port
+		{"SIEMLITE_ADDR=::514", false},
+		{"SIEMLITE_SYSLOG_UDP=[::1]:514", true},
 		{"", false},
 	} {
 		if got := needsLowPorts(tc.env); got != tc.want {
@@ -465,5 +469,46 @@ func TestVersionOutput(t *testing.T) {
 	h.write(BinPath, "v0.26")
 	if got := installedVersion(context.Background(), h.env); got != "v0.26" {
 		t.Errorf("installedVersion = %q", got)
+	}
+}
+
+func TestPurgeRefusedWithoutUserdel(t *testing.T) {
+	h := newHost(t, "v0.28")
+	if err := h.run(Options{}); err != nil {
+		t.Fatal(err)
+	}
+	h.env.Have = func(n string) bool { return n != "userdel" }
+	err := h.run(Options{Uninstall: true, Purge: true})
+	var ref Refusal
+	if !errors.As(err, &ref) || !strings.Contains(ref.Reason, "userdel") {
+		t.Fatalf("err = %v, want a refusal naming userdel", err)
+	}
+	if len(h.calls) != 0 || !h.has(BinPath) {
+		t.Errorf("changed on refusal: %v", h.calls)
+	}
+}
+
+func TestFailedAdminCreationIsWarnedAboutAtOnce(t *testing.T) {
+	h := newHost(t, "v0.28")
+	h.env.ExecAs = func(context.Context, string, string, string, string, ...string) (string, error) {
+		return "", errors.New("database is locked")
+	}
+	if err := h.run(Options{}); err != nil {
+		t.Fatal(err) // not fatal: SIEMLite makes its own first admin when it starts
+	}
+	out := h.out.String()
+	if strings.Count(out, "WARNING: couldn't create the first admin account") != 2 || strings.Contains(out, "password:") {
+		t.Errorf("want the warning both where it happened and in the summary, and no password:\n%s", out)
+	}
+}
+
+func TestUnreadableCgroupIsNotAContainer(t *testing.T) {
+	h := newHost(t, "v0.28")
+	if h.env.inContainer() {
+		t.Error("no /proc/1/cgroup should not read as a container")
+	}
+	h.write("/proc/1/cgroup", "0::/docker/abc\n")
+	if !h.env.inContainer() {
+		t.Error("a docker cgroup should read as a container")
 	}
 }
