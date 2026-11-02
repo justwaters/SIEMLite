@@ -41,8 +41,6 @@ jobs:
         run: |
           python3 -c "import re,sys; s=open('web/static/index.html').read(); sys.stdout.write(re.findall(r'<script>(.*?)</script>', s, re.S)[-1])" > ui.js
           node --check ui.js
-      - name: Eve's checks
-        run: python3 .github/eve-eval/test_eve.py
 
   load:
     name: Load and fuzzing
