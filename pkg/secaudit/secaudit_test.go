@@ -519,3 +519,14 @@ func TestAutoUpdatesTabIndented(t *testing.T) {
 		t.Errorf("tab-indented = %s %q", got.Status, got.Detail)
 	}
 }
+
+func TestSSHIncludeStaysInsideTheSSHFolder(t *testing.T) {
+	e := hostEnv(t, map[string]string{
+		"/etc/ssh/sshd_config": "Include /etc/ssh/../other/*.conf\nInclude ../../other/x.conf\nPasswordAuthentication no\nPermitRootLogin no\n",
+		"/etc/other/a.conf":    "PermitEmptyPasswords yes\n",
+		"/other/x.conf":        "PermitEmptyPasswords yes\n",
+	})
+	if got := outcome(t, "host.ssh", e); got.Status != Pass {
+		t.Errorf("an Include outside /etc/ssh was followed: %s %q", got.Status, got.Detail)
+	}
+}
