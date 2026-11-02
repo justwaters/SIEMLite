@@ -504,3 +504,18 @@ func TestCleanNote(t *testing.T) {
 		t.Errorf("kept %d characters", len([]rune(got)))
 	}
 }
+
+func TestPermsSkipsWhenNothingExists(t *testing.T) {
+	e := hostEnv(t, nil)
+	e.Cfg.SecretKeyPath = filepath.Join(t.TempDir(), "missing.key")
+	if got := outcome(t, "siem.perms", e); got.Status != Skip {
+		t.Errorf("nothing to examine = %s %q, want skip", got.Status, got.Detail)
+	}
+}
+
+func TestAutoUpdatesTabIndented(t *testing.T) {
+	e := hostEnv(t, map[string]string{"/etc/apt/apt.conf.d/20auto-upgrades": "APT::Periodic::Unattended-Upgrade\t\"1\";\n"})
+	if got := outcome(t, "host.updates", e); got.Status != Pass {
+		t.Errorf("tab-indented = %s %q", got.Status, got.Detail)
+	}
+}
