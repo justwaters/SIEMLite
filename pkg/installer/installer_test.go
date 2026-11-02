@@ -13,15 +13,16 @@ import (
 
 // host is a fake Linux/systemd machine under a temp dir.
 type host struct {
-	t       *testing.T
-	root    string
-	out     bytes.Buffer
-	calls   []string // programs run as root, as "name arg arg"
-	asCalls []string
-	asStdin []string
-	chowned []string
-	active  string // what systemctl is-active says
-	env     *Env
+	t          *testing.T
+	root       string
+	out        bytes.Buffer
+	calls      []string // programs run as root, as "name arg arg"
+	asCalls    []string
+	asStdin    []string
+	binAtAdmin bool // the program was already in place when the admin account was made
+	chowned    []string
+	active     string // what systemctl is-active says
+	env        *Env
 }
 
 func newHost(t *testing.T, version string) *host {
@@ -45,6 +46,7 @@ func newHost(t *testing.T, version string) *host {
 		ExecAs: func(_ context.Context, user, dir, stdin, name string, args ...string) (string, error) {
 			h.asCalls = append(h.asCalls, user+" "+dir+" "+name+" "+strings.Join(args, " "))
 			h.asStdin = append(h.asStdin, stdin)
+			h.binAtAdmin = h.has(name)
 			h.write(dbPath, "") // the account creation makes the database
 			return "", nil
 		},
@@ -100,7 +102,7 @@ func (h *host) setBinary(version string) {
 }
 
 func (h *host) run(o Options) error {
-	h.calls, h.asCalls, h.asStdin, h.out = nil, nil, nil, bytes.Buffer{}
+	h.calls, h.asCalls, h.asStdin, h.binAtAdmin, h.out = nil, nil, nil, false, bytes.Buffer{}
 	return h.env.Run(context.Background(), o)
 }
 
@@ -183,6 +185,15 @@ func TestDryRunChangesNothingEvenWithoutRoot(t *testing.T) {
 	}
 }
 
+func TestHostIsCheckedBeforeTheFlagCombination(t *testing.T) {
+	h := newHost(t, "v0.28")
+	h.env.GOOS = "darwin"
+	err := h.run(Options{Purge: true})
+	if err == nil || !strings.Contains(err.Error(), "only works on Linux") {
+		t.Fatalf("err = %v, want the platform refusal first", err)
+	}
+}
+
 func TestFreshInstall(t *testing.T) {
 	h := newHost(t, "v0.28")
 	if err := h.run(Options{}); err != nil {
@@ -193,6 +204,9 @@ func TestFreshInstall(t *testing.T) {
 	}
 	if mode(t, h.path(DataDir)) != 0o700 {
 		t.Errorf("data dir mode = %v", mode(t, h.path(DataDir)))
+	}
+	if len(h.asCalls) != 1 || !h.binAtAdmin {
+		t.Errorf("the admin account must be made once, after the program is copied (calls %v, program in place: %v)", h.asCalls, h.binAtAdmin)
 	}
 	if len(h.chowned) == 0 || h.chowned[0] != "siemlite "+DataDir {
 		t.Errorf("chowned = %v", h.chowned)

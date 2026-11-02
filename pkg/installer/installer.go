@@ -163,11 +163,13 @@ type result struct {
 
 // Run installs, updates or (with Uninstall) removes SIEMLite, narrating on e.Out.
 func (e *Env) Run(ctx context.Context, o Options) error {
-	if o.Purge && !o.Uninstall {
-		return Refusal{"--purge only goes with --uninstall"}
-	}
+	// The host is checked first, so an unsuitable machine is told so before
+	// it is told about its flags.
 	if err := e.preflight(o); err != nil {
 		return err
+	}
+	if o.Purge && !o.Uninstall {
+		return Refusal{"--purge only goes with --uninstall"}
 	}
 	var r *result
 	var err error
