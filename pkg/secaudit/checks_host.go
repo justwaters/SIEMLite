@@ -52,6 +52,11 @@ func (e *Env) sshdConfig() (map[string]string, bool) {
 					if !path.IsAbs(pat) {
 						pat = "/etc/ssh/" + pat
 					}
+					// Only the SSH configuration folder is followed, so an Include
+					// can't make the audit read other files or leave the root.
+					if pat = path.Clean(pat); !strings.HasPrefix(pat, "/etc/ssh/") {
+						continue
+					}
 					matches, _ := filepath.Glob(e.path(pat))
 					slices.Sort(matches)
 					for _, m := range matches {
