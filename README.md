@@ -1050,3 +1050,5 @@ You may use, modify and redistribute it, including commercially. If you modify S
 it over a network (for example, by running it as a service), you must offer those users the complete source code of
 your modified version under the same license. The web UI links to this repository to make that easy; if you fork it,
 point that link (the footer in `web/static/index.html`) at your own source.
+
+<!-- eve caller test: this PR will be closed unmerged -->
