@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"siemlite/pkg/ocsf"
 )
 
 // SIEMLite drafts a parser from sample lines on its own, with no AI model:
@@ -268,14 +270,64 @@ func inferFields(values map[string][]string) map[string]string {
 	return out
 }
 
-var (
-	riskyWords  = `(?i)fail|error|denied|deny|refus|reject|invalid|unauthori|forbidden|lock|breach|attack|malware|block|alert|critical`
-	changeWords = `(?i)delete|remov|disable|revok|password|role|permission|privilege|admin|grant|reset`
-)
+// defaultSeverityWords are the keywords a new parser rates an event by, as stems
+// matched anywhere in the value ("remov" is remove, removed, removal), and how
+// severe each one is.
+var defaultSeverityWords = []struct {
+	stem string
+	sev  int
+}{
+	{"delete", ocsf.SeverityMedium},
+	{"remov", ocsf.SeverityMedium},
+	{"disable", ocsf.SeverityHigh},
+	{"revok", ocsf.SeverityHigh},
+	{"error", ocsf.SeverityLow},
+	{"denied", ocsf.SeverityMedium},
+	{"deny", ocsf.SeverityMedium},
+	{"refus", ocsf.SeverityMedium},
+	{"unauthori", ocsf.SeverityHigh},
+	{"forbidden", ocsf.SeverityMedium},
+	{"reset", ocsf.SeverityMedium},
+	{"password", ocsf.SeverityMedium},
+	{"role", ocsf.SeverityMedium},
+	{"permission", ocsf.SeverityMedium},
+	{"privilege", ocsf.SeverityHigh},
+	{"admin", ocsf.SeverityHigh},
+	{"grant", ocsf.SeverityHigh},
+	{"fail", ocsf.SeverityLow},
+	{"reject", ocsf.SeverityMedium},
+	{"invalid", ocsf.SeverityLow},
+	{"lock", ocsf.SeverityMedium},
+	{"breach", ocsf.SeverityCritical},
+	{"attack", ocsf.SeverityCritical},
+	{"malware", ocsf.SeverityCritical},
+	{"block", ocsf.SeverityMedium},
+	{"alert", ocsf.SeverityMedium},
+	{"critical", ocsf.SeverityHigh},
+}
+
+// DefaultSeverityRules turns defaultSeverityWords into rules, worst first so a
+// value holding several keywords gets the most severe one's level, and anything
+// else informational.
+func DefaultSeverityRules() []SeverityCase {
+	var rules []SeverityCase
+	for _, sev := range []int{ocsf.SeverityCritical, ocsf.SeverityHigh, ocsf.SeverityMedium, ocsf.SeverityLow} {
+		var stems []string
+		for _, w := range defaultSeverityWords {
+			if w.sev == sev {
+				stems = append(stems, w.stem)
+			}
+		}
+		rules = append(rules, SeverityCase{Match: "(?i)" + strings.Join(stems, "|"), Severity: sev})
+	}
+	return append(rules, SeverityCase{Match: ".", Severity: ocsf.SeverityInformational})
+}
 
 // inferSeverity uses a level field when there is one, else an action,
-// outcome or status field: failures and refusals medium, deletions and
-// permission changes low, the rest informational.
+// outcome or status field rated by defaultSeverityWords (a breach, attack or
+// malware critical; disabling, revoking, privileges and admin high; refusals,
+// deletions and password or role changes medium; failures and errors low; the
+// rest informational).
 func inferSeverity(fields map[string]string, values map[string][]string) SeverityRule {
 	for _, t := range fields {
 		if t == "severity" {
@@ -302,7 +354,7 @@ func inferSeverity(fields map[string]string, values map[string][]string) Severit
 			if all(nonEmpty, isNumber) {
 				continue
 			}
-			return SeverityRule{From: "field", Field: k, Rules: []SeverityCase{{Match: riskyWords, Severity: 3}, {Match: changeWords, Severity: 2}, {Match: `.`, Severity: 1}}}
+			return SeverityRule{From: "field", Field: k, Rules: DefaultSeverityRules()}
 		}
 	}
 	return SeverityRule{From: "auto"}

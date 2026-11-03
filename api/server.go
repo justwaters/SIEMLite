@@ -176,6 +176,7 @@ func (s *Server) Handler() http.Handler {
 	admin("DELETE /api/v1/users/{id}", s.handleDeleteUser)
 	admin("GET /api/v1/parsers", s.handleListParsers)
 	admin("GET /api/v1/parsers/templates", s.handleParserTemplates)
+	admin("GET /api/v1/parsers/severity-defaults", s.handleParserSeverityDefaults)
 	admin("GET /api/v1/parsers/{id}", s.handleGetParser)
 	admin("POST /api/v1/parsers", s.handleSaveParser)
 	admin("PUT /api/v1/parsers/{id}", s.handleSaveParser)

@@ -736,7 +736,7 @@
             <h2 id="admin-local-title">Keep the admin account to this server</h2>
             <p class="hint" id="admin-local-hint">Checking…</p>
           </div>
-          <label class="switch integ-switch"><span>On</span><input type="checkbox" id="admin-local" disabled aria-labelledby="admin-local-title"><span class="track"></span></label>
+          <label class="switch integ-switch"><span>Off</span><input type="checkbox" id="admin-local" disabled aria-labelledby="admin-local-title"><span class="track"></span></label>
         </div>
         <p class="notice" id="admin-local-msg" role="status" hidden></p>
       </section>
@@ -839,7 +839,8 @@
             <select class="select" id="pe-sev-field"></select>
             <span>When the value matches (regex), use</span>
             <div class="rules" id="pe-rules"></div>
-            <div><button type="button" class="btn btn-small" id="pe-add-rule">Add rule</button></div>
+            <div><button type="button" class="btn btn-small" id="pe-add-rule">Add rule</button>
+              <button type="button" class="btn btn-small" id="pe-reset-rules" title="Replace the rules with the default keyword ratings">Reset</button></div>
           </div>
           <div>
             <h2 style="margin-bottom:8px">Fields</h2>
@@ -876,7 +877,7 @@
           <div class="integ-title"><h2 id="int-email-title">Email</h2><span class="pill integ-state">…</span></div>
           <p class="hint integ-summary">Send email through your own mail server, for the features that notify people.</p>
           <div class="integ-controls">
-            <label class="switch integ-switch"><span>On</span><input type="checkbox" disabled><span class="track"></span></label>
+            <label class="switch integ-switch"><span>Off</span><input type="checkbox" disabled><span class="track"></span></label>
             <button class="btn integ-toggle" type="button" aria-expanded="false" aria-controls="int-email-body">Set up</button>
           </div>
         </div>
@@ -932,7 +933,7 @@
           <div class="integ-title"><h2 id="int-entra-title">Microsoft Entra ID</h2><span class="pill integ-state">…</span></div>
           <p class="hint integ-summary">Let the people in an Entra group sign in to SIEMLite with their Microsoft account.</p>
           <div class="integ-controls">
-            <label class="switch integ-switch"><span>On</span><input type="checkbox" disabled><span class="track"></span></label>
+            <label class="switch integ-switch"><span>Off</span><input type="checkbox" disabled><span class="track"></span></label>
             <button class="btn integ-toggle" type="button" aria-expanded="false" aria-controls="int-entra-body">Set up</button>
           </div>
         </div>
@@ -986,7 +987,7 @@
               <h3 id="entra-only-title">Only allow sign-in with Microsoft</h3>
               <p class="hint" id="entra-only-hint">Checking…</p>
             </div>
-            <label class="switch integ-switch"><span>On</span><input type="checkbox" id="entra-only" disabled aria-labelledby="entra-only-title"><span class="track"></span></label>
+            <label class="switch integ-switch"><span>Off</span><input type="checkbox" id="entra-only" disabled aria-labelledby="entra-only-title"><span class="track"></span></label>
           </div>
           <p class="notice" id="entra-only-msg" role="status" hidden></p>
         </div>
@@ -996,7 +997,7 @@
           <div class="integ-title"><h2 id="int-ai-title">AI Parsers</h2><span class="pill integ-state">…</span></div>
           <p class="hint integ-summary">Suggest a parser from sample log lines, with a model on this server or in the cloud.</p>
           <div class="integ-controls">
-            <label class="switch integ-switch"><span>On</span><input type="checkbox" disabled><span class="track"></span></label>
+            <label class="switch integ-switch"><span>Off</span><input type="checkbox" disabled><span class="track"></span></label>
             <button class="btn integ-toggle" type="button" aria-expanded="false" aria-controls="int-ai-body">Set up</button>
           </div>
         </div>
@@ -1056,7 +1057,7 @@
           <div class="integ-title"><h2 id="int-mcp-title">AI agents (MCP)</h2><span class="pill integ-state">…</span></div>
           <p class="hint integ-summary">Let AI agents search logs, read alerts and make changes through the Model Context Protocol.</p>
           <div class="integ-controls">
-            <label class="switch integ-switch"><span>On</span><input type="checkbox" disabled><span class="track"></span></label>
+            <label class="switch integ-switch"><span>Off</span><input type="checkbox" disabled><span class="track"></span></label>
             <button class="btn integ-toggle" type="button" aria-expanded="false" aria-controls="int-mcp-body">Set up</button>
           </div>
         </div>
@@ -2826,7 +2827,8 @@ $("parser-upload").onchange = async (e) => {
 // --- Parser editor ---
 let editId = null, templates = [], previewTimer = null, previewSeq = 0, knownFields = [];
 const pe = (id) => $("pe-" + id);
-function sevOptions(sel) { return [1, 2, 3, 4, 5, 6, 0].map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === sel })); }
+// Fatal is not offered for a parser; a parser that already uses it keeps it.
+function sevOptions(sel) { return [1, 2, 3, 4, 5, 6, 0].filter((n) => n !== 6 || sel === 6).map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === sel })); }
 async function openParserEditor(arg) {
   pe("error").hidden = true;
   editId = arg && arg !== "new" ? Number(arg) : null;
@@ -2874,6 +2876,15 @@ function ruleRow(match = "", sev = 2) {
   row.addEventListener("change", () => schedulePreview());
   return row;
 }
+let defaultRules = null;
+// Replaces the rules with the defaults: keywords such as "breach" or "disable" and how severe each is.
+async function resetRules() {
+  try { defaultRules = defaultRules || await apiJSON("/api/v1/parsers/severity-defaults"); }
+  catch (err) { pe("error").textContent = err.message; pe("error").hidden = false; return; }
+  pe("rules").replaceChildren(...defaultRules.map((r) => ruleRow(r.match, r.severity)));
+  schedulePreview(0);
+}
+pe("reset-rules").onclick = resetRules;
 pe("add-rule").onclick = () => { pe("rules").append(ruleRow()); pe("rules").lastChild.querySelector("input").focus(); };
 function syncEditor() {
   const fmt = pe("format").value;
@@ -2902,6 +2913,8 @@ function readDefinition() {
 }
 for (const id of ["name", "desc", "pattern", "samples"]) pe(id).addEventListener("input", () => schedulePreview());
 for (const id of ["format", "strip", "category", "sev-from", "fixed", "sev-field"]) pe(id).addEventListener("change", () => { syncEditor(); schedulePreview(0); });
+// Choosing "from a field" on a parser with no rules yet starts it with the defaults.
+pe("sev-from").addEventListener("change", () => { if (pe("sev-from").value === "field" && !pe("rules").children.length) resetRules(); });
 pe("sev-field").addEventListener("change", () => (sevFieldWanted = pe("sev-field").value));
 pe("template").onchange = () => {
   const t = templates[Number(pe("template").value)];
@@ -3445,6 +3458,11 @@ for (const b of document.querySelectorAll("[data-audit-filter]")) b.onclick = ()
 
 // --- Integrations ---
 const INTEGRATION_STATE = { on: "On", off: "Off", needs_setup: "Not set up", error: "Problem" };
+// The word beside a switch says what the switch is: On when it is checked, Off when it is not.
+function syncSwitchLabel(input) {
+  const word = input.closest(".integ-switch").querySelector("span");
+  word.textContent = input.checked ? "On" : "Off";
+}
 function renderIntegration(it) {
   const root = $("int-" + it.id);
   if (!root) return;
@@ -3453,7 +3471,8 @@ function renderIntegration(it) {
   pill.classList.toggle("on", it.state === "on");
   root.querySelector(".integ-summary").textContent = it.summary || it.description;
   const sw = root.querySelector(".integ-switch input");
-  sw.checked = !!it.enabled; sw.disabled = !it.configured;
+  sw.checked = !!it.enabled && it.configured; sw.disabled = !it.configured;
+  syncSwitchLabel(sw);
   sw.title = it.configured ? "" : "Set it up first";
   root.querySelector(".integ-toggle").textContent = it.configured ? "Settings" : "Set up";
 }
@@ -3474,12 +3493,13 @@ function toggleIntegration(btn, open) {
   btn.setAttribute("aria-expanded", String(open));
 }
 for (const btn of document.querySelectorAll(".integ-toggle")) btn.onclick = () => toggleIntegration(btn);
+document.addEventListener("change", (ev) => { if (ev.target.matches(".integ-switch input")) syncSwitchLabel(ev.target); });
 for (const sw of document.querySelectorAll(".integ-switch input")) {
   sw.onchange = async () => {
     const id = sw.closest("[data-integration]").dataset.integration, want = sw.checked;
     sw.disabled = true;
     try { renderIntegration(await apiJSON(`/api/v1/integrations/${id}/enabled`, { method: "POST", json: { enabled: want } })); notice($("integrations-msg"), ""); }
-    catch (err) { sw.checked = !want; notice($("integrations-msg"), err.message); }
+    catch (err) { sw.checked = !want; syncSwitchLabel(sw); notice($("integrations-msg"), err.message); }
     sw.disabled = false;
     await refreshIntegrationCards();
   };
@@ -3759,7 +3779,7 @@ async function loadSignin() {
   renderSignin();
 }
 function renderSignin() {
-  if (!signin || !signin.enforced) { $("admin-local").disabled = $("entra-only").disabled = true; return; }
+  if (!signin || !signin.enforced) { $("admin-local").disabled = $("entra-only").disabled = true; syncSwitchLabel($("admin-local")); syncSwitchLabel($("entra-only")); return; }
   const s = signin, forced = s.enforced.admin_local_only && !s.admin_local_only;
   const a = $("admin-local");
   a.checked = s.enforced.admin_local_only;
@@ -3782,10 +3802,11 @@ function renderSignin() {
     : !s.local_port ? "This server has no local port (-local-addr) for the admin account to fall back on, so passwords have to stay on."
     : !s.admin_account ? "Add a local Admin account named admin first: it is the way back in if Microsoft sign-in stops working."
     : `Turn off password sign-in for every account except the admin account, which can then only sign in on this server, at ${localURL()}.`;
+  syncSwitchLabel(a); syncSwitchLabel(e);
 }
 async function saveSignin(input, field, msgNode, ask) {
   const want = input.checked;
-  if (want && !(await confirmAction(...ask()))) { input.checked = false; return; }
+  if (want && !(await confirmAction(...ask()))) { input.checked = false; syncSwitchLabel(input); return; }
   input.disabled = true;
   try {
     signin = await apiJSON("/api/v1/system/signin", { method: "PUT", json: { [field]: want } });

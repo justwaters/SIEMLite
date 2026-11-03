@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.27` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -312,7 +312,7 @@ the raw text.
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
 | `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id", "parser_none"}`), rename, set how its lines are read (`"parser_id": 3` for a parser, `"parser_id": null` for Automatic, `"parser_none": true` for None; not both together), and switch a token on or off (`"enabled": true` or `false`; to disable a token use `PATCH`, not `DELETE`). `DELETE` removes the source and its token for good (it used to revoke the token); it returns `409` naming the alert rules that are scoped to the source, and `400` for built-in sources. Only access tokens can be enabled, disabled or deleted. A source shows `parser_none` and `enabled` in its JSON (`revoked_at` is set while it's disabled). |
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
-| `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates` | admin | Manage parsers. |
+| `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates`, `GET /api/v1/parsers/severity-defaults` | admin | Manage parsers; the templates, and the default keyword rules for a parser's severity. |
 | `GET /api/v1/alerts?status=open` | any signed-in user not limited to some sources | Alerts (`open`, `acknowledged`, `closed` or `all`) and the count in each state. |
 | `PATCH /api/v1/alerts/{id}` | same | Acknowledge, close or reopen: `{"status": "acknowledged"}`. |
 | `GET /api/v1/rules`, `POST /api/v1/rules`, `PUT`/`DELETE /api/v1/rules/{id}` | any signed-in user (list), admin | Alert rules: `{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes", "kind"}`. `kind` is `match` (the default), or `volume_over` / `volume_under` to alert when the source in `source_id` (required) sends more than / fewer than `threshold` events in `window_minutes`; those ignore `query`, `min_severity`, `threat_only` and `group_by`. |
@@ -372,8 +372,11 @@ Or let SIEMLite build it: paste the samples and choose **Draft a parser**. It ne
 format (JSON, key=value, syslog or free text) and, for JSON and key=value lines, which keys hold what, from both their names
 and their values: timestamps become the time, IP addresses the source or destination (by names like `dest_`), `detail` or
 `description` the message, `username` or `actor` the user, a level field the severity. Without a level field, an action,
-outcome or status field decides it (failures and refusals medium, deletions and permission changes low, the rest
-informational; for HTTP status codes, 5xx medium and 4xx low). Free text gets a pattern that matches every sample. Check the
+outcome or status field decides it, by keywords: `breach`, `attack` and `malware` critical; `disable`, `revok`, `unauthori`,
+`privilege`, `admin`, `grant` and `critical` high; `delete`, `remov`, `denied`, `deny`, `refus`, `forbidden`, `reset`,
+`password`, `role`, `permission`, `reject`, `lock`, `block` and `alert` medium; `error`, `fail` and `invalid` low; the rest
+informational. A value with several keywords gets the most severe one's level. For HTTP status codes, 5xx is medium and 4xx
+low. When you choose a severity from a field's value, **Reset** next to **Add rule** puts these keyword rules back. Free text gets a pattern that matches every sample. Check the
 preview and the field mapping, adjust anything, and save. With [AI Parsers](#ai-parsers) on, **Suggest with AI** starts from
 the same draft and asks the model to improve it.
 

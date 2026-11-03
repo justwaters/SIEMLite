@@ -1,9 +1,12 @@
 package parser
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"siemlite/pkg/ocsf"
 )
 
 const prettyAudit = `{
@@ -79,7 +82,7 @@ func TestDraftJSONAuditLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e := ev.Event; e.Message != "Wrong password" || e.SeverityID != 3 || e.SrcEndpoint == nil || e.SrcEndpoint.IP != "203.0.113.7" || e.Actor == nil || e.Actor.User.Name != "jmartinez" {
+	if e := ev.Event; e.Message != "Wrong password" || e.SeverityID != ocsf.SeverityLow || e.SrcEndpoint == nil || e.SrcEndpoint.IP != "203.0.113.7" || e.Actor == nil || e.Actor.User.Name != "jmartinez" {
 		t.Errorf("parsed = %+v", ev.Event)
 	}
 	if ev2, _ := p.Parse(lines[0], Defaults{}); ev2.Event.SeverityID != 1 || ev2.Event.Message != "Emailed digest to 1 user(s)" {
@@ -106,5 +109,39 @@ func TestDraftOtherShapes(t *testing.T) {
 	txt := Draft([]string{"Failed password for root from 203.0.113.7 port 51234 ssh2", "Failed password for bob from 198.51.100.2 port 4022 ssh2"})
 	if txt.Format != FormatPattern || txt.Pattern == "" {
 		t.Errorf("text = %+v", txt)
+	}
+}
+
+func TestDefaultKeywordSeverities(t *testing.T) {
+	rules := DefaultSeverityRules()
+	rate := func(v string) int {
+		for _, r := range rules {
+			if regexp.MustCompile(r.Match).MatchString(v) {
+				return r.Severity
+			}
+		}
+		t.Fatalf("no rule matched %q", v)
+		return 0
+	}
+	for _, w := range defaultSeverityWords {
+		if got := rate(w.stem); got != w.sev {
+			t.Errorf("%q rated %d, want %d", w.stem, got, w.sev)
+		}
+		if got := rate("X " + strings.ToUpper(w.stem) + "ed"); got < w.sev {
+			t.Errorf("%q (upper case, in a longer word) rated %d, want at least %d", w.stem, got, w.sev)
+		}
+	}
+	for v, want := range map[string]int{
+		"login failed":                ocsf.SeverityLow,
+		"password reset":              ocsf.SeverityMedium, // reset and password are both medium
+		"failed admin login":          ocsf.SeverityHigh,   // the worst keyword wins, not the first
+		"malware blocked":             ocsf.SeverityCritical,
+		"user role removed":           ocsf.SeverityMedium,
+		"account disabled":            ocsf.SeverityHigh,
+		"Emailed digest to 1 user(s)": ocsf.SeverityInformational,
+	} {
+		if got := rate(v); got != want {
+			t.Errorf("%q rated %d, want %d", v, got, want)
+		}
 	}
 }

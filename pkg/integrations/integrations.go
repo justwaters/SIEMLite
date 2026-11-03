@@ -94,7 +94,8 @@ func Describe(ctx context.Context, it Integration) Info {
 	case err != nil:
 		info.State, info.Summary = StateError, err.Error()
 	case !info.Configured:
-		info.State = StateNeedsSetup
+		// Nothing to run yet, so it is off whatever its saved setting says.
+		info.State, info.Enabled = StateNeedsSetup, false
 	case !info.Enabled:
 		info.State = StateOff
 	default:
