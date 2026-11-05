@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security audit · SIEMLite docs</title>
+<meta name="description" content="The Security audit page (admins) runs a repeatable set of read-only checks and lists what needs action, worst first,">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a aria-current="page" href="security-audit.html">Security audit</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="email.html">Email</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="security-audit">Security audit</h1>
+<p>The <strong>Security audit</strong> page (admins) runs a repeatable set of read-only checks and lists what needs action, worst first,
+with what was found and how to fix it. Choose <strong>Run audit</strong>; it takes a few seconds.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SIEMLite</td>
+<td>not running as root; database, secret key, TLS key and backups folder not readable by other users; backups made and recent; SIEMLite up to date; Docker socket not mounted in the container</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>HTTPS certificate valid and trusted; plain HTTP reachable only by the reverse proxy; syslog allowlist; no unexpected or risky services listening (Linux)</td>
+</tr>
+<tr>
+<td>Access</td>
+<td>the built-in <code>admin</code> account kept to the server; few Admin accounts</td>
+</tr>
+<tr>
+<td>Host (Linux, not in a container)</td>
+<td>SSH settings (<code>sshd_config</code>, including <code>Include</code> files); a firewall is active; no extra UID 0 account or empty password; sudo groups; permissions of <code>/etc/passwd</code>, <code>/etc/shadow</code> and <code>sshd_config</code>; kernel network and memory settings; automatic security updates</td>
+</tr>
+</tbody>
+</table></div>
+<p>A check ends as <strong>Pass</strong>, <strong>Warning</strong>, <strong>Failed</strong> or <strong>Skipped</strong>. A skip means it couldn't look (another operating system, a
+container, no permission to read <code>/etc/shadow</code>), and says why; it is not a pass. Colour shows how severe a finding is.</p>
+<p>To resolve a finding:</p>
+<ol>
+<li>Follow its <strong>To fix</strong> text, then choose <strong>Recheck</strong> to run just that check. The page says whether it now passes.</li>
+<li>For permissions on SIEMLite's own files, <strong>Tighten permissions</strong> does it for you, after asking. It never follows links
+   and touches only the paths SIEMLite was started with. Nothing on the host (SSH, firewall, accounts) is ever changed.</li>
+<li>If the risk is acceptable (a cloud firewall does the job, say), choose <strong>Accept risk</strong> and give the reason. It stays on
+   the list as accepted, with who and why, and comes back if the finding gets worse. <strong>Withdraw acceptance</strong> undoes it.</li>
+</ol>
+<p><strong>Run audit</strong> again at any time: each finding is marked new, worse or resolved since the last run, and the page keeps the
+last 30 runs. <strong>Download report</strong> saves the last run as Markdown (add <code>?format=json</code> to the address for JSON).
+Runs, fixes and accepted risks are recorded in the <a href="audit-log.html">audit log</a> as <code>security_audit.*</code> events.</p>
+<p>Run SIEMLite as an unprivileged user (it should be). Some host checks, such as empty passwords in <code>/etc/shadow</code> or rules loaded
+by hand with <code>iptables</code>, need root to read, so they are skipped or say so rather than asking SIEMLite to run as root.
+Inside the Docker image only the SIEMLite, network and access checks apply: the container can't see the host.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

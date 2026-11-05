@@ -41,6 +41,7 @@
 <li><a href="users-and-security.html">Users and security</a></li>
 <li><a href="integrations.html">Integrations</a></li>
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
@@ -103,9 +104,9 @@
 <td>Manage users: <code>{"username", "password", "role", "limited", "sources"}</code>. A limited standard user sees only <code>sources</code>. Updates change only the fields sent.</td>
 </tr>
 <tr>
-<td><code>GET</code>/<code>POST /api/v1/parsers</code>, <code>GET</code>/<code>PUT</code>/<code>DELETE /api/v1/parsers/{id}</code>, <code>GET /api/v1/parsers/templates</code></td>
+<td><code>GET</code>/<code>POST /api/v1/parsers</code>, <code>GET</code>/<code>PUT</code>/<code>DELETE /api/v1/parsers/{id}</code>, <code>GET /api/v1/parsers/templates</code>, <code>GET /api/v1/parsers/severity-defaults</code></td>
 <td>admin</td>
-<td>Manage parsers.</td>
+<td>Manage parsers; the templates, and the default keyword rules for a parser's severity.</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/alerts?status=open</code></td>

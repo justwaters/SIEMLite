@@ -41,6 +41,7 @@
 <li><a href="users-and-security.html">Users and security</a></li>
 <li><a href="integrations.html">Integrations</a></li>
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a aria-current="page" href="backups-and-updates.html">Backups and updates</a></li>
@@ -102,7 +103,7 @@ binary, or going back to an older one), so people sign in again on the new versi
 sessions. The audit log records it ("SIEMLite changed from v0.25 to v0.26: everyone was signed out"), and the person who
 used <strong>Update and restart</strong> is told why when the sign-in page comes back.</p>
 <ul>
-<li><strong>A plain program</strong> is replaced in place. The button appears when SIEMLite can write to its own folder.</li>
+<li><strong>A plain program</strong> is replaced in place. The button appears when SIEMLite can write to its own folder. A <a href="installation.html#install-as-a-service-linux">systemd service installed with <code>siemlite install</code></a> can't, by design: update it with <code>sudo ./siemlite install</code>.</li>
 <li><strong>Docker</strong> can't replace the program inside the image, so the update is saved in the data volume
   (<code>/data/bin</code>) and the image's program hands over to it each time it starts. It survives restarts and
   <code>docker compose up -d</code>. When you later rebuild or pull an image that is as new, the saved copy is removed

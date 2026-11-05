@@ -41,6 +41,7 @@
 <li><a href="users-and-security.html">Users and security</a></li>
 <li><a href="integrations.html">Integrations</a></li>
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
@@ -71,8 +72,11 @@ values to keep. Choose how a source's lines are read on the Sources page:</p>
 format (JSON, key=value, syslog or free text) and, for JSON and key=value lines, which keys hold what, from both their names
 and their values: timestamps become the time, IP addresses the source or destination (by names like <code>dest_</code>), <code>detail</code> or
 <code>description</code> the message, <code>username</code> or <code>actor</code> the user, a level field the severity. Without a level field, an action,
-outcome or status field decides it (failures and refusals medium, deletions and permission changes low, the rest
-informational; for HTTP status codes, 5xx medium and 4xx low). Free text gets a pattern that matches every sample. Check the
+outcome or status field decides it, by keywords: <code>breach</code>, <code>attack</code> and <code>malware</code> critical; <code>disable</code>, <code>revok</code>, <code>unauthori</code>,
+<code>privilege</code>, <code>admin</code>, <code>grant</code> and <code>critical</code> high; <code>delete</code>, <code>remov</code>, <code>denied</code>, <code>deny</code>, <code>refus</code>, <code>forbidden</code>, <code>reset</code>,
+<code>password</code>, <code>role</code>, <code>permission</code>, <code>reject</code>, <code>lock</code>, <code>block</code> and <code>alert</code> medium; <code>error</code>, <code>fail</code> and <code>invalid</code> low; the rest
+informational. A value with several keywords gets the most severe one's level. For HTTP status codes, 5xx is medium and 4xx
+low. When you choose a severity from a field's value, <strong>Reset</strong> next to <strong>Add rule</strong> puts these keyword rules back. Free text gets a pattern that matches every sample. Check the
 preview and the field mapping, adjust anything, and save. With <a href="parsers.html#ai-parsers">AI Parsers</a> on, <strong>Suggest with AI</strong> starts from
 the same draft and asks the model to improve it.</p>
 <p>JSON can be pasted as it comes: pretty-printed objects, or an array of them, become one object per line.</p>

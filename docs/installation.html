@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Installation · SIEMLite docs</title>
-<meta name="description" content="Two ways to run SIEMLite: a prebuilt binary (or built from source), or Docker. Either can run on the internet with a Let&#x27;s Encrypt certificate. The web UI is built into the binary, so there is nothing">
+<meta name="description" content="Three ways to run SIEMLite: a prebuilt binary (or built from source), a systemd service installed with one command, or Docker. Any can run on the internet with a Let&#x27;s Encrypt certificate. The web UI ">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
@@ -41,6 +41,7 @@
 <li><a href="users-and-security.html">Users and security</a></li>
 <li><a href="integrations.html">Integrations</a></li>
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
@@ -57,7 +58,7 @@
 </ul></aside>
   <main class="doc">
 <h1 id="installation">Installation</h1>
-<p>Two ways to run SIEMLite: a prebuilt binary (or built from source), or Docker. Either can run on the internet with a Let's Encrypt certificate. The web UI is built into the binary, so there is nothing else to install.</p>
+<p>Three ways to run SIEMLite: a prebuilt binary (or built from source), a systemd service installed with one command, or Docker. Any can run on the internet with a Let's Encrypt certificate. The web UI is built into the binary, so there is nothing else to install.</p>
 <h2 id="run-the-binary">Run the binary</h2>
 <p>Download a prebuilt binary for Linux, macOS or Windows (x86-64 or ARM64) from the
 <a href="https://github.com/justwaters/SIEMLite/releases/latest">latest release</a>, check it against <code>SHA256SUMS</code>, unpack it and run
@@ -73,9 +74,44 @@ with a random password that is printed <strong>once</strong>. Copy it. Open <a h
 warn about the self-signed certificate unless you trust <code>siemlite.crt</code> or supply your own with <code>-tls-cert</code> / <code>-tls-key</code>.</p>
 <p>Nothing to look at yet? Run the log generator next to it, which SIEMLite sets up on first start: <code>loggen -eps 10</code>
 sends ten realistic test events a second, attacks included. See <a href="test-logs.html">Test logs</a>.</p>
+<h2 id="install-as-a-service-linux">Install as a service (Linux)</h2>
+<p>On Ubuntu or any other systemd Linux server, SIEMLite installs itself. Download the release for your machine (or build
+it), then run it with the <code>install</code> subcommand as root:</p>
+<pre><code class="language-sh">sudo ./siemlite install --dry-run   # print what it would do, change nothing
+sudo ./siemlite install             # install, or update an existing install
+</code></pre>
+<p>It is a subcommand, not something the program does by itself, so running <code>./siemlite</code> to try it never touches the system.
+The installer:</p>
+<ol>
+<li>Copies the program to <code>/usr/local/bin/siemlite</code> (root-owned, replaced atomically).</li>
+<li>Creates the <code>siemlite</code> system user (no login, no home) and <code>/var/lib/siemlite</code> (mode 0700, owned by that user) for the
+   database, certificate and backups.</li>
+<li>Writes <code>/etc/siemlite/siemlite.env</code> from the defaults: HTTPS on <code>0.0.0.0:8443</code> and syslog on UDP and TCP 514
+   (<code>--no-syslog</code> leaves syslog off). Settings are <code>SIEMLITE_&lt;FLAG&gt;=value</code> lines, as in <a href="configuration.html">Options</a>.</li>
+<li>Writes the hardened <code>siemlite.service</code> (<code>NoNewPrivileges</code>, <code>ProtectSystem=strict</code>, <code>ProtectHome</code>, <code>PrivateTmp</code>,
+   <code>Restart=on-failure</code>; the one capability, binding ports below 1024, is granted only while the settings listen on one).</li>
+<li>Creates the <code>admin</code> account and prints its password <strong>once, on your terminal</strong> (it does not go to the journal), then
+   runs <code>systemctl daemon-reload</code>, <code>enable</code> and <code>start</code>.</li>
+</ol>
+<p>The service runs as an unprivileged user, so the <a href="security-audit.html">Security audit</a> checks for that and for file
+permissions pass.</p>
+<p><strong>Updating:</strong> download the new release and run <code>sudo ./siemlite install</code> again. It replaces the program atomically,
+restarts the service and says what changed (<code>program: v0.27 -&gt; v0.28</code>). It keeps the data, never overwrites
+<code>siemlite.env</code>, and rewrites the unit only if you haven't edited it; if you have, yours is kept and the new one is saved
+as <code>siemlite.service.new</code> to compare. Put changes to the unit in a drop-in (<code>systemctl edit siemlite</code>) so updates can
+refresh the rest. It refuses to go back to an older version unless you add <code>--allow-downgrade</code>.</p>
+<p><strong>Removing:</strong> <code>sudo siemlite install --uninstall</code> removes the service and program and keeps the data, settings and user;
+add <code>--purge</code> to delete those too. <code>--dry-run</code> works with both.</p>
+<p>It refuses, changing nothing and exiting non-zero, when it isn't run as root, the OS isn't Linux, systemd isn't running,
+or it is inside a container (use <a href="installation.html#run-with-docker">Docker</a> there).</p>
+<p><strong>How this relates to the other ways to update.</strong> Docker has its own path (<code>./update.sh</code>) and the installer won't run in a
+container, so they never meet. The <strong>System</strong> page's <a href="backups-and-updates.html#updates">Update and restart</a> button cannot replace the program
+of a service installed this way, on purpose: the program is root-owned and the service can't write to it, so a flaw in
+SIEMLite can't swap the program that an admin later runs with <code>sudo</code>. The card says it can't write to
+<code>/usr/local/bin</code>; update with <code>sudo ./siemlite install</code> instead. The System page still tells you when a release is out.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.27</code> in <code>.env</code> to use it, or leave it out to build from the
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28.2</code> in <code>.env</code> to use it, or leave it out to build from the
 checkout. Either way, start and update with <code>./update.sh</code>:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
