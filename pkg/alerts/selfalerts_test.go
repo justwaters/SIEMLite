@@ -274,3 +274,33 @@ func TestVolumeRuleOnInternalIgnoresAlertAudit(t *testing.T) {
 		t.Errorf("with real events over the threshold: %+v (want one alert counting 4)", got)
 	}
 }
+
+// A built-in rule an admin has edited isn't repaired: its alerts were raised by a search the repair can't speak for,
+// and recounting them with it could close genuine ones.
+func TestRepairLeavesAnEditedBuiltInRuleAlone(t *testing.T) {
+	repo, w, eng := setup(t)
+	ctx := context.Background()
+	rule5 := ruleByName(t, repo, "Mass ingestion of late logs")
+	edited := rule5
+	edited.Query = `action=ingest.late AND dealtracker` // narrower than shipped
+	if _, err := repo.SaveRule(ctx, edited, 5); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-24 * time.Hour)
+	auditEvent(t, w, repo, t0, "ingest.late", "Mass ingestion of late logs: 70 events from another source")
+	w.Drain(ctx)
+	res, err := repo.DB().Write.Exec(`INSERT INTO alerts (rule_id, rule_name, severity, group_by, group_value, status, count, first_seen, last_seen, created_at, updated_at)
+		VALUES (?, ?, 4, '', '', 'open', 1, ?, ?, 1, 1)`, rule5.ID, rule5.Name, t0.UnixMilli(), t0.UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := res.LastInsertId()
+	fixed, err := eng.RepairSelfTriggered(ctx)
+	if err != nil || len(fixed) != 0 {
+		t.Fatalf("repair of an edited rule = %+v, %v", fixed, err)
+	}
+	list, _, _ := repo.ListAlerts(ctx, "open", 10)
+	if len(list) != 1 || list[0].ID != id || list[0].Count != 1 {
+		t.Errorf("the genuine alert was changed: %+v", list)
+	}
+}

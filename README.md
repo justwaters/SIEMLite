@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28.1` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28.2` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -559,8 +559,10 @@ log, so a rule that matched that name would otherwise raise a new alert each tim
 built-in rules that read the audit log match the event's action (`action=ingest.late`, `action=signin.failed`), not words in
 its message, and a custom rule that does the same is the safest way to watch for one kind of audit event. The same holds for a
 "more than" rule on the INTERNAL source. Updating from v0.28 or earlier re-words those two built-in rules if they are still as
-shipped, and, once, corrects the alerts of "Mass ingestion of late logs" that the audit events had raised or inflated: an
-alert with no event of its own is closed (by SIEMLite), and an inflated count is lowered to the real one.
+shipped, and, once, corrects the alerts of "Mass ingestion of late logs" that the audit events had raised or inflated (unless
+an admin has edited that rule): an alert with no event of its own is closed (by SIEMLite), and an inflated count is lowered to
+the real one. If SIEMLite can't tell which source is its own audit log for a moment, the rules wait and look again rather than
+count those events.
 
 While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The [log

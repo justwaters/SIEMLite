@@ -149,3 +149,85 @@ func TestUpgradeToV18RewordsTheBuiltInRules(t *testing.T) {
 		t.Errorf("an edited built-in rule was changed: %q", got)
 	}
 }
+
+// A rule's events are the same whichever way they are read: the search as a match or as a per-row test,
+// with every other condition (severity, threat, source, field terms and the guard) kept in both.
+func TestRuleConditionsAreTheSameInBothForms(t *testing.T) {
+	ctx := context.Background()
+	_, repo := openTemp(t)
+	src := int64(7)
+	sev := 3
+	for _, ru := range []Rule{
+		{Query: "failed", SourceID: &src, MinSeverity: &sev, ThreatOnly: true, Conds: []Cond{{Field: "action", Values: []string{"x"}}}},
+		{Query: "", SourceID: &src, MinSeverity: &sev},
+		{Query: "failed"},
+		{},
+	} {
+		_, w1, a1, err := repo.ruleFrom(ctx, ru)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w2, a2, err := repo.ruleWhere(ctx, ru)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(w1) != len(w2) || len(a1) != len(a2) {
+			t.Errorf("%+v: %d conditions and %d arguments as a match, %d and %d as a per-row test", ru, len(w1), len(a1), len(w2), len(a2))
+		}
+		if ru.SourceID != nil {
+			found := false
+			for _, w := range w2 {
+				found = found || w == "e.source_id = ?"
+			}
+			if !found {
+				t.Errorf("%+v: the per-row form lost the source condition: %v", ru, w2)
+			}
+		}
+	}
+}
+
+// If the INTERNAL source can't be looked up, a rule's events can't be read: it fails and is tried
+// again, rather than counting SIEMLite's own alert audit events for want of a guard.
+func TestARuleFailsWhenTheGuardCannotBeBuilt(t *testing.T) {
+	ctx := context.Background()
+	db, repo := openTemp(t)
+	now := time.Now().UnixMilli()
+	if err := repo.InsertBatch(ctx, []Record{{Timestamp: now, CategoryUID: 6, ClassUID: 6003, SeverityID: 1, Message: "x", RawData: "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	seq, _ := repo.MaxEventSeq(ctx)
+	db.Read.Close() // the main database can't be read now (the INTERNAL source's id is not cached yet)
+	if _, err := repo.NewMatches(ctx, Rule{Name: "r", Query: "x", Threshold: 1, WindowMinutes: 5}, 0, seq); err == nil {
+		t.Error("NewMatches counted events without the guard")
+	}
+	if _, err := repo.WindowCounts(ctx, Rule{Name: "r", Query: "x"}, []RuleGroup{{Value: "", NewMax: now, New: 1}}, 60_000, seq); err == nil {
+		t.Error("WindowCounts counted events without the guard")
+	}
+	if _, err := repo.CountRuleEvents(ctx, Rule{Name: "r"}, "", now-1000, now+1000); err == nil {
+		t.Error("CountRuleEvents counted events without the guard")
+	}
+}
+
+// Counting an alert's events for a group: an empty group value is its own group (the events with
+// none of what the rule groups by), not "every group".
+func TestCountRuleEventsByGroup(t *testing.T) {
+	ctx := context.Background()
+	_, repo := openTemp(t)
+	now := time.Now().UnixMilli()
+	mk := func(i int, ip string) Record {
+		return Record{Timestamp: now - int64(i)*1000, CategoryUID: 3, ClassUID: 3002, SeverityID: 1, Message: "login failed", RawData: "login failed", SrcIP: ip}
+	}
+	if err := repo.InsertBatch(ctx, []Record{mk(0, "10.0.0.1"), mk(1, "10.0.0.1"), mk(2, "10.0.0.2"), mk(3, ""), mk(4, "")}); err != nil {
+		t.Fatal(err)
+	}
+	grouped := Rule{Name: "g", Query: "failed", GroupBy: "src_ip"}
+	for group, want := range map[string]int64{"10.0.0.1": 2, "10.0.0.2": 1, "": 2} {
+		if got, err := repo.CountRuleEvents(ctx, grouped, group, now-60_000, now); err != nil || got != want {
+			t.Errorf("group %q: %d, %v; want %d", group, got, err, want)
+		}
+	}
+	// A rule that doesn't group counts everything whatever the value.
+	if got, err := repo.CountRuleEvents(ctx, Rule{Name: "u", Query: "failed"}, "", now-60_000, now); err != nil || got != 5 {
+		t.Errorf("ungrouped: %d, %v; want 5", got, err)
+	}
+}
