@@ -6,8 +6,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"siemlite/pkg/auth"
+	"siemlite/pkg/ingest"
+	"siemlite/pkg/ocsf"
 	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
@@ -223,5 +226,87 @@ func TestFailedSignInAuditIsSafe(t *testing.T) {
 	// more tries there are.
 	if n := count(`"unknown username"`); n != 11 {
 		t.Errorf("failed and blocked sign-ins recorded = %d, want 10 failures and 1 block", n)
+	}
+}
+
+// Managing an alert (acknowledge, close, reopen) is recorded in the audit log under a message
+// that names the alert. No rule may count those records: they used to match the rule that
+// raised the alert, so each one raised or inflated an alert, forever.
+func TestManagingAnAlertRaisesNoAlerts(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	ctx := context.Background()
+
+	// A rule of ours whose phrase is in another rule's name, and an alert for that other rule.
+	for name, query := range map[string]string{"Unusual zebra activity": `"zebra sighting"`, "Zebra rule watcher": `"unusual zebra"`} {
+		if _, err := e.repo.SaveRule(ctx, storage.Rule{Name: name, Enabled: true, Severity: 3, Query: query, Threshold: 1, WindowMinutes: 5}, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// And the built-in rule: a real ingest.late event, as the worker records it.
+	e.deps.Audit.LateBatch(ctx, "DealTracker - Prod01", ingest.LateBatch{Stored: 481, Oldest: time.Now().AddDate(0, 0, -60), Newest: time.Now().AddDate(0, 0, -35)}, 730)
+	if err := e.worker.Submit(ctx, &ocsf.Event{Time: time.Now().UnixMilli(), CategoryUID: 6, ClassUID: 6003, SeverityID: 1,
+		Message: "zebra sighting at the north gate", RawData: "zebra sighting at the north gate"}); err != nil {
+		t.Fatal(err)
+	}
+	e.worker.Drain(ctx)
+	if _, err := e.alerts.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	alerts := func() map[string][]storage.Alert {
+		var res struct{ Alerts []storage.Alert }
+		e.call(root, "GET", "/api/v1/alerts?status=all", nil, &res, nil)
+		out := map[string][]storage.Alert{}
+		for _, a := range res.Alerts {
+			out[a.RuleName] = append(out[a.RuleName], a)
+		}
+		return out
+	}
+	before := alerts()
+	if len(before["Mass ingestion of late logs"]) != 1 || before["Mass ingestion of late logs"][0].Count != 1 {
+		t.Fatalf("an ingest.late event should open the built-in rule's alert once: %+v", before["Mass ingestion of late logs"])
+	}
+	if len(before["Unusual zebra activity"]) != 1 || len(before["Zebra rule watcher"]) != 0 {
+		t.Fatalf("the real zebra event: %+v", before)
+	}
+
+	// Manage both alerts through the API, as an analyst does.
+	for _, name := range []string{"Mass ingestion of late logs", "Unusual zebra activity"} {
+		id := before[name][0].ID
+		for _, status := range []string{"acknowledged", "closed", "open"} {
+			if got := e.call(root, "PATCH", fmt.Sprintf("/api/v1/alerts/%d", id), map[string]string{"status": status}, nil, nil); got != 200 {
+				t.Fatalf("%s -> %s = %d", name, status, got)
+			}
+		}
+	}
+	e.worker.Drain(ctx)
+	for i := 0; i < 3; i++ {
+		if _, err := e.alerts.Check(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after := alerts()
+	for name, list := range before {
+		if len(after[name]) != len(list) || after[name][0].Count != list[0].Count {
+			t.Errorf("managing the alert changed %s: before %+v, after %+v", name, list, after[name])
+		}
+	}
+	if len(after["Zebra rule watcher"]) != 0 {
+		t.Errorf("a rule fired on an alert's lifecycle events: %+v", after["Zebra rule watcher"])
+	}
+	if len(after) != len(before) {
+		t.Errorf("new alerts appeared from managing alerts: %v", after)
+	}
+	// The audit log does hold the lifecycle events (they are real); they are just not counted.
+	waitForEvent(t, e, root, "acknowledged the alert Mass ingestion of late logs")
+
+	// A second real ingest.late event still raises it.
+	e.deps.Audit.LateBatch(ctx, "Another source", ingest.LateBatch{Stored: 70, Oldest: time.Now().AddDate(0, 0, -50), Newest: time.Now().AddDate(0, 0, -40)}, 730)
+	e.worker.Drain(ctx)
+	e.alerts.Check(ctx)
+	if got := alerts()["Mass ingestion of late logs"]; len(got) != 1 || got[0].Count != 2 {
+		t.Errorf("after a second ingest.late event: %+v", got)
 	}
 }

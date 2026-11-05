@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 17
+const schemaVersion = 18
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -308,6 +308,14 @@ var upgrades = map[int][]string{
 			created_at   INTEGER NOT NULL,
 			last_used_at INTEGER
 		)`,
+	},
+	// v18: the two built-in rules that watch SIEMLite's own audit log match what the event is (its
+	// action), not words in its message. A phrase such as "mass ingestion" is also in the message
+	// "closed the alert Mass ingestion of late logs", so managing an alert raised a new one. Only a
+	// rule still worded as shipped is changed: one an admin edited is left alone.
+	17: {
+		`UPDATE alert_rules SET query = 'action=ingest.late' WHERE builtin = 1 AND name = 'Mass ingestion of late logs' AND query = '"mass ingestion"'`,
+		`UPDATE alert_rules SET query = 'action=signin.failed' WHERE builtin = 1 AND name = 'Failed sign-ins to SIEMLite' AND query = '"sign-in failed"'`,
 	},
 }
 

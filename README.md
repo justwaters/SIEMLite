@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28.1` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -533,7 +533,7 @@ Binaries for loggen come with every release, next to `siemlite`. To build it: `g
 ## Alerts
 
 A rule counts matching events and raises an alert when there are enough of them within a time window. Matching events
-can be narrowed by a search (the same syntax as the Database), a minimum severity, threat intel matches and a source,
+can be narrowed by a search (the same syntax as the Database, including field terms such as `action=ingest.late`), a minimum severity, threat intel matches and a source,
 and counted separately for each source address, destination address, user or host. The alert engine checks new events
 every 10 seconds.
 
@@ -542,8 +542,8 @@ every 10 seconds.
 | SSH brute force | 10 `"failed password"` events from one address within 5 minutes |
 | Threat intel match | any event involving an address, domain or hash on a threat list |
 | Critical event | any event rated Critical or Fatal, per host |
-| Failed sign-ins to SIEMLite | 5 failed sign-ins to SIEMLite itself from one address within 15 minutes |
-| Mass ingestion of late logs | 50 or more events more than 30 days old arriving from one source at once (High; see [Keeping events](#keeping-events)) |
+| Failed sign-ins to SIEMLite | 5 failed sign-ins to SIEMLite itself from one address within 15 minutes (the audit events with `action=signin.failed`) |
+| Mass ingestion of late logs | 50 or more events more than 30 days old arriving from one source at once (High; the audit events with `action=ingest.late`; see [Keeping events](#keeping-events)) |
 
 A rule can instead watch **how much one source sends**: choose "A source sends more than a number of events" or "fewer than a
 number of events" when you make a rule, then the source, the number and the time window ("fewer than 1 event in 15 minutes" is
@@ -552,6 +552,15 @@ window, by when the events happened, every 10 seconds, so a batch of old logs do
 waits a whole window after it is saved or edited, or after SIEMLite starts, before it can say a source went quiet, since
 SIEMLite being off looks the same. The alert's count is the highest number seen for "more than" and the lowest for "fewer than".
 A source can't be deleted while a rule watches it.
+
+No rule ever counts the audit events SIEMLite writes about alerts themselves (`alert.open`, `alert.acknowledged`, `alert.closed`
+and any later `alert.*` action from the INTERNAL source), whatever its search says. Managing an alert names it in the audit
+log, so a rule that matched that name would otherwise raise a new alert each time one was acknowledged or closed. The two
+built-in rules that read the audit log match the event's action (`action=ingest.late`, `action=signin.failed`), not words in
+its message, and a custom rule that does the same is the safest way to watch for one kind of audit event. The same holds for a
+"more than" rule on the INTERNAL source. Updating from v0.28 or earlier re-words those two built-in rules if they are still as
+shipped, and, once, corrects the alerts of "Mass ingestion of late logs" that the audit events had raised or inflated: an
+alert with no event of its own is closed (by SIEMLite), and an inflated count is lowered to the real one.
 
 While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The [log

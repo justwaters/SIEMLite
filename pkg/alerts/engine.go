@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"siemlite/pkg/search"
 	"siemlite/pkg/storage"
 )
 
@@ -29,6 +30,11 @@ type Store interface {
 	ActiveAlertGroups(ctx context.Context, ruleID int64) (map[string]bool, error)
 	RaiseAlert(ctx context.Context, ru storage.Rule, value string, newCount, windowCount, first, last int64, nowMs int64) (bool, error)
 	CountSourceEvents(ctx context.Context, sourceID, from, to int64) (int64, error)
+	ListSources(ctx context.Context) ([]storage.Source, error)
+	CountRuleEvents(ctx context.Context, ru storage.Rule, groupValue string, startMs, endMs int64) (int64, error)
+	AlertsOfRule(ctx context.Context, ruleID int64) ([]storage.Alert, error)
+	SetAlertCount(ctx context.Context, id, count, nowMs int64) error
+	SetAlertStatus(ctx context.Context, id int64, status, by string, nowMs int64) (*storage.Alert, error)
 	RaiseVolumeAlert(ctx context.Context, ru storage.Rule, count, first, last, nowMs int64) (bool, error)
 	Setting(ctx context.Context, key, def string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
@@ -159,6 +165,10 @@ func (e *Engine) checkVolume(ctx context.Context, rules []storage.Rule, now int6
 
 // checkRule runs one rule over the events with arrival numbers in (from, maxID].
 func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, now int64, res *Result) error {
+	ru, err := e.prepare(ctx, ru)
+	if err != nil {
+		return err
+	}
 	groups, err := e.store.NewMatches(ctx, ru, from, maxID)
 	if err != nil {
 		return err
@@ -189,6 +199,18 @@ func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, no
 		}
 	}
 	return nil
+}
+
+// prepare reads the field terms out of a rule's search, as the search box does:
+// "action=ingest.late" matches what the event is, not words in its text. The
+// words left over are the full-text search.
+func (e *Engine) prepare(ctx context.Context, ru storage.Rule) (storage.Rule, error) {
+	words, conds, threat, err := search.ParseTerms(ctx, e.store, ru.Query, false, nil)
+	if err != nil {
+		return ru, err
+	}
+	ru.Query, ru.Conds, ru.ThreatOnly = words, conds, ru.ThreatOnly || threat
+	return ru, nil
 }
 
 // Run checks every interval until ctx is done.
