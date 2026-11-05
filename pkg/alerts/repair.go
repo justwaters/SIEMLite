@@ -7,6 +7,10 @@ import (
 	"siemlite/pkg/storage"
 )
 
+// repairKey marks that THIS repair (the alerts that SIEMLite's own audit events raised or inflated, before
+// v0.28.1) has run on this database. It is not a version of "the repair": a different clean-up of other data
+// takes a key of its own, named for what it does, so one finishing never stops another from running. Changing
+// this key would only make this same repair run again.
 const repairKey = "alerts_self_trigger_repaired"
 
 // selfTriggered are the built-in rules that watch SIEMLite's own audit log, and so could be raised by

@@ -197,9 +197,11 @@ func groupExpr(groupBy string) string {
 // and any future alert lifecycle action).
 const selfAlertAction = "alert."
 
-// internalSourceID is the id of the INTERNAL source (SIEMLite's audit log), or 0 when there is none. A
-// lookup that fails is an error, never "no guard": the caller stops, so a rule can't count the audit of
-// managing alerts just because a read failed once.
+// internalSourceID is the id of the INTERNAL source (SIEMLite's audit log). It returns:
+//   - (id, nil): the source.
+//   - (0, nil): there is no INTERNAL source, so there is nothing to guard.
+//   - (0, err): the lookup failed. The caller stops, so a rule can't count the audit of managing alerts
+//     just because a read failed once.
 func (r *Repository) internalSourceID(ctx context.Context) (int64, error) {
 	if id := r.internalID.Load(); id != 0 {
 		return id, nil
