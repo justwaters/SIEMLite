@@ -41,6 +41,7 @@
 <li><a href="users-and-security.html">Users and security</a></li>
 <li><a href="integrations.html">Integrations</a></li>
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
 <li><a href="email.html">Email</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
@@ -58,7 +59,7 @@
   <main class="doc">
 <h1 id="alerts">Alerts</h1>
 <p>A rule counts matching events and raises an alert when there are enough of them within a time window. Matching events
-can be narrowed by a search (the same syntax as the Database), a minimum severity, threat intel matches and a source,
+can be narrowed by a search (the same syntax as the Database, including field terms such as <code>action=ingest.late</code>), a minimum severity, threat intel matches and a source,
 and counted separately for each source address, destination address, user or host. The alert engine checks new events
 every 10 seconds.</p>
 <div class="tablewrap"><table>
@@ -83,11 +84,11 @@ every 10 seconds.</p>
 </tr>
 <tr>
 <td>Failed sign-ins to SIEMLite</td>
-<td>5 failed sign-ins to SIEMLite itself from one address within 15 minutes</td>
+<td>5 failed sign-ins to SIEMLite itself from one address within 15 minutes (the audit events with <code>action=signin.failed</code>)</td>
 </tr>
 <tr>
 <td>Mass ingestion of late logs</td>
-<td>50 or more events more than 30 days old arriving from one source at once (High; see <a href="backups-and-updates.html#keeping-events">Keeping events</a>)</td>
+<td>50 or more events more than 30 days old arriving from one source at once (High; the audit events with <code>action=ingest.late</code>; see <a href="backups-and-updates.html#keeping-events">Keeping events</a>)</td>
 </tr>
 </tbody>
 </table></div>
@@ -98,6 +99,16 @@ window, by when the events happened, every 10 seconds, so a batch of old logs do
 waits a whole window after it is saved or edited, or after SIEMLite starts, before it can say a source went quiet, since
 SIEMLite being off looks the same. The alert's count is the highest number seen for "more than" and the lowest for "fewer than".
 A source can't be deleted while a rule watches it.</p>
+<p>No rule ever counts the audit events SIEMLite writes about alerts themselves (<code>alert.open</code>, <code>alert.acknowledged</code>, <code>alert.closed</code>
+and any later <code>alert.*</code> action from the INTERNAL source), whatever its search says. Managing an alert names it in the audit
+log, so a rule that matched that name would otherwise raise a new alert each time one was acknowledged or closed. The two
+built-in rules that read the audit log match the event's action (<code>action=ingest.late</code>, <code>action=signin.failed</code>), not words in
+its message, and a custom rule that does the same is the safest way to watch for one kind of audit event. The same holds for a
+"more than" rule on the INTERNAL source. Updating from v0.28 or earlier re-words those two built-in rules if they are still as
+shipped, and, once, corrects the alerts of "Mass ingestion of late logs" that the audit events had raised or inflated (unless
+an admin has edited that rule): an alert with no event of its own is closed (by SIEMLite), and an inflated count is lowered to
+the real one. If SIEMLite can't tell which source is its own audit log for a moment, the rules wait and look again rather than
+count those events.</p>
 <p>While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The <a href="test-logs.html">log
 generator</a>'s attacks raise alerts too.</p>
