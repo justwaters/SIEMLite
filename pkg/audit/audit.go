@@ -99,10 +99,13 @@ func (l *Logger) Record(ctx context.Context, e Entry) {
 		l.log.Error("audit: no INTERNAL source", "err", err)
 		return
 	}
-	fields := map[string]string{"action": e.Action}
+	fields := make(map[string]string, len(e.Fields)+1)
 	for k, v := range e.Fields {
 		fields[k] = v
 	}
+	// Set last: no field an entry carries can change what the event is. Rules, and the guard that keeps
+	// them from counting SIEMLite's own alert events, read this to tell events apart.
+	fields["action"] = e.Action
 	if err := l.submit.SubmitWith(ctx, Event(e, l.host, time.Now()), ingest.SubmitOptions{SourceID: id, Fields: fields}); err != nil {
 		l.log.Error("audit: event not stored", "action", e.Action, "err", err)
 	}
