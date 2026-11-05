@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Record is one row of the events table.
@@ -90,6 +91,8 @@ type Cond struct {
 // Repository provides data access over a DB.
 type Repository struct {
 	db *DB
+
+	internalID atomic.Int64 // the INTERNAL source's id, once looked up (see internalSourceID)
 }
 
 // DB returns the underlying database (for tests and maintenance).

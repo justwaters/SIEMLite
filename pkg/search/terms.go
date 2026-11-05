@@ -92,10 +92,21 @@ func splitValues(s string) ([]string, error) {
 	return kept, nil
 }
 
-// parseTerms takes the field terms out of a search box's text and returns the
-// words that are left (for the full-text search), the conditions, and whether
-// only threat intel matches were asked for. Words inside quotes are never read as terms.
-func (e *Engine) parseTerms(ctx context.Context, text string, q *Query) (words string, conds []storage.Cond, threat bool, err error) {
+// SourceLister is what a source= term needs to turn names into ids.
+type SourceLister interface {
+	ListSources(ctx context.Context) ([]storage.Source, error)
+}
+
+func (e *Engine) parseTerms(ctx context.Context, text string, q *Query) (string, []storage.Cond, bool, error) {
+	return ParseTerms(ctx, e.repo, text, q.Restrict, q.AllowedSources)
+}
+
+// ParseTerms takes the field terms out of a search box's text (or an alert rule's
+// search) and returns the words that are left (for the full-text search), the
+// conditions, and whether only threat intel matches were asked for. Words inside
+// quotes are never read as terms. For a user limited to some sources (restrict),
+// source= can name only those in allowed.
+func ParseTerms(ctx context.Context, sources SourceLister, text string, restrict bool, allowed []int64) (words string, conds []storage.Cond, threat bool, err error) {
 	tokens := splitTokens(text)
 	drop := make([]bool, len(tokens))
 	isTerm := make([]bool, len(tokens))
@@ -144,7 +155,7 @@ func (e *Engine) parseTerms(ctx context.Context, text string, q *Query) (words s
 		case "ip", "src_ip", "dst_ip", "user", "host", "program", "country", "asn", "severity", "category":
 			// checked below
 		case "source":
-			ids, serr := e.sourceIDs(ctx, vals, q)
+			ids, serr := sourceIDs(ctx, sources, vals, restrict, allowed)
 			if serr != nil {
 				return "", nil, false, bad(serr.Error())
 			}
@@ -198,20 +209,20 @@ func (e *Engine) parseTerms(ctx context.Context, text string, q *Query) (words s
 // sourceIDs turns source names (or ids) into ids. A user limited to some sources
 // can name only those: any other name is "no source called", as if it didn't
 // exist, so the search can't be used to find out which sources there are.
-func (e *Engine) sourceIDs(ctx context.Context, vals []string, q *Query) ([]string, error) {
-	list, err := e.repo.ListSources(ctx)
+func sourceIDs(ctx context.Context, sources SourceLister, vals []string, restrict bool, allowedIDs []int64) ([]string, error) {
+	list, err := sources.ListSources(ctx)
 	if err != nil {
 		return nil, err
 	}
 	allowed := map[int64]bool{}
-	for _, id := range q.AllowedSources {
+	for _, id := range allowedIDs {
 		allowed[id] = true
 	}
 	var out []string
 	for _, v := range vals {
 		found := false
 		for _, s := range list {
-			if q.Restrict && !allowed[s.ID] {
+			if restrict && !allowed[s.ID] {
 				continue
 			}
 			if strings.EqualFold(s.Name, v) || strconv.FormatInt(s.ID, 10) == v {

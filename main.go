@@ -292,6 +292,21 @@ func run() error {
 			Fields:  map[string]string{"from": prev, "to": version(), "sessions": strconv.FormatInt(ended, 10)}})
 	}
 	alertEngine := alerts.New(repo, nil)
+	// Once per database: alerts that SIEMLite's own audit events raised or inflated (v0.28.1 and earlier) are corrected.
+	if fixed, err := alertEngine.RepairSelfTriggered(ctx); err != nil {
+		slog.Error("couldn't correct the alerts counted from SIEMLite's own audit events", "err", err)
+	} else if len(fixed) > 0 {
+		closed := 0
+		for _, f := range fixed {
+			if f.Closed {
+				closed++
+			}
+		}
+		auditLog.Record(ctx, audit.Entry{Action: "alert.repair", Actor: "SIEMLite", Severity: 2,
+			Message: fmt.Sprintf("SIEMLite corrected %d alert(s) of the rule %s whose count came from its own audit events about managing the alert, and closed %d that no other event had caused",
+				len(fixed), fixed[0].Rule, closed),
+			Fields: map[string]string{"alerts": strconv.Itoa(len(fixed)), "closed": strconv.Itoa(closed)}})
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
