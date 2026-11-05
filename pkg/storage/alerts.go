@@ -197,20 +197,28 @@ func groupExpr(groupBy string) string {
 // and any future alert lifecycle action).
 const selfAlertAction = "alert."
 
-// internalSourceID is the id of the INTERNAL source (SIEMLite's audit log), or 0.
-func (r *Repository) internalSourceID(ctx context.Context) int64 {
+// internalSourceID is the id of the INTERNAL source (SIEMLite's audit log), or 0 when there is none. A
+// lookup that fails is an error, never "no guard": the caller stops, so a rule can't count the audit of
+// managing alerts just because a read failed once.
+func (r *Repository) internalSourceID(ctx context.Context) (int64, error) {
 	if id := r.internalID.Load(); id != 0 {
-		return id
+		return id, nil
 	}
 	var id int64
-	if err := r.db.Read.QueryRowContext(ctx, `SELECT id FROM sources WHERE kind = ? LIMIT 1`, SourceInternal).Scan(&id); err != nil {
-		return 0
+	err := r.db.Read.QueryRowContext(ctx, `SELECT id FROM sources WHERE kind = ? LIMIT 1`, SourceInternal).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find the INTERNAL source: %w", err)
 	}
 	r.internalID.Store(id)
-	return id
+	return id, nil
 }
 
-// ruleFrom builds the FROM clause and conditions selecting a rule's events.
+// ruleConds are the conditions on events (e) that a rule puts besides its search: severity, threat
+// intel, source, field terms, and the guard below. ruleFrom and ruleWhere both start from these, so a
+// rule's events are the same whichever way they are read.
 //
 // No rule ever counts the audit events SIEMLite writes about alerts themselves:
 // managing an alert (acknowledging it, closing it) names the alert in its message, so
@@ -218,15 +226,9 @@ func (r *Repository) internalSourceID(ctx context.Context) int64 {
 // guard is here, in the engine's one way of selecting events, so no rule, built in or
 // custom, can fall into that loop. Only SIEMLite's own audit events are skipped: an
 // outside log that happens to have an action starting with "alert." still counts.
-func (r *Repository) ruleFrom(ctx context.Context, ru Rule) (string, []string, []any) {
-	from := "events e"
+func (r *Repository) ruleConds(ctx context.Context, ru Rule) ([]string, []any, error) {
 	var where []string
 	var args []any
-	if q := strings.TrimSpace(ru.Query); q != "" {
-		from = "events_fts JOIN events e ON e.id = events_fts.rowid"
-		where = append(where, "events_fts MATCH ?")
-		args = append(args, q)
-	}
 	if ru.MinSeverity != nil {
 		where = append(where, "e.severity_id >= ? AND e.severity_id <= 6")
 		args = append(args, *ru.MinSeverity)
@@ -242,21 +244,43 @@ func (r *Repository) ruleFrom(ctx context.Context, ru Rule) (string, []string, [
 		cond, a := condSQL(c)
 		where, args = append(where, cond), append(args, a...)
 	}
-	if cond, a := r.selfAlertGuard(ctx); cond != "" {
+	cond, a, err := r.selfAlertGuard(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cond != "" {
 		where, args = append(where, cond), append(args, a...)
 	}
-	return from, where, args
+	return where, args, nil
 }
 
-// selfAlertGuard is the condition that leaves out SIEMLite's own alert audit events (see ruleFrom),
+// ruleFrom builds the FROM clause and conditions selecting a rule's events, with the search as the
+// first condition when it has one.
+func (r *Repository) ruleFrom(ctx context.Context, ru Rule) (string, []string, []any, error) {
+	from := "events e"
+	var where []string
+	var args []any
+	if q := strings.TrimSpace(ru.Query); q != "" {
+		from = "events_fts JOIN events e ON e.id = events_fts.rowid"
+		where = append(where, "events_fts MATCH ?")
+		args = append(args, q)
+	}
+	conds, a, err := r.ruleConds(ctx, ru)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return from, append(where, conds...), append(args, a...), nil
+}
+
+// selfAlertGuard is the condition that leaves out SIEMLite's own alert audit events (see ruleConds),
 // or "" when there is no INTERNAL source. Every way a rule counts events uses it.
-func (r *Repository) selfAlertGuard(ctx context.Context) (string, []any) {
-	id := r.internalSourceID(ctx)
-	if id == 0 {
-		return "", nil
+func (r *Repository) selfAlertGuard(ctx context.Context) (string, []any, error) {
+	id, err := r.internalSourceID(ctx)
+	if err != nil || id == 0 {
+		return "", nil, err
 	}
 	return "NOT COALESCE(e.source_id = ? AND COALESCE(json_valid(e.fields), 0) AND COALESCE(json_extract(e.fields, '$.action'), '') LIKE ?, 0)",
-		[]any{id, selfAlertAction + "%"}
+		[]any{id, selfAlertAction + "%"}, nil
 }
 
 // RuleGroup is a group with new events matching a rule.
@@ -283,7 +307,10 @@ func (r *Repository) NewMatches(ctx context.Context, ru Rule, afterSeq, maxSeq i
 		// With few new rows, walk them and test each against the search rather
 		// than reading every match of the search in every day; with many (a
 		// backlog), let the search drive.
-		from, where, args := r.ruleFrom(ctx, ru)
+		from, where, args, err := r.ruleFrom(ctx, ru)
+		if err != nil {
+			return nil, err
+		}
 		if s.day != 0 {
 			var fresh int
 			if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM events INDEXED BY idx_events_seq
@@ -295,7 +322,9 @@ func (r *Repository) NewMatches(ctx context.Context, ru Rule, afterSeq, maxSeq i
 			}
 			if fresh < fewNew {
 				from = "events e INDEXED BY idx_events_seq"
-				where, args = r.ruleWhere(ctx, ru)
+				if where, args, err = r.ruleWhere(ctx, ru); err != nil {
+					return nil, err
+				}
 			}
 		}
 		where = append(where, s.seqCol()+" > ?", s.seqCol()+" <= ?")
@@ -340,12 +369,18 @@ func (r *Repository) NewMatches(ctx context.Context, ru Rule, afterSeq, maxSeq i
 const fewNew = 2000
 
 // ruleWhere is a rule's conditions, with its search as a test of each row.
-func (r *Repository) ruleWhere(ctx context.Context, ru Rule) ([]string, []any) {
-	_, where, args := r.ruleFrom(ctx, ru)
+func (r *Repository) ruleWhere(ctx context.Context, ru Rule) ([]string, []any, error) {
+	var where []string
+	var args []any
 	if q := strings.TrimSpace(ru.Query); q != "" {
-		where[0] = "EXISTS (SELECT 1 FROM events_fts WHERE events_fts MATCH ? AND events_fts.rowid = e.id)"
+		where = append(where, "EXISTS (SELECT 1 FROM events_fts WHERE events_fts MATCH ? AND events_fts.rowid = e.id)")
+		args = append(args, q)
 	}
-	return where, args
+	conds, a, err := r.ruleConds(ctx, ru)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(where, conds...), append(args, a...), nil
 }
 
 // WindowStat is a group's matching events within a rule's window.
@@ -376,7 +411,10 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 		if err != nil {
 			return nil, err
 		}
-		from, where, args := r.ruleFrom(ctx, ru)
+		from, where, args, err := r.ruleFrom(ctx, ru)
+		if err != nil {
+			return nil, err
+		}
 		where = append(where, "e.timestamp >= ?", "e.timestamp <= ?", s.seqCol()+" <= ?")
 		args = append(args, lo-window, hi, maxSeq)
 		if lw, la := d.legacyWhere(s); lw != "" {
@@ -416,7 +454,7 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 
 // CountRuleEvents counts the events a rule matches (as it matches them now, with its field
 // terms and without SIEMLite's own alert audit events) with event times in [startMs, endMs],
-// for one group value when the rule groups and groupValue is given.
+// for one group value when the rule groups (an empty groupValue is the group of events with none of what it groups by).
 func (r *Repository) CountRuleEvents(ctx context.Context, ru Rule, groupValue string, startMs, endMs int64) (int64, error) {
 	d := r.db.days
 	d.move.RLock()
@@ -427,10 +465,13 @@ func (r *Repository) CountRuleEvents(ctx context.Context, ru Rule, groupValue st
 		if err != nil {
 			return 0, err
 		}
-		from, where, args := r.ruleFrom(ctx, ru)
+		from, where, args, err := r.ruleFrom(ctx, ru)
+		if err != nil {
+			return 0, err
+		}
 		where = append(where, "e.timestamp >= ?", "e.timestamp <= ?")
 		args = append(args, startMs, endMs)
-		if ru.GroupBy != "" && groupValue != "" {
+		if ru.GroupBy != "" { // an empty value is a group too: the events that have none of what the rule groups by
 			where = append(where, groupExpr(ru.GroupBy)+" = ?")
 			args = append(args, groupValue)
 		}
@@ -530,7 +571,11 @@ func (r *Repository) CountSourceEvents(ctx context.Context, sourceID, from, to i
 		}
 		where := []string{"e.source_id = ?", "e.timestamp >= ?", "e.timestamp <= ?"}
 		args := []any{sourceID, from, to}
-		if cond, a := r.selfAlertGuard(ctx); cond != "" { // a volume rule on INTERNAL doesn't count the audit of managing alerts either
+		cond, a, err := r.selfAlertGuard(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if cond != "" { // a volume rule on INTERNAL doesn't count the audit of managing alerts either
 			where, args = append(where, cond), append(args, a...)
 		}
 		if lw, la := d.legacyWhere(s); lw != "" {

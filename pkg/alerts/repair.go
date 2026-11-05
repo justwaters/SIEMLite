@@ -9,9 +9,11 @@ import (
 
 const repairKey = "alerts_self_trigger_repaired"
 
-// selfTriggered are the built-in rules that watch SIEMLite's own audit log, and so could be
-// raised by the audit events about managing their own alerts.
-var selfTriggered = []string{"Mass ingestion of late logs"}
+// selfTriggered are the built-in rules that watch SIEMLite's own audit log, and so could be raised by
+// the audit events about managing their own alerts, with the search they have as shipped. An alert is
+// recounted by what the rule's search means, so a rule an admin has edited is not repaired: its
+// alerts were raised by a search this code can't speak for.
+var selfTriggered = map[string]string{"Mass ingestion of late logs": "action=ingest.late"}
 
 // Repair is one alert whose count was corrected.
 type Repair struct {
@@ -46,7 +48,12 @@ func (e *Engine) RepairSelfTriggered(ctx context.Context) ([]Repair, error) {
 	var out []Repair
 	now := e.now().UnixMilli()
 	for _, ru := range rules {
-		if !ru.Builtin || !contains(selfTriggered, ru.Name) {
+		shipped, ok := selfTriggered[ru.Name]
+		if !ru.Builtin || !ok {
+			continue
+		}
+		if ru.Query != shipped {
+			e.log.Info("not correcting the alerts of a built-in rule that was edited", "rule", ru.Name)
 			continue
 		}
 		pr, err := e.prepare(ctx, ru)
@@ -96,13 +103,4 @@ func (e *Engine) RepairSelfTriggered(ctx context.Context) ([]Repair, error) {
 		}
 	}
 	return out, e.store.SetSetting(ctx, repairKey, "1")
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
