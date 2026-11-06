@@ -2274,7 +2274,7 @@ function details(ev) {
   add("Source", ev.source_name);
   add("Program", ev.source);
   add("Host", ev.host);
-  add("User", ev.user_display ? `${ev.user_display} (${ev.user_name})` : ev.user_name);
+  add("User", ev.user_display ? el("span", { textContent: ev.user_display, title: ev.user_name }) : ev.user_name);
   add("Category", CAT[ev.category_uid]);
   for (const [label, side, ip] of [["Source IP", "src_endpoint", ev.src_ip], ["Destination IP", "dst_endpoint", ev.dst_ip]]) {
     const e = enr[side] || {};
