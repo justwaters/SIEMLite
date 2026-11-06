@@ -1171,6 +1171,22 @@
         </div>
         <p class="notice" id="ret-msg" role="status" hidden></p>
       </form>
+
+      <form class="panel sched" id="raw-form" autocomplete="off">
+        <div><h2>Keep original lines</h2>
+          <p class="hint" id="raw-status">Checking…</p></div>
+        <div class="sched-fields">
+          <div class="seg" role="group" aria-label="Keep original lines for">
+            <button type="button" data-raw="24" aria-pressed="false">1 day</button>
+            <button type="button" data-raw="168" aria-pressed="false">7 days</button>
+            <button type="button" data-raw="720" aria-pressed="false">30 days</button>
+            <button type="button" data-raw="0" aria-pressed="false">Always</button>
+          </div>
+          <label class="field-label">Hours <input class="input" id="raw-hours" type="number" min="0" max="87600" required></label>
+          <button class="btn btn-primary" type="submit" id="raw-save">Save</button>
+        </div>
+        <p class="notice" id="raw-msg" role="status" hidden></p>
+      </form>
       <form class="panel sched" id="sched-form">
         <div><h2>Automatic backups</h2><p class="hint">Older automatic backups are removed as new ones are made. Backups you make,
           upload, or that are made before a restore are only removed by you.</p></div>
@@ -2292,9 +2308,9 @@ function eventText(ev) {
   try { const o = JSON.parse(ev.raw_data); if (o && o.message) return o.message; } catch {}
   return (ev.raw_data || "").replace(SYSLOG_HEADER, "");
 }
-// The original line is kept for a day after the event arrives; after that only the parsed event is left.
+// The original line is kept for the time set on the System page (a day unless changed); after that only the parsed event is left.
 function rawLine(ev) {
-  if (!ev.raw_data) return el("p", { className: "muted", textContent: "The original line is removed 24 hours after it arrives." });
+  if (!ev.raw_data) return el("p", { className: "muted", textContent: "The original line has been removed. How long it is kept is set on the System page." });
   return el("pre", { className: "raw", textContent: prettyRaw(ev.raw_data) });
 }
 function prettyRaw(raw) { try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; } }
@@ -3283,6 +3299,7 @@ async function openSystem() {
   loadUpdate(false);
   loadTLS();
   loadRetention();
+  loadRawKeep();
   notice($("tls-msg"), "");
   await loadBackups(true);
 }
@@ -4031,6 +4048,41 @@ $("ret-form").onsubmit = async (e) => {
     await loadRetention();
   } catch (err) { notice($("ret-msg"), err.message); }
   $("ret-save").disabled = false;
+};
+
+// --- Keep original lines ---
+let rawView = null;
+const rawText = (h) => h === 0 ? "as long as their events" : h % 24 === 0 ? daysText(h / 24) : `${h} ${h === 1 ? "hour" : "hours"}`;
+function rawPressed() {
+  for (const b of document.querySelectorAll("[data-raw]")) b.setAttribute("aria-pressed", String(b.dataset.raw === $("raw-hours").value));
+}
+async function loadRawKeep() {
+  try {
+    rawView = await apiJSON("/api/v1/system/raw-retention");
+    $("raw-hours").value = rawView.hours;
+    $("raw-hours").max = rawView.max;
+    rawPressed();
+    $("raw-status").textContent = `The original line of each event is kept ${rawText(rawView.hours)}${rawView.hours === 0 ? "" : " after it arrives, then removed"}. ` +
+      `The parsed event, its extra fields and its search stay for the whole retention period either way. ` +
+      `Longer takes more disk space: the original is usually the largest part of an event. 0 keeps it as long as the event.` +
+      (rawView.saved ? "" : ` Not saved yet: the default is ${rawText(rawView.default)}.`);
+  } catch (err) { $("raw-status").textContent = err.message; }
+}
+for (const b of document.querySelectorAll("[data-raw]")) b.onclick = () => { $("raw-hours").value = b.dataset.raw; rawPressed(); };
+$("raw-hours").oninput = rawPressed;
+$("raw-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const hours = Number($("raw-hours").value);
+  const shorter = rawView && hours !== 0 && (rawView.hours === 0 || hours < rawView.hours);
+  if (shorter &&
+      !(await confirmAction(`Keep original lines only ${rawText(hours)}?`, `Original lines older than that are removed now, and can't be recovered except from a backup. The parsed events stay.`, "Remove older lines"))) return;
+  $("raw-save").disabled = true;
+  try {
+    const v = await apiJSON("/api/v1/system/raw-retention", { method: "PUT", json: { hours } });
+    notice($("raw-msg"), v.cleaning ? `Saved. Original lines older than ${rawText(v.hours)} are being removed.` : `Saved. Original lines are kept ${rawText(v.hours)}.`, true);
+    await loadRawKeep();
+  } catch (err) { notice($("raw-msg"), err.message); }
+  $("raw-save").disabled = false;
 };
 
 async function loadTLS() {

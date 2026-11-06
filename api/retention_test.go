@@ -137,3 +137,36 @@ func TestMassIngestionOfLateLogsRaisesAnAlert(t *testing.T) {
 		}
 	}
 }
+
+// The System page's "keep original lines" setting: admins only, 0 to 87600 hours, 24 until saved.
+func TestRawKeepSetting(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	e.user("sam", auth.RoleStandard)
+	root, sam := e.client(), e.client()
+	e.login(root, "root", password)
+	e.login(sam, "sam", password)
+
+	var v map[string]any
+	if got := e.call(root, "GET", "/api/v1/system/raw-retention", nil, &v, nil); got != 200 || v["hours"] != float64(24) || v["default"] != float64(24) || v["saved"] != false {
+		t.Fatalf("get = %d %v", got, v)
+	}
+	if got := e.call(sam, "PUT", "/api/v1/system/raw-retention", map[string]int{"hours": 48}, nil, nil); got != 403 {
+		t.Errorf("standard user = %d", got)
+	}
+	for _, bad := range []map[string]int{{"hours": -1}, {"hours": storage.MaxRawKeepHours + 1}, {}} {
+		if got := e.call(root, "PUT", "/api/v1/system/raw-retention", bad, nil, nil); got != 400 {
+			t.Errorf("%v = %d", bad, got)
+		}
+	}
+	if got := e.call(root, "PUT", "/api/v1/system/raw-retention", map[string]int{"hours": 168}, &v, nil); got != 200 || v["hours"] != float64(168) || v["saved"] != true || v["cleaning"] == true {
+		t.Fatalf("lengthen = %d %v", got, v)
+	}
+	if got := e.call(root, "PUT", "/api/v1/system/raw-retention", map[string]int{"hours": 0}, &v, nil); got != 200 || v["hours"] != float64(0) {
+		t.Fatalf("forever = %d %v", got, v)
+	}
+	// Going from "always" to a time shortens it: lines past it are removed now.
+	if got := e.call(root, "PUT", "/api/v1/system/raw-retention", map[string]int{"hours": 24}, &v, nil); got != 200 || v["cleaning"] != true {
+		t.Fatalf("from always to 24 = %d %v", got, v)
+	}
+}

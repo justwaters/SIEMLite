@@ -4,13 +4,47 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 )
 
-// RawKeep is how long an event's original line is kept after it arrives. The
-// parsed event (message, fields, addresses) is kept for the whole retention
-// period, and is what search covers.
+// RawKeep is how long an event's original line is kept after it arrives,
+// unless the System page says otherwise (see RawKeepHours). The parsed event
+// (message, fields, addresses) is kept for the whole retention period, and is
+// what search covers.
 const RawKeep = 24 * time.Hour
+
+const (
+	// RawKeepSetting holds the number of hours original lines are kept; 0 keeps them as long as the event.
+	RawKeepSetting = "raw_keep_hours"
+	// MaxRawKeepHours is the longest an original line can be asked to be kept: ten years.
+	MaxRawKeepHours = 3650 * 24
+)
+
+// RawKeepHours is how many hours an original line is kept after it arrives:
+// the saved setting, else 24. 0 means never remove it.
+func (r *Repository) RawKeepHours(ctx context.Context) (hours int, saved bool, err error) {
+	text, err := r.Setting(ctx, RawKeepSetting, "")
+	if err != nil {
+		return 0, false, err
+	}
+	if text == "" {
+		return int(RawKeep / time.Hour), false, nil
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 0 || n > MaxRawKeepHours {
+		return int(RawKeep / time.Hour), false, nil
+	}
+	return n, true, nil
+}
+
+// SetRawKeepHours saves how many hours original lines are kept (0 = always).
+func (r *Repository) SetRawKeepHours(ctx context.Context, hours int) error {
+	if hours < 0 || hours > MaxRawKeepHours {
+		return fmt.Errorf("keep original lines between 0 and %d hours", MaxRawKeepHours)
+	}
+	return r.SetSetting(ctx, RawKeepSetting, strconv.Itoa(hours))
+}
 
 const (
 	rawWatermarksKey = "raw_watermarks" // JSON list of watermarks, oldest first
@@ -26,16 +60,24 @@ type watermark struct {
 }
 
 // PurgeRawLines removes the original line of every event that arrived at
-// least RawKeep before now, and returns how many it cleared. It goes by
+// least the kept time (RawKeepHours, 24 by default) before now, and returns how many it cleared. It goes by
 // arrival, not by the event's own time, so a late or back-dated event keeps
 // its line for the same day as any other. Arrival numbers (seq) only say what
 // came before what, so each call records how far they had got (a watermark);
-// a line is removed once a watermark at least RawKeep old covers it. Call it
+// a line is removed once a watermark at least that old covers it. Call it
 // about hourly; it is safe to call more often or twice. Events still in the
 // main database waiting to be moved are left alone: they are moved with their
 // original line and cleared here once they are in a day file.
 func (r *Repository) PurgeRawLines(ctx context.Context, now time.Time) (int64, error) {
 	d := r.db.days
+	hours, _, err := r.RawKeepHours(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if hours == 0 {
+		return 0, nil // original lines are kept as long as their events
+	}
+	keep := time.Duration(hours) * time.Hour
 	text, err := r.Setting(ctx, rawWatermarksKey, "[]")
 	if err != nil {
 		return 0, err
@@ -50,7 +92,7 @@ func (r *Repository) PurgeRawLines(ctx context.Context, now time.Time) (int64, e
 	// are no longer needed.
 	target := -1
 	for i, m := range marks {
-		if m.At <= nowMs-RawKeep.Milliseconds() {
+		if m.At <= nowMs-keep.Milliseconds() {
 			target = i
 		}
 	}

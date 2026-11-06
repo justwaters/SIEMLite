@@ -46,3 +46,30 @@ func TestTimeWindow(t *testing.T) {
 		t.Errorf("day files = %v", days)
 	}
 }
+
+// Values an event's parser left unmapped are stored as its fields; a field the
+// parser named explicitly wins over one with the same name.
+func TestUnmappedValuesAreStoredAsFields(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := storage.NewRepository(db)
+	w := New(repo, Config{FlushInterval: 10 * time.Millisecond})
+	defer w.Close()
+	ev := &ocsf.Event{Time: time.Now().UnixMilli(), CategoryUID: 6, ClassUID: 6003, SeverityID: 1, Message: "m", RawData: "raw",
+		Unmapped: map[string]any{"reason": "from the line", "entity": "deal"}}
+	if err := w.SubmitWith(ctx, ev, SubmitOptions{Fields: map[string]string{"reason": "from the parser"}}); err != nil {
+		t.Fatal(err)
+	}
+	w.Drain(ctx)
+	recs, err := repo.Search(ctx, storage.Filter{Limit: 10})
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("search = %v, %v", recs, err)
+	}
+	if got := string(recs[0].Fields); got != `{"entity":"deal","reason":"from the parser"}` {
+		t.Errorf("fields = %s", got)
+	}
+}
