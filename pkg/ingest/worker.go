@@ -196,8 +196,20 @@ func (w *Worker) SubmitWith(ctx context.Context, ev *ocsf.Event, opts SubmitOpti
 		Host:        ev.DeviceName(),
 		SourceID:    opts.SourceID,
 	}
-	if len(opts.Fields) > 0 {
-		if b, err := json.Marshal(opts.Fields); err == nil {
+	// The parser's fields win; values the line carried that no field took (an
+	// event's Unmapped) are kept too, since the original line is removed later.
+	fields := opts.Fields
+	if extra := ev.ExtraFields(); len(extra) > 0 {
+		fields = make(map[string]string, len(opts.Fields)+len(extra))
+		for k, v := range extra {
+			fields[k] = v
+		}
+		for k, v := range opts.Fields {
+			fields[k] = v
+		}
+	}
+	if len(fields) > 0 {
+		if b, err := json.Marshal(fields); err == nil {
 			rec.Fields = b
 		}
 	}

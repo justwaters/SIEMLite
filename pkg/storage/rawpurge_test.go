@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -133,4 +134,94 @@ func (s *shard) writerOrDie(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	return w
+}
+
+// The time original lines are kept is a setting: 24 hours until it is saved,
+// any number of hours, or 0 to keep them as long as their events.
+func TestRawKeepSetting(t *testing.T) {
+	ctx := context.Background()
+	_, repo := openTemp(t)
+	if h, saved, err := repo.RawKeepHours(ctx); err != nil || h != 24 || saved {
+		t.Fatalf("default = %d %v %v", h, saved, err)
+	}
+	for _, bad := range []int{-1, MaxRawKeepHours + 1} {
+		if repo.SetRawKeepHours(ctx, bad) == nil {
+			t.Errorf("%d hours was accepted", bad)
+		}
+	}
+	t0 := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	add := func(word string) {
+		t.Helper()
+		if err := repo.InsertBatch(ctx, []Record{{Timestamp: t0.UnixMilli(), CategoryUID: 1, ClassUID: 1001, SeverityID: 1, Message: word, RawData: "raw " + word}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rawOf := func(word string) string {
+		t.Helper()
+		recs, err := repo.Search(ctx, Filter{Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range recs {
+			if r.Message == word {
+				return r.RawData
+			}
+		}
+		t.Fatalf("no event %q", word)
+		return ""
+	}
+	purge := func(at time.Time) {
+		t.Helper()
+		if _, err := repo.PurgeRawLines(ctx, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1 hour: gone an hour after arrival, not before.
+	if err := repo.SetRawKeepHours(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	add("short")
+	purge(t0)
+	purge(t0.Add(30 * time.Minute))
+	if rawOf("short") == "" {
+		t.Fatal("removed before the hour was up")
+	}
+	purge(t0.Add(61 * time.Minute))
+	if rawOf("short") != "" {
+		t.Error("kept after the hour")
+	}
+
+	// 0: never removed, however long it has been.
+	if err := repo.SetRawKeepHours(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	if h, saved, _ := repo.RawKeepHours(ctx); h != 0 || !saved {
+		t.Fatalf("saved 0 reads %d %v", h, saved)
+	}
+	add("forever")
+	purge(t0.Add(2 * time.Hour))
+	purge(t0.Add(400 * 24 * time.Hour))
+	if rawOf("forever") != "raw forever" {
+		t.Error("a line was removed though lines are kept forever")
+	}
+
+	// Choosing a time after "always" removes the lines older than it straight
+	// away, not a day later, and the watermark list stayed small meanwhile.
+	base := t0.Add(400 * 24 * time.Hour)
+	for i := 1; i <= 100; i++ {
+		purge(base.Add(time.Duration(i) * time.Hour)) // hourly for four days
+	}
+	text, _ := repo.Setting(ctx, rawWatermarksKey, "[]")
+	var marks []watermark
+	if err := json.Unmarshal([]byte(text), &marks); err != nil || len(marks) > 10 {
+		t.Fatalf("%d watermarks after 100 hours of keeping lines: %v", len(marks), err)
+	}
+	if err := repo.SetRawKeepHours(ctx, 24); err != nil {
+		t.Fatal(err)
+	}
+	purge(base.Add(101 * time.Hour))
+	if rawOf("forever") != "" {
+		t.Error("lines older than a day were kept after the time was set to a day")
+	}
 }

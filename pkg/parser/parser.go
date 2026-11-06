@@ -186,6 +186,7 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 		var ev ocsf.Event
 		if err := json.Unmarshal([]byte(trimmed), &ev); err == nil {
 			ev.RawData = line
+			ev.Unmapped = leftovers(generic, ocsfStoredKeys(&ev)...)
 			return &ev
 		}
 	}
@@ -197,14 +198,17 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 		ActivityID:  99,
 		SeverityID:  ocsf.SeverityInformational,
 		RawData:     line,
-		Unmapped:    generic,
 	}
 	if d.Source != "" {
 		ev.Metadata.Product = &ocsf.Product{Name: d.Source}
 	}
+	// Every other value is kept with the event as an extra field: the original
+	// line is removed after a while, and nothing in it should be lost with it.
+	var used []string
 	for _, k := range []string{"message", "msg", "log"} {
 		if s, ok := generic[k].(string); ok {
 			ev.Message = s
+			used = append(used, k)
 			break
 		}
 	}
@@ -212,6 +216,7 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 		if s, ok := generic[k].(string); ok {
 			if t, ok := parseISO(s); ok {
 				ev.Time = t.UnixMilli()
+				used = append(used, k)
 				break
 			}
 		}
@@ -220,9 +225,11 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 	for _, k := range []string{"level", "severity", "lvl"} {
 		if s, ok := generic[k].(string); ok {
 			level = s
+			used = append(used, k)
 			break
 		}
 	}
+	ev.Unmapped = leftovers(generic, used...)
 	switch {
 	case d.SeverityID != nil:
 		ev.SeverityID = *d.SeverityID
@@ -232,6 +239,27 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 		ev.SeverityID = keywordSeverity(ev.Message)
 	}
 	return ev
+}
+
+// leftovers flattens a JSON object without the named keys (dotted for nested
+// ones), as the values of an event that its fields didn't take.
+func leftovers(obj map[string]any, used ...string) map[string]any {
+	out := ocsf.FlattenJSON(obj, used...)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ocsfStoredKeys are the dotted names of the values of an OCSF event that are
+// kept as columns of the stored event, so they are not also kept as extra fields.
+func ocsfStoredKeys(ev *ocsf.Event) []string {
+	keys := []string{"time", "category_uid", "class_uid", "severity_id", "message", "raw_data",
+		"src_endpoint.ip", "dst_endpoint.ip", "actor.user.name", "metadata.product.name", "device.hostname"}
+	if ev.Device != nil && ev.Device.Hostname == "" {
+		keys = append(keys, "device.ip")
+	}
+	return keys
 }
 
 // prioritySeverity maps a syslog severity (0-7) to OCSF severity_id.

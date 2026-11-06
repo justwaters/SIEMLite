@@ -11,6 +11,7 @@ import (
 	"siemlite/pkg/auth"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/retention"
+	"siemlite/pkg/storage"
 )
 
 // The System page's retention setting: how many days events are kept.
@@ -84,5 +85,80 @@ func (s *Server) handleSaveRetention(w http.ResponseWriter, r *http.Request) {
 	s.deps.Logger.Info("retention period changed", "from", was, "to", req.Days, "by", who)
 	s.audit(r, audit.Entry{Action: "system.retention", Severity: map[bool]int{true: 4, false: 2}[req.Days < was],
 		Message: fmt.Sprintf("%s set events to be kept %d days (was %d)", who, req.Days, was)})
+	writeJSON(w, http.StatusOK, v)
+}
+
+// How long the original line of an event is kept after it arrives. The parsed
+// event stays for the whole retention period; only the line as it arrived goes.
+
+type rawKeepView struct {
+	Hours    int  `json:"hours"` // 0 keeps original lines as long as their events
+	Default  int  `json:"default"`
+	Max      int  `json:"max"`
+	Saved    bool `json:"saved"`
+	Cleaning bool `json:"cleaning,omitempty"`
+}
+
+func (s *Server) rawKeepState(ctx context.Context) (rawKeepView, error) {
+	hours, saved, err := s.deps.Repo.RawKeepHours(ctx)
+	return rawKeepView{Hours: hours, Default: int(storage.RawKeep / time.Hour), Max: storage.MaxRawKeepHours, Saved: saved}, err
+}
+
+func (s *Server) handleGetRawKeep(w http.ResponseWriter, r *http.Request) {
+	v, err := s.rawKeepState(r.Context())
+	if err != nil {
+		s.internal(w, "read how long original lines are kept", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) handleSaveRawKeep(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hours *int `json:"hours"`
+	}
+	if !decodeJSON(w, r, &req, 1<<10) {
+		return
+	}
+	if req.Hours == nil || *req.Hours < 0 || *req.Hours > storage.MaxRawKeepHours {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Keep original lines between 0 (always) and %d hours.", storage.MaxRawKeepHours))
+		return
+	}
+	was, err := s.rawKeepState(r.Context())
+	if err != nil {
+		s.internal(w, "read how long original lines are kept", err)
+		return
+	}
+	if err := s.deps.Repo.SetRawKeepHours(r.Context(), *req.Hours); err != nil {
+		s.internal(w, "save how long original lines are kept", err)
+		return
+	}
+	v, err := s.rawKeepState(r.Context())
+	if err != nil {
+		s.internal(w, "read how long original lines are kept", err)
+		return
+	}
+	// Shorter (0 is the longest): remove what is now too old at once, not at the next hourly pass.
+	if v.Hours != 0 && (was.Hours == 0 || v.Hours < was.Hours) {
+		v.Cleaning = true
+		go func() {
+			n, err := s.deps.Repo.PurgeRawLines(context.Background(), time.Now())
+			if err != nil {
+				s.deps.Logger.Error("removing original lines after the time was shortened failed", "err", err)
+				return
+			}
+			s.deps.Logger.Info("original lines' keep time shortened; old lines removed", "hours", v.Hours, "removed", n)
+		}()
+	}
+	describe := func(h int) string {
+		if h == 0 {
+			return "as long as their events"
+		}
+		return fmt.Sprintf("%d hours", h)
+	}
+	who := auth.FromContext(r.Context()).Name
+	s.deps.Logger.Info("original lines' keep time changed", "from", was.Hours, "to", v.Hours, "by", who)
+	s.audit(r, audit.Entry{Action: "system.raw_retention", Severity: map[bool]int{true: 4, false: 2}[v.Cleaning],
+		Message: fmt.Sprintf("%s set original lines to be kept %s (was %s)", who, describe(v.Hours), describe(was.Hours))})
 	writeJSON(w, http.StatusOK, v)
 }

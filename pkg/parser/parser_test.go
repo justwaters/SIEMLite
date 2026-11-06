@@ -235,3 +235,40 @@ func TestParseLineRsyslogFormat(t *testing.T) {
 		}
 	}
 }
+
+// A JSON line's other values are kept with the event, since its original
+// line is removed after a while.
+func TestJSONLineKeepsOtherValues(t *testing.T) {
+	ev := ParseLine(`{"time":"2026-11-05T23:01:14Z","msg":"approved","level":"info","id":2332,"meta":{"reason":"Per chat","requested_by":"C H"},"tags":["a","b"]}`, Defaults{Now: time.Now()})
+	got := ev.ExtraFields()
+	want := map[string]string{"id": "2332", "meta.reason": "Per chat", "meta.requested_by": "C H", "tags": `["a","b"]`}
+	if len(got) != len(want) {
+		t.Fatalf("extra fields = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if ev.Message != "approved" {
+		t.Errorf("message = %q", ev.Message)
+	}
+}
+
+// An OCSF line keeps what the stored event has no column for: ports, the
+// activity, other device details.
+func TestOCSFLineKeepsOtherValues(t *testing.T) {
+	ev := ParseLine(`{"time":1793983830191,"category_uid":3,"class_uid":3002,"activity_id":99,"severity_id":1,"message":"in",`+
+		`"src_endpoint":{"ip":"10.0.0.1","port":443},"device":{"hostname":"h1","ip":"10.0.0.9"},"actor":{"user":{"name":"a@b","uid":"u1"}}}`, Defaults{Now: time.Now()})
+	got := ev.ExtraFields()
+	for k, v := range map[string]string{"activity_id": "99", "src_endpoint.port": "443", "device.ip": "10.0.0.9", "actor.user.uid": "u1"} {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q (all: %v)", k, got[k], v, got)
+		}
+	}
+	for _, k := range []string{"time", "message", "src_endpoint.ip", "actor.user.name", "device.hostname", "category_uid"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s is a stored column and shouldn't be repeated as a field", k)
+		}
+	}
+}
