@@ -41,3 +41,33 @@ func TestExtraFieldsFlattenAndCap(t *testing.T) {
 		t.Errorf("long value is %d bytes", len(l))
 	}
 }
+
+// A hostile line can't make the walk build much: deep nesting, huge key
+// names and thousands of values all end at the limits.
+func TestExtraFieldsAreBoundedWhateverTheShape(t *testing.T) {
+	deep := map[string]any{"leaf": "x"}
+	for i := 0; i < 5000; i++ {
+		deep = map[string]any{"a": deep, "b": "y"}
+	}
+	f := (&Event{Unmapped: deep}).ExtraFields()
+	if len(f) > maxExtraFields {
+		t.Fatalf("%d values from a deeply nested line", len(f))
+	}
+	for k, v := range f {
+		if len(k) > maxExtraKeyLen || len(v) > maxExtraFieldLen {
+			t.Fatalf("a %d-byte name or %d-byte value got through", len(k), len(v))
+		}
+	}
+	wide := map[string]any{strings.Repeat("k", 100000): "long name"}
+	for i := 0; i < 10000; i++ {
+		wide[fmt.Sprintf("w%05d", i)] = "v"
+	}
+	if f := FlattenJSON(wide); len(f) != maxExtraFields {
+		t.Errorf("FlattenJSON kept %d values", len(f))
+	} else if _, ok := f[strings.Repeat("k", 100000)]; ok {
+		t.Error("a 100,000-byte name was kept")
+	}
+	if f := FlattenJSON(map[string]any{"a": "1", "b": "2"}, "a"); len(f) != 1 || f["b"] != "2" {
+		t.Errorf("skip = %v", f)
+	}
+}

@@ -244,10 +244,7 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 // leftovers flattens a JSON object without the named keys (dotted for nested
 // ones), as the values of an event that its fields didn't take.
 func leftovers(obj map[string]any, used ...string) map[string]any {
-	out := ocsf.FlattenJSON(obj)
-	for _, k := range used {
-		delete(out, k)
-	}
+	out := ocsf.FlattenJSON(obj, used...)
 	if len(out) == 0 {
 		return nil
 	}

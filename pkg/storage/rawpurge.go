@@ -52,6 +52,24 @@ const (
 	rawPurgeBatch    = 5000             // rows cleared per transaction, so storing isn't starved
 )
 
+// thinWatermarks keeps one watermark a day, and the newest, and drops those
+// older than the longest a line can be kept, so the list stays small however
+// long lines are kept forever.
+func thinWatermarks(marks []watermark, nowMs int64) []watermark {
+	const day = int64(24 * time.Hour / time.Millisecond)
+	oldest := nowMs - int64(MaxRawKeepHours)*int64(time.Hour/time.Millisecond)
+	var out []watermark
+	for i, m := range marks {
+		if m.At < oldest {
+			continue
+		}
+		if i == len(marks)-1 || len(out) == 0 || m.At-out[len(out)-1].At >= day {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // watermark says that at a time (unix ms) every event up to arrival number
 // seq had been stored.
 type watermark struct {
@@ -74,9 +92,6 @@ func (r *Repository) PurgeRawLines(ctx context.Context, now time.Time) (int64, e
 	if err != nil {
 		return 0, err
 	}
-	if hours == 0 {
-		return 0, nil // original lines are kept as long as their events
-	}
 	keep := time.Duration(hours) * time.Hour
 	text, err := r.Setting(ctx, rawWatermarksKey, "[]")
 	if err != nil {
@@ -88,6 +103,13 @@ func (r *Repository) PurgeRawLines(ctx context.Context, now time.Time) (int64, e
 	}
 	nowMs := now.UnixMilli()
 	marks = append(marks, watermark{At: nowMs, Seq: d.seq.Load()})
+	if hours == 0 {
+		// Lines are kept as long as their events, so nothing is removed. The
+		// watermarks are still recorded, a day apart, so that choosing a time
+		// later removes the lines older than it at once, not a day later.
+		b, _ := json.Marshal(thinWatermarks(marks, nowMs))
+		return 0, r.SetSetting(ctx, rawWatermarksKey, string(b))
+	}
 	// The newest watermark old enough is the one to purge up to; older ones
 	// are no longer needed.
 	target := -1

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -203,5 +204,24 @@ func TestRawKeepSetting(t *testing.T) {
 	purge(t0.Add(400 * 24 * time.Hour))
 	if rawOf("forever") != "raw forever" {
 		t.Error("a line was removed though lines are kept forever")
+	}
+
+	// Choosing a time after "always" removes the lines older than it straight
+	// away, not a day later, and the watermark list stayed small meanwhile.
+	base := t0.Add(400 * 24 * time.Hour)
+	for i := 1; i <= 100; i++ {
+		purge(base.Add(time.Duration(i) * time.Hour)) // hourly for four days
+	}
+	text, _ := repo.Setting(ctx, rawWatermarksKey, "[]")
+	var marks []watermark
+	if err := json.Unmarshal([]byte(text), &marks); err != nil || len(marks) > 10 {
+		t.Fatalf("%d watermarks after 100 hours of keeping lines: %v", len(marks), err)
+	}
+	if err := repo.SetRawKeepHours(ctx, 24); err != nil {
+		t.Fatal(err)
+	}
+	purge(base.Add(101 * time.Hour))
+	if rawOf("forever") != "" {
+		t.Error("lines older than a day were kept after the time was set to a day")
 	}
 }
