@@ -280,3 +280,47 @@ func TestOtherAliasesCantDisplaceTheRealName(t *testing.T) {
 		}
 	}
 }
+
+// The app field fills the gap the source and syslog header leave, and the real name wins.
+func TestAppFieldPrecedence(t *testing.T) {
+	p, err := Compile(Definition{Name: "x", Format: FormatJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `{"app":"real","service":"x","process":"y","message":"m"}`
+	for i := 0; i < 20; i++ {
+		res, err := p.Parse(line, Defaults{Now: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := res.Event.Metadata.Product; got == nil || got.Name != "real" {
+			t.Fatalf("app = %+v, want real", got)
+		}
+	}
+	res, err := p.Parse(line, Defaults{Now: time.Now(), Source: "fw1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Event.Metadata.Product; got == nil || got.Name != "fw1" {
+		t.Errorf("a named source should keep its name, got %+v", got)
+	}
+}
+
+func TestKeyValueLineSaysWhenFieldsWereDropped(t *testing.T) {
+	p, err := Compile(Definition{Name: "kv", Format: FormatKV})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&sb, "k%03d=v ", i)
+	}
+	sb.WriteString("user=alice")
+	res, err := p.Parse(sb.String(), Defaults{Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Fields["fields_truncated"] != "true" || res.Fields["user"] != "alice" {
+		t.Errorf("truncated=%q user=%q", res.Fields["fields_truncated"], res.Fields["user"])
+	}
+}

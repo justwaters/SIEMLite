@@ -298,11 +298,17 @@ func (p *Parser) Parse(line string, d Defaults) (*Result, error) {
 		}
 		return names[i] < names[j]
 	})
+	// The source name and the syslog header's program are kept; an app field only
+	// fills the gap, and the best-ranked one wins because it is applied last.
+	appFree := ev.Metadata.Product == nil
 	for _, name := range names {
 		value := fields[name]
 		target, ok := p.def.Fields[name]
 		if !ok {
 			target = aliases[strings.ToLower(name)]
+		}
+		if target == "app" && !appFree {
+			continue
 		}
 		if target == "" || !p.apply(ev, target, value, d.Now, &mappedSev) {
 			res.Extra[name] = value
@@ -422,9 +428,7 @@ func (p *Parser) apply(ev *ocsf.Event, target, v string, now time.Time, sev *str
 		}
 		ev.Device.Hostname = v
 	case "app":
-		if ev.Metadata.Product == nil {
-			ev.Metadata.Product = &ocsf.Product{Name: v}
-		}
+		ev.Metadata.Product = &ocsf.Product{Name: v}
 	case "message":
 		ev.Message = v
 	case "severity":
@@ -539,8 +543,9 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 		visited++
 		// Names the parser maps (or that have an alias) are kept even when the line
 		// has more than maxFields others, so a line can't push them out by carrying
-		// many other keys; the rest share the first maxFields slots.
-		if len(out) >= maxFields && (len(out) >= 2*maxFields || !keep[k]) {
+		// many other keys; the rest share the first maxFields slots. The kept names
+		// are few: the mapped ones, and each alias once.
+		if len(out) >= maxFields && !keep[k] {
 			truncated = true
 			return
 		}
@@ -584,9 +589,6 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 		}
 		visited = 0
 		flatten("", obj, 0, func() bool { return visited >= maxVisited }, put)
-		if truncated {
-			out["fields_truncated"] = "true"
-		}
 	case FormatKV:
 		pairs := kvPair.FindAllStringSubmatch(body, -1)
 		if len(pairs) == 0 {
@@ -604,6 +606,9 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 			}
 			put(kv[1], v)
 		}
+	}
+	if truncated {
+		out["fields_truncated"] = "true"
 	}
 	return out, nil
 }
