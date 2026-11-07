@@ -6,7 +6,7 @@ A lightweight, embedded SIEM in a single Go binary. It collects logs over HTTPS,
 [OCSF](https://schema.ocsf.io/) event model, stores them in SQLite, one file per day, and gives you full-text search through
 a built-in web UI and a small JSON API.
 
-- **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the parsed event is stored, and the original line is kept for 24 hours after it arrives.
+- **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the parsed event is stored, and the original line is kept for 24 hours after it arrives (or as long as you choose on the System page).
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
 - **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
 - **A quiet web UI**: one search field to start, light and dark themes (or follow the system), and fonts bundled
@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.29` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.30` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -296,10 +296,15 @@ the database is large.
 
 Full-text search covers the parsed event: its message, program, host, user, source and destination addresses and the
 **values** of the extra fields a parser picked out, not their names (so `failed` doesn't find an event that merely has a
-field called `failed`; use `failed=...` to ask about that field). The original line is kept for 24 hours after it arrives (shown in an event's details),
+field called `failed`; use `failed=...` to ask about that field). The original line is kept for 24 hours after it arrives, unless you change that on the System page (**Keep original lines**: any number of hours, or 0 to keep it as long as the event). It is shown in an event's details,
 then removed; the parsed event stays for the whole retention period and is what the Database page shows. Searching works
 the same before and after the original goes, so search for what the parser understood rather than for a stray piece of
 the raw text.
+
+A JSON line sent without a custom parser keeps every value, not only the message, time and level: the rest are stored as extra fields
+(nested objects as dotted names such as `meta.reason`), up to 100 values per event, each cut at 2,048 characters. An OCSF-style line
+keeps what the event has no column for, such as ports and the activity. A syslog line's header (priority, process id, message id,
+structured data) is not kept: if you need it, give that source a custom parser.
 
 ## API
 
@@ -307,7 +312,7 @@ the raw text.
 |---|---|---|
 | `POST /api/v1/logs` | access token, or admin | Raw log text, one entry per line, read with the source's parser. Optional `source` (program name) and `severity` query params. |
 | `POST /api/v1/events` | access token, or admin | JSON array of OCSF events (up to 10,000 per request). |
-| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, 24 hours after the event arrived). |
+| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, by default 24 hours after the event arrived). |
 | `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
 | `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id", "parser_none"}`), rename, set how its lines are read (`"parser_id": 3` for a parser, `"parser_id": null` for Automatic, `"parser_none": true` for None; not both together), and switch a token on or off (`"enabled": true` or `false`; to disable a token use `PATCH`, not `DELETE`). `DELETE` removes the source and its token for good (it used to revoke the token); it returns `409` naming the alert rules that are scoped to the source, and `400` for built-in sources. Only access tokens can be enabled, disabled or deleted. A source shows `parser_none` and `enabled` in its JSON (`revoked_at` is set while it's disabled). |
@@ -330,6 +335,7 @@ the raw text.
 | `POST /api/v1/parsers/test`, `POST /api/v1/parsers/draft`, `POST /api/v1/parsers/suggest` | admin | Run a parser over `{"definition", "lines"}`; draft a parser with no AI model from `{"text"}` (pasted text; pretty-printed JSON is split into objects) or `{"lines"}`, answering the definition, how many samples it reads, and the samples as lines; ask the AI model for a parser for `{"lines"}`. |
 | `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session (`/me` includes `auth_provider`: `local` or `entra`, and `display_name` for a Microsoft account). A password sign-in refused by a [sign-in restriction](#sign-in-restrictions) gets `403`. |
 | `GET`/`PUT /api/v1/system/retention` | admin | How long events are kept: `{"days"}` (1 to 3650). The answer also gives the default, whether the page has set it, and the late-ingestion thresholds; shortening it deletes the events now too old, at once. |
+| `GET`/`PUT /api/v1/system/raw-retention` | admin | How long an event's original line is kept after it arrives: `{"hours"}` (0 to 87600; 0 keeps it as long as the event; 24 until saved). The answer also gives the default and whether it has been saved; shortening it removes the lines now too old, at once. |
 | `GET`/`PUT /api/v1/system/signin` | admin | The [sign-in restrictions](#sign-in-restrictions): `{"admin_local_only", "entra_only"}` (send either). The answer also says what is enforced now, the local port, and whether the request came in on it. Turning either on is refused without a local port; Microsoft-only also needs sign-in with Microsoft on and a local Admin account named `admin`. |
 | `POST /api/v1/me/password` | any signed-in user | Change your own password: `{"current_password", "new_password"}`. After 10 wrong current passwords in 15 minutes the account can't try again for the rest of the window (a limit of its own, separate from signing in); your other sessions end, this one continues. Refused for Microsoft accounts. |
 | `GET /health` | public | Up/down only. When signed in it also returns event count, database size, ingest queue state, indicator count and syslog counters. |
@@ -888,7 +894,7 @@ commands work while the server is running. Pass `-db` if your database is not `.
 
 **Upgrading from v0.8:** each day file is upgraded once, when the server (or a command) first opens it: the stored line
 becomes the event's message and the search index is rebuilt over the parsed event, which can take a little while on a
-large history. Original lines from before the upgrade are removed about 24 hours later, like any other. Backups made
+large history. Original lines from before the upgrade are removed about 24 hours later (or after the time set on the System page), like any other. Backups made
 before the upgrade can still be restored; backups made after it can't be restored by 0.8.
 
 **Upgrading from v0.7 or earlier:** Sample data is gone: its events, alerts and source are deleted, and the [log

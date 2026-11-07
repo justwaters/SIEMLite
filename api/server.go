@@ -202,6 +202,8 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/v1/system/tls/check", s.handleCheckTLS)
 	admin("GET /api/v1/system/retention", s.handleGetRetention)
 	admin("PUT /api/v1/system/retention", s.handleSaveRetention)
+	admin("GET /api/v1/system/raw-retention", s.handleGetRawKeep)
+	admin("PUT /api/v1/system/raw-retention", s.handleSaveRawKeep)
 	admin("GET /api/v1/system/signin", s.handleGetSignin)
 	admin("PUT /api/v1/system/signin", s.handleSaveSignin)
 	admin("GET /api/v1/system/update", s.handleUpdateStatus)
