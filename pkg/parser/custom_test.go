@@ -215,3 +215,46 @@ func TestMappedFieldsSurviveManyOtherKeys(t *testing.T) {
 		t.Errorf("kept %d fields", len(res.Fields))
 	}
 }
+
+// Spellings of one alias share one reserved slot, and the canonical one wins.
+func TestCaseVariantsCantFillTheReserve(t *testing.T) {
+	p, err := Compile(Definition{Name: "x", Format: FormatJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj := map[string]any{"user": "alice"}
+	for i := 0; i < 300; i++ {
+		obj[fmt.Sprintf("!%03d", i)] = "noise"
+	}
+	for _, v := range []string{"USER", "User", "uSER", "usER", "useR"} {
+		obj[v] = "mallory"
+	}
+	b, _ := json.Marshal(obj)
+	res, err := p.Parse(string(b), Defaults{Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Event.Actor == nil || res.Event.Actor.User.Name != "alice" {
+		t.Errorf("the user = %+v, want alice", res.Event.Actor)
+	}
+}
+
+// Mapped names are found even when the line has far more values than the walk looks at.
+func TestMappedFieldsFoundBeyondTheWalkLimit(t *testing.T) {
+	p, err := Compile(Definition{Name: "x", Format: FormatJSON, Fields: map[string]string{"who.id": "user"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj := map[string]any{"who": map[string]any{"id": "alice"}, "src_ip": "10.0.0.9"}
+	for i := 0; i < 5000; i++ {
+		obj[fmt.Sprintf("!%05d", i)] = "noise"
+	}
+	b, _ := json.Marshal(obj)
+	res, err := p.Parse(string(b), Defaults{Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Fields["who.id"] != "alice" || res.Fields["src_ip"] != "10.0.0.9" {
+		t.Errorf("fields = who.id %q, src_ip %q", res.Fields["who.id"], res.Fields["src_ip"])
+	}
+}
