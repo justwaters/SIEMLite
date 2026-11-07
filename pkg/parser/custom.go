@@ -286,7 +286,20 @@ func (p *Parser) Parse(line string, d Defaults) (*Result, error) {
 	}
 	res := &Result{Event: ev, Fields: fields, Extra: map[string]string{}}
 	mappedSev := ""
-	for name, value := range fields {
+	// Fewest-significant spellings first, so when "user" and "USER" both arrive the
+	// canonical one is applied last and wins, the same way on every line.
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if ri, rj := p.rank(names[i]), p.rank(names[j]); ri != rj {
+			return ri < rj
+		}
+		return names[i] < names[j]
+	})
+	for _, name := range names {
+		value := fields[name]
 		target, ok := p.def.Fields[name]
 		if !ok {
 			target = aliases[strings.ToLower(name)]
@@ -450,27 +463,92 @@ const (
 	maxDepth    = 8    // deepest JSON object flatten will open
 )
 
-// wanted reports whether a field name does something: it is mapped, has an alias,
-// or is the field the severity rule reads.
-func (p *Parser) wanted(name string) bool {
-	if _, ok := p.def.Fields[name]; ok {
-		return true
+// rank says how much a field name matters to this parser: 3 for a name it maps
+// or the severity field, 2 for a common alias in its canonical lower case
+// ("user"), 1 for another spelling of an alias ("USER"), 0 for anything else.
+func (p *Parser) rank(name string) int {
+	if _, ok := p.def.Fields[name]; ok || (p.def.Severity.Field != "" && name == p.def.Severity.Field) {
+		return 3
 	}
 	if _, ok := aliases[strings.ToLower(name)]; ok {
-		return true
+		if name == strings.ToLower(name) {
+			return 2
+		}
+		return 1
 	}
-	return p.def.Severity.Field != "" && name == p.def.Severity.Field
+	return 0
+}
+
+// target is what a name sets: the mapping if there is one, else its alias.
+func (p *Parser) target(name string) string {
+	if t, ok := p.def.Fields[name]; ok && t != "" {
+		return t
+	}
+	if p.def.Severity.Field != "" && name == p.def.Severity.Field {
+		return "\x00severity"
+	}
+	if t, ok := aliases[strings.ToLower(name)]; ok && p.def.Fields[name] == "" {
+		return t
+	}
+	return "\x00" + name
+}
+
+// pickWanted chooses the names kept past the field cap: every mapped name, and
+// for each target one spelling only (the best rank, then the first in sorted
+// order), so a line can't fill the reserve with "user", "USER", "uSeR".
+func (p *Parser) pickWanted(names []string) map[string]bool {
+	sort.Strings(names)
+	best := map[string]string{}
+	keep := map[string]bool{}
+	for _, n := range names {
+		r := p.rank(n)
+		if r == 0 {
+			continue
+		}
+		if r == 3 {
+			keep[n] = true
+			continue
+		}
+		t := p.target(n)
+		if cur, ok := best[t]; !ok || r > p.rank(cur) {
+			best[t] = n
+		}
+	}
+	for _, n := range best {
+		keep[n] = true
+	}
+	return keep
+}
+
+// lookup finds a name in nested JSON, where dots may be part of a key or step
+// into an object.
+func lookup(obj map[string]any, path string) (any, bool) {
+	if v, ok := obj[path]; ok {
+		return v, true
+	}
+	for i := 0; i < len(path); i++ {
+		if path[i] != '.' {
+			continue
+		}
+		if sub, ok := obj[path[:i]].(map[string]any); ok {
+			if v, ok := lookup(sub, path[i+1:]); ok {
+				return v, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func (p *Parser) extract(body string) (map[string]string, error) {
 	out := map[string]string{}
 	visited, truncated := 0, false
+	var keep map[string]bool
 	put := func(k, v string) {
 		visited++
 		// Names the parser maps (or that have an alias) are kept even when the line
 		// has more than maxFields others, so a line can't push them out by carrying
 		// many other keys; the rest share the first maxFields slots.
-		if len(out) >= maxFields && (len(out) >= 2*maxFields || !p.wanted(k)) {
+		if len(out) >= maxFields && (len(out) >= 2*maxFields || !keep[k]) {
 			truncated = true
 			return
 		}
@@ -493,6 +571,26 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 		if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &obj); err != nil {
 			return nil, ErrNoMatch
 		}
+		// Look the wanted names up first, so the bounded walk below can't run out
+		// before reaching them; the walk then fills the rest.
+		names := make([]string, 0, len(obj)+len(p.def.Fields)+1)
+		for k := range obj {
+			names = append(names, k)
+		}
+		for k := range p.def.Fields {
+			names = append(names, k)
+		}
+		if p.def.Severity.Field != "" {
+			names = append(names, p.def.Severity.Field)
+		}
+		keep = map[string]bool{}
+		for k := range p.pickWanted(names) {
+			if v, ok := lookup(obj, k); ok {
+				keep[k] = true
+				flatten(k, v, 1, func() bool { return false }, put)
+			}
+		}
+		visited = 0
 		flatten("", obj, 0, func() bool { return visited >= maxVisited }, put)
 		if truncated {
 			out["fields_truncated"] = "true"
@@ -502,6 +600,11 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 		if len(pairs) == 0 {
 			return nil, ErrNoMatch
 		}
+		names := make([]string, 0, len(pairs))
+		for _, kv := range pairs {
+			names = append(names, kv[1])
+		}
+		keep = p.pickWanted(names)
 		for _, kv := range pairs {
 			v := kv[2]
 			if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
