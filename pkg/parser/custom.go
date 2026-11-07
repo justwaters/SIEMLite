@@ -445,14 +445,33 @@ func severityValue(v string) int {
 const (
 	maxFields   = 50
 	maxFieldLen = 1024
-	maxKeyLen   = 256 // longest field name flatten will keep
-	maxDepth    = 8   // deepest JSON object flatten will open
+	maxVisited  = 2000 // most values flatten will look at in one line
+	maxKeyLen   = 256  // longest field name flatten will keep
+	maxDepth    = 8    // deepest JSON object flatten will open
 )
+
+// wanted reports whether a field name does something: it is mapped, has an alias,
+// or is the field the severity rule reads.
+func (p *Parser) wanted(name string) bool {
+	if _, ok := p.def.Fields[name]; ok {
+		return true
+	}
+	if _, ok := aliases[strings.ToLower(name)]; ok {
+		return true
+	}
+	return p.def.Severity.Field != "" && name == p.def.Severity.Field
+}
 
 func (p *Parser) extract(body string) (map[string]string, error) {
 	out := map[string]string{}
+	visited, truncated := 0, false
 	put := func(k, v string) {
-		if len(out) >= maxFields {
+		visited++
+		// Names the parser maps (or that have an alias) are kept even when the line
+		// has more than maxFields others, so a line can't push them out by carrying
+		// many other keys; the rest share the first maxFields slots.
+		if len(out) >= maxFields && (len(out) >= 2*maxFields || !p.wanted(k)) {
+			truncated = true
 			return
 		}
 		if len(v) > maxFieldLen {
@@ -474,7 +493,10 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 		if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &obj); err != nil {
 			return nil, ErrNoMatch
 		}
-		flatten("", obj, 0, func() bool { return len(out) >= maxFields }, put)
+		flatten("", obj, 0, func() bool { return visited >= maxVisited }, put)
+		if truncated {
+			out["fields_truncated"] = "true"
+		}
 	case FormatKV:
 		pairs := kvPair.FindAllStringSubmatch(body, -1)
 		if len(pairs) == 0 {

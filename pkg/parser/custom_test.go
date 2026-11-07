@@ -189,3 +189,29 @@ func TestFlattenIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// A line can't push a mapped field out by carrying many keys that sort before it.
+func TestMappedFieldsSurviveManyOtherKeys(t *testing.T) {
+	p, err := Compile(Definition{Name: "x", Format: FormatJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj := map[string]any{"user": "alice", "src_ip": "10.0.0.9"}
+	for i := 0; i < 300; i++ {
+		obj[fmt.Sprintf("!%03d", i)] = "noise"
+	}
+	b, _ := json.Marshal(obj)
+	res, err := p.Parse(string(b), Defaults{Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Fields["user"] != "alice" || res.Fields["src_ip"] != "10.0.0.9" {
+		t.Errorf("mapped fields were pushed out: user=%q src_ip=%q", res.Fields["user"], res.Fields["src_ip"])
+	}
+	if res.Fields["fields_truncated"] != "true" {
+		t.Error("a line that lost fields should say so")
+	}
+	if len(res.Fields) > 2*maxFields+1 {
+		t.Errorf("kept %d fields", len(res.Fields))
+	}
+}
