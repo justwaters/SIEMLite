@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -444,6 +445,8 @@ func severityValue(v string) int {
 const (
 	maxFields   = 50
 	maxFieldLen = 1024
+	maxKeyLen   = 256 // longest field name flatten will keep
+	maxDepth    = 8   // deepest JSON object flatten will open
 )
 
 func (p *Parser) extract(body string) (map[string]string, error) {
@@ -471,7 +474,7 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 		if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &obj); err != nil {
 			return nil, ErrNoMatch
 		}
-		flatten("", obj, put)
+		flatten("", obj, 0, func() bool { return len(out) >= maxFields }, put)
 	case FormatKV:
 		pairs := kvPair.FindAllStringSubmatch(body, -1)
 		if len(pairs) == 0 {
@@ -493,16 +496,39 @@ var rfc5424Rest = regexp.MustCompile(`^\S+ \S+ \S+ (?:-|(?:\[(?:[^\]"]|"(?:[^"\\
 
 var kvPair = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.@-]*)=("[^"]*"|'[^']*'|\S*)`)
 
-// flatten turns nested JSON into dotted keys ("client.ip").
-func flatten(prefix string, v any, put func(k, v string)) {
+// flatten turns nested JSON into dotted keys ("client.ip"). It stops once full
+// reports that nothing more can be kept, skips names over maxKeyLen bytes, and
+// keeps anything nested deeper than maxDepth as its JSON text, so a hostile line
+// can't make it do more work than the fields it will keep. Keys are visited in
+// sorted order so the same line always keeps the same fields.
+func flatten(prefix string, v any, depth int, full func() bool, put func(k, v string)) {
+	if full() {
+		return
+	}
 	switch x := v.(type) {
 	case map[string]any:
-		for k, val := range x {
+		if depth >= maxDepth {
+			b, _ := json.Marshal(x)
+			put(prefix, string(b))
+			return
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if full() {
+				return
+			}
 			key := k
 			if prefix != "" {
 				key = prefix + "." + k
 			}
-			flatten(key, val, put)
+			if len(key) > maxKeyLen {
+				continue
+			}
+			flatten(key, x[k], depth+1, full, put)
 		}
 	case nil:
 	case string:

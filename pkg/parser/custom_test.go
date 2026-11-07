@@ -1,6 +1,9 @@
 package parser
 
 import (
+	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -148,5 +151,41 @@ func TestParseTime(t *testing.T) {
 	}
 	if _, ok := ParseTime("yesterday", now); ok {
 		t.Error("nonsense parsed")
+	}
+}
+
+func TestFlattenIsBounded(t *testing.T) {
+	deep := strings.Repeat(`{"a":`, 5000) + `1` + strings.Repeat(`}`, 5000)
+	big := map[string]any{}
+	for i := 0; i < 10000; i++ {
+		big[fmt.Sprintf("k%05d", i)] = "v"
+	}
+	big[strings.Repeat("n", 100000)] = "long name"
+	big["deep"] = map[string]any{}
+	for name, obj := range map[string]any{"deep": func() any { var m map[string]any; _ = json.Unmarshal([]byte(deep), &m); return m }(), "wide": big} {
+		got := map[string]string{}
+		flatten("", obj, 0, func() bool { return len(got) >= maxFields }, func(k, v string) {
+			if len(got) < maxFields {
+				got[k] = v
+			}
+		})
+		if len(got) > maxFields {
+			t.Errorf("%s: kept %d fields", name, len(got))
+		}
+		for k := range got {
+			if len(k) > maxKeyLen {
+				t.Errorf("%s: kept a %d-byte name", name, len(k))
+			}
+		}
+	}
+	// The same fields are kept every time.
+	first := map[string]string{}
+	flatten("", big, 0, func() bool { return len(first) >= maxFields }, func(k, v string) { first[k] = v })
+	for i := 0; i < 5; i++ {
+		again := map[string]string{}
+		flatten("", big, 0, func() bool { return len(again) >= maxFields }, func(k, v string) { again[k] = v })
+		if !reflect.DeepEqual(first, again) {
+			t.Fatal("kept different fields on a second run")
+		}
 	}
 }
