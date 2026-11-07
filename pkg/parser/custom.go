@@ -463,55 +463,47 @@ const (
 	maxDepth    = 8    // deepest JSON object flatten will open
 )
 
-// rank says how much a field name matters to this parser: 3 for a name it maps
-// or the severity field, 2 for a common alias in its canonical lower case
-// ("user"), 1 for another spelling of an alias ("USER"), 0 for anything else.
+// rank says how much a field name matters to this parser: 4 for a name it maps
+// or the severity field, 3 for the name an alias stands for ("user"), 2 for another
+// alias in lower case ("username"), 1 for another spelling of an alias ("USER"),
+// 0 for anything else. When several names set the same target, the highest rank is
+// applied last and wins.
 func (p *Parser) rank(name string) int {
 	if _, ok := p.def.Fields[name]; ok || (p.def.Severity.Field != "" && name == p.def.Severity.Field) {
+		return 4
+	}
+	lower := strings.ToLower(name)
+	t, ok := aliases[lower]
+	switch {
+	case !ok:
+		return 0
+	case name != lower:
+		return 1
+	case name == t:
 		return 3
 	}
-	if _, ok := aliases[strings.ToLower(name)]; ok {
-		if name == strings.ToLower(name) {
-			return 2
-		}
-		return 1
-	}
-	return 0
-}
-
-// target is what a name sets: the mapping if there is one, else its alias.
-func (p *Parser) target(name string) string {
-	if t, ok := p.def.Fields[name]; ok && t != "" {
-		return t
-	}
-	if p.def.Severity.Field != "" && name == p.def.Severity.Field {
-		return "\x00severity"
-	}
-	if t, ok := aliases[strings.ToLower(name)]; ok && p.def.Fields[name] == "" {
-		return t
-	}
-	return "\x00" + name
+	return 2
 }
 
 // pickWanted chooses the names kept past the field cap: every mapped name, and
-// for each target one spelling only (the best rank, then the first in sorted
-// order), so a line can't fill the reserve with "user", "USER", "uSeR".
+// each alias once (its best spelling, then the first in sorted order), so a line
+// can't fill the reserve with "user", "USER", "uSeR". The reserve is bounded by the
+// number of aliases, and one alias can't take another's place ("account" for "user").
 func (p *Parser) pickWanted(names []string) map[string]bool {
 	sort.Strings(names)
 	best := map[string]string{}
 	keep := map[string]bool{}
 	for _, n := range names {
 		r := p.rank(n)
-		if r == 0 {
-			continue
-		}
-		if r == 3 {
+		switch {
+		case r == 0:
+		case r == 4:
 			keep[n] = true
-			continue
-		}
-		t := p.target(n)
-		if cur, ok := best[t]; !ok || r > p.rank(cur) {
-			best[t] = n
+		default:
+			l := strings.ToLower(n)
+			if cur, ok := best[l]; !ok || r > p.rank(cur) {
+				best[l] = n
+			}
 		}
 	}
 	for _, n := range best {

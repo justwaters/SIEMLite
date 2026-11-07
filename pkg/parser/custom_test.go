@@ -258,3 +258,25 @@ func TestMappedFieldsFoundBeyondTheWalkLimit(t *testing.T) {
 		t.Errorf("fields = who.id %q, src_ip %q", res.Fields["who.id"], res.Fields["src_ip"])
 	}
 }
+
+// Other aliases of the same target neither take the reserved slot nor override the real name.
+func TestOtherAliasesCantDisplaceTheRealName(t *testing.T) {
+	p, err := Compile(Definition{Name: "x", Format: FormatJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj := map[string]any{"user": "alice", "account": "mallory", "username": "mallory", "user_name": "mallory"}
+	for i := 0; i < 300; i++ {
+		obj[fmt.Sprintf("!%03d", i)] = "noise"
+	}
+	b, _ := json.Marshal(obj)
+	for i := 0; i < 20; i++ {
+		res, err := p.Parse(string(b), Defaults{Now: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Fields["user"] != "alice" || res.Event.Actor == nil || res.Event.Actor.User.Name != "alice" {
+			t.Fatalf("the user = %+v, fields user = %q; want alice", res.Event.Actor, res.Fields["user"])
+		}
+	}
+}
