@@ -1138,7 +1138,7 @@
         <div class="figure"><div class="label">Free space for backups</div><div class="value" id="sys-free">–</div><div class="sub mono" id="sys-dir"></div></div>
       </div>
       <div class="panel sched" id="update-card">
-        <div><h2>Software update</h2><p class="hint" id="update-text">Checking for updates…</p><p class="hint" id="update-why" hidden></p></div>
+        <div><h2>Software update</h2><p class="hint" id="update-text">Checking for updates…</p><p class="hint" id="update-why" hidden></p><p class="notice" id="update-msg" role="status" hidden></p></div>
         <div class="sched-fields">
           <button class="btn" type="button" id="update-check">Check now</button>
           <a class="btn" id="update-notes" target="_blank" rel="noopener" hidden>Release notes</a>
@@ -3311,6 +3311,7 @@ function since(ms) {
 }
 async function openSystem() {
   notice($("system-msg"), "");
+  notice($("update-msg"), "");
   try {
     const sys = await apiJSON("/api/v1/system");
     $("sys-size").textContent = bytes(sys.database.size_bytes);
@@ -3358,9 +3359,18 @@ async function applyUpdate(u) {
       : "SIEMLite downloads the release, checks it, replaces its program file and restarts, which takes a few seconds. ") +
     "Collection pauses meanwhile. A newer version can upgrade the database in a way older versions can't read, so make a backup first if you might want to go back.",
     "Update and restart"))) return;
-  notice($("system-msg"), `Downloading ${u.latest}…`, true);
+  // Progress and errors go in the update card itself: the page's own message
+  // line is below the backups list, out of sight from this button.
+  const msg = $("update-msg"), btn = $("update-apply");
+  notice(msg, `Downloading ${u.latest}\u2026`, true);
+  btn.disabled = true;
   try { await apiJSON("/api/v1/system/update", { method: "POST" }); }
-  catch (err) { notice($("system-msg"), err.message); return; }
+  catch (err) {
+    btn.disabled = false;
+    notice(msg, `The update didn't happen. ${err.message}`);
+    loadUpdate(false);
+    return;
+  }
   try { sessionStorage.setItem("siemlite.updated", "1"); } catch {}
   waitForRestart("Updating SIEMLite", "SIEMLite is restarting on the new version. This page reloads when it\u2019s back.");
 }
