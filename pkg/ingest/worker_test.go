@@ -73,3 +73,37 @@ func TestUnmappedValuesAreStoredAsFields(t *testing.T) {
 		t.Errorf("fields = %s", got)
 	}
 }
+
+// partialSink stores what it is given, but fails the first batch after taking
+// its first record, as a write that succeeded for one day and failed for the next.
+type partialSink struct {
+	stored []storage.Record
+	failed bool
+}
+
+func (s *partialSink) InsertBatch(ctx context.Context, recs []storage.Record) error {
+	if !s.failed && len(recs) > 1 {
+		s.failed = true
+		s.stored = append(s.stored, recs[0])
+		return &storage.PartialBatchError{Remaining: recs[1:], Err: errors.New("database is locked")}
+	}
+	s.stored = append(s.stored, recs...)
+	return nil
+}
+
+// A batch stored for some days and failed for the rest is tried again with the
+// rest only, so no event is stored twice.
+func TestPartialBatchRetriesOnlyTheRest(t *testing.T) {
+	sink := &partialSink{}
+	w := New(sink, Config{})
+	batch := []storage.Record{{Timestamp: 1}, {Timestamp: 2}, {Timestamp: 3}}
+	w.flush(batch)
+	if len(sink.stored) != 3 {
+		t.Fatalf("stored %d records, want 3 (each once): %+v", len(sink.stored), sink.stored)
+	}
+	for i, r := range sink.stored {
+		if r.Timestamp != int64(i+1) {
+			t.Errorf("record %d has timestamp %d", i, r.Timestamp)
+		}
+	}
+}

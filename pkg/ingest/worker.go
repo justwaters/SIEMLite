@@ -335,6 +335,12 @@ func (w *Worker) flush(batch []storage.Record) {
 			w.batches.Add(1)
 			return
 		}
+		// Part of the batch may be stored already: try again with the rest only.
+		var partial *storage.PartialBatchError
+		if errors.As(err, &partial) {
+			w.written.Add(uint64(len(batch) - len(partial.Remaining)))
+			batch = partial.Remaining
+		}
 		w.cfg.Logger.Warn("batch insert failed", "attempt", attempt, "size", len(batch), "err", err)
 		select {
 		case <-ctx.Done():

@@ -484,6 +484,19 @@ func fieldsText(raw json.RawMessage) string {
 	return strings.Join(parts, " ")
 }
 
+// PartialBatchError is a batch that was stored for some days and failed for
+// the rest: Remaining are the records not stored, and only they should be
+// tried again.
+type PartialBatchError struct {
+	Remaining []Record
+	Err       error
+}
+
+func (e *PartialBatchError) Error() string {
+	return fmt.Sprintf("%d events not stored: %v", len(e.Remaining), e.Err)
+}
+func (e *PartialBatchError) Unwrap() error { return e.Err }
+
 // insert stores records in their days' files, one transaction per day.
 // legacy is set when moving events from the main database: they keep their
 // id as both seq and legacy_id, and copying one twice is a no-op.
@@ -509,19 +522,42 @@ func (d *days) insert(ctx context.Context, recs []Record, legacy bool) error {
 	if legacy {
 		verb = "INSERT OR IGNORE"
 	}
-	for day, idx := range byDay {
-		s, err := d.writable(ctx, day)
+	days := make([]int, 0, len(byDay))
+	for day := range byDay {
+		days = append(days, day)
+	}
+	slices.Sort(days)
+	for n, day := range days {
+		idx := byDay[day]
+		err := func() error {
+			s, err := d.writable(ctx, day)
+			if err != nil {
+				return err
+			}
+			w, err := s.writer(ctx)
+			if err != nil {
+				return err
+			}
+			if err := insertDay(ctx, w, recs, idx, verb, first, legacy); err != nil {
+				return err
+			}
+			s.count.Store(-1)
+			return nil
+		}()
 		if err != nil {
-			return err
+			if n == 0 || legacy { // nothing stored yet (a legacy copy ignores repeats)
+				return err
+			}
+			// Earlier days are already stored. Say which records are not, so
+			// a retry sends only those instead of storing the others twice.
+			var rest []Record
+			for _, later := range days[n:] {
+				for _, i := range byDay[later] {
+					rest = append(rest, recs[i])
+				}
+			}
+			return &PartialBatchError{Remaining: rest, Err: err}
 		}
-		w, err := s.writer(ctx)
-		if err != nil {
-			return err
-		}
-		if err := insertDay(ctx, w, recs, idx, verb, first, legacy); err != nil {
-			return err
-		}
-		s.count.Store(-1)
 	}
 	if !legacy {
 		d.seq.Store(first + int64(len(recs)) - 1)
