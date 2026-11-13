@@ -575,3 +575,57 @@ func TestDeletedSourceDoesNotWidenAccess(t *testing.T) {
 		t.Errorf("sam, whose source was deleted, now sees %v", got)
 	}
 }
+
+func TestRotateSourceKey(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	e.user("sam", auth.RoleStandard)
+	root := e.client()
+	e.login(root, "root", password)
+	sam := e.client()
+	e.login(sam, "sam", password)
+
+	var gen struct {
+		Source storage.Source `json:"source"`
+		Token  string         `json:"token"`
+	}
+	e.call(root, "POST", "/api/v1/sources", map[string]any{"name": "gen"}, &gen, nil)
+	path := fmt.Sprintf("/api/v1/sources/%d/token", gen.Source.ID)
+	send := func(token string) *http.Response {
+		return e.do(e.client(), "POST", "/api/v1/logs", "hello", map[string]string{"Authorization": "Bearer " + token})
+	}
+	expect(t, "logs with the first token", send(gen.Token), 202)
+
+	expect(t, "a standard user", e.do(sam, "POST", path, "", nil), 403)
+	expect(t, "the first token after a refused attempt", send(gen.Token), 202)
+
+	var next struct {
+		Source storage.Source `json:"source"`
+		Token  string         `json:"token"`
+	}
+	if got := e.call(root, "POST", path, nil, &next, nil); got != 200 {
+		t.Fatalf("rotate = %d", got)
+	}
+	if next.Token == "" || next.Token == gen.Token || next.Source.ID != gen.Source.ID || next.Source.Name != "gen" {
+		t.Fatalf("rotate = %+v (old token %q)", next, gen.Token)
+	}
+	expect(t, "logs with the old token", send(gen.Token), 401)
+	expect(t, "logs with the new token", send(next.Token), 202)
+
+	// Rotating changes the source's token; it doesn't add a second source.
+	var list []storage.Source
+	e.call(root, "GET", "/api/v1/sources", nil, &list, nil)
+	count := 0
+	for _, s := range list {
+		if s.Name == "gen" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("%d sources named gen after rotating, want 1", count)
+	}
+
+	syslog, _ := e.repo.BuiltinSource(context.Background(), storage.SourceSyslog)
+	expect(t, "built-in", e.do(root, "POST", fmt.Sprintf("/api/v1/sources/%d/token", syslog.ID), "", nil), 400)
+	expect(t, "missing", e.do(root, "POST", "/api/v1/sources/9999/token", "", nil), 404)
+}

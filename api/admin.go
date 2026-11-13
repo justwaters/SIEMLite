@@ -298,6 +298,37 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, src)
 }
 
+// handleRotateSourceKey gives an access token source a new token, shown once.
+// The old token stops working at once; the source, its settings and its logs stay.
+func (s *Server) handleRotateSourceKey(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	token, err := auth.RotateKey(r.Context(), s.deps.Repo, id)
+	switch {
+	case errors.Is(err, storage.ErrBuiltinSource):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	case errors.Is(err, storage.ErrSourceNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	case err != nil:
+		s.internal(w, "give the source a new token", err)
+		return
+	}
+	src, err := s.deps.Repo.GetSource(r.Context(), id)
+	if err != nil {
+		s.internal(w, "get source", err)
+		return
+	}
+	who := auth.FromContext(r.Context()).Name
+	s.deps.Logger.Info("source token replaced", "source", src.Name, "by", who)
+	s.audit(r, audit.Entry{Action: "source.rotate_key", Severity: 3, Message: who + " gave the access token " + src.Name + " a new token; the old one no longer works",
+		Fields: map[string]string{"target": src.Name}})
+	writeJSON(w, http.StatusOK, map[string]any{"source": src, "token": token})
+}
+
 // handleDeleteSource removes an access token source and its token for good.
 // To switch a token off and keep it, PATCH enabled false instead.
 func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {

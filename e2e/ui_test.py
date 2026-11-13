@@ -238,7 +238,7 @@ def main(binary, loggen):
             chosen = ui_row().locator("select").evaluate("s => s.options[s.selectedIndex].text")
             check(chosen == "Automatic", f"choosing Automatic again clears it ({chosen!r})")
 
-            # An access token is managed in a popup: Enable, Disable or Delete.
+            # An access token is managed in a popup: Enable, Disable, New token or Delete.
             gen_row = lambda: page.locator("#view-sources tbody tr").filter(
                 has=page.locator("td:first-child", has_text=re.compile(r"^\s*Log generator\s*$"))).first
             buttons = gen_row().locator("button").all_inner_texts()
@@ -247,11 +247,18 @@ def main(binary, loggen):
             dlg = page.locator("#dlg-manage")
             dlg.wait_for(state="visible")
             names = dlg.locator(".manage-choices button").all_inner_texts()
-            check(dlg.locator("#manage-title").inner_text() == "Manage Log generator" and names == ["Enable", "Disable", "Delete"],
-                  f"the Manage popup offers Enable, Disable and Delete ({names})")
+            check(dlg.locator("#manage-title").inner_text() == "Manage Log generator" and names == ["Enable", "Disable", "New token", "Delete"],
+                  f"the Manage popup offers Enable, Disable, New token and Delete ({names})")
             check("Enabled" in dlg.locator("#manage-state").inner_text(), "the popup says the source is enabled")
             check(dlg.locator("#manage-enable").is_disabled() and dlg.locator("#manage-disable").is_enabled(),
                   "Enable is greyed out while the source is enabled")
+            # New token asks first, and Cancel changes nothing.
+            dlg.locator("#manage-rotate").click()
+            confirm_buttons = dlg.locator("#manage-confirm button:visible").all_inner_texts()
+            check("new token" in dlg.locator("#manage-confirm-title").inner_text().lower() and confirm_buttons == ["Cancel", "Create new token"],
+                  f"New token asks before it does anything ({confirm_buttons})")
+            dlg.locator("#manage-cancel").click()
+            check(dlg.locator("#manage-main").is_visible(), "Cancel goes back to the Manage popup")
             page.keyboard.press("Escape")
             check(not dlg.is_visible(), "Escape closes the Manage popup")
 

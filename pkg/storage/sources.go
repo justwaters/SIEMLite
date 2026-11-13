@@ -19,7 +19,7 @@ const (
 var (
 	ErrSourceNotFound = errors.New("source not found")
 	ErrParserNotFound = errors.New("parser not found")
-	ErrBuiltinSource  = errors.New("built-in sources can't be disabled, enabled or deleted")
+	ErrBuiltinSource  = errors.New("built-in sources can't be disabled, enabled, deleted or given a new token")
 )
 
 // SourceInUseError says alert rules are scoped to a source, so it can't be deleted.
@@ -207,6 +207,19 @@ func (r *Repository) SetSourceEnabled(ctx context.Context, id int64, enabled boo
 	}
 	if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET revoked_at = ? WHERE id = ?`, revoked, id); err != nil {
 		return fmt.Errorf("set source enabled: %w", err)
+	}
+	return nil
+}
+
+// ReplaceTokenKey gives an access token source a new key. The old key stops
+// working at once. The source keeps its name, parser, events and whether it is
+// enabled, so a disabled source stays disabled.
+func (r *Repository) ReplaceTokenKey(ctx context.Context, id int64, keyHash string) error {
+	if _, err := r.tokenSource(ctx, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET key_hash = ? WHERE id = ? AND kind = 'token'`, keyHash, id); err != nil {
+		return fmt.Errorf("replace source key: %w", err)
 	}
 	return nil
 }

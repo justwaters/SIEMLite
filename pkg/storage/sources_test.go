@@ -162,3 +162,40 @@ func TestDeleteSource(t *testing.T) {
 		t.Errorf("delete twice = %v", err)
 	}
 }
+
+func TestReplaceTokenKey(t *testing.T) {
+	ctx := context.Background()
+	repo := newSourceRepo(t)
+	now := time.Now().UnixMilli()
+	id, err := repo.CreateTokenSource(ctx, "app", "old-hash", nil, true, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetSourceEnabled(ctx, id, false, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReplaceTokenKey(ctx, id, "new-hash"); err != nil {
+		t.Fatal(err)
+	}
+	// The source is the same one, still disabled, with its settings.
+	s, err := repo.GetSource(ctx, id)
+	if err != nil || s.Name != "app" || s.Enabled || !s.ParserNone || s.CreatedAt != now {
+		t.Fatalf("after replacing = %+v, %v", s, err)
+	}
+	if err := repo.SetSourceEnabled(ctx, id, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.FindActiveToken(ctx, "old-hash"); !errors.Is(err, ErrSourceNotFound) {
+		t.Errorf("the old key still works: %v", err)
+	}
+	if got, err := repo.FindActiveToken(ctx, "new-hash"); err != nil || got.ID != id {
+		t.Errorf("the new key = %+v, %v", got, err)
+	}
+	syslog, _ := repo.BuiltinSource(ctx, SourceSyslog)
+	if err := repo.ReplaceTokenKey(ctx, syslog.ID, "x"); !errors.Is(err, ErrBuiltinSource) {
+		t.Errorf("built-in = %v", err)
+	}
+	if err := repo.ReplaceTokenKey(ctx, 9999, "x"); !errors.Is(err, ErrSourceNotFound) {
+		t.Errorf("missing = %v", err)
+	}
+}

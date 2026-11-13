@@ -182,6 +182,19 @@ func CreateKey(ctx context.Context, repo *storage.Repository, name string, parse
 	return id, plaintext, err
 }
 
+// RotateKey gives an access token source a new key and returns it. The old
+// key stops working at once; the plaintext is only available from this call.
+func RotateKey(ctx context.Context, repo *storage.Repository, id int64) (plaintext string, err error) {
+	plaintext, hash, err := GenerateKey()
+	if err != nil {
+		return "", err
+	}
+	if err := repo.ReplaceTokenKey(ctx, id, hash); err != nil {
+		return "", err
+	}
+	return plaintext, nil
+}
+
 // Authenticator validates API keys and sessions against the database.
 type Authenticator struct {
 	repo     *storage.Repository

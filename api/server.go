@@ -168,6 +168,7 @@ func (s *Server) Handler() http.Handler {
 	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.Require(auth.PermAdmin, h)) }
 	admin("POST /api/v1/sources", s.handleCreateSource)
 	admin("PATCH /api/v1/sources/{id}", s.handleUpdateSource)
+	admin("POST /api/v1/sources/{id}/token", s.handleRotateSourceKey)
 	admin("DELETE /api/v1/sources/{id}", s.handleDeleteSource)
 	admin("GET /api/v1/users", s.handleListUsers)
 	admin("POST /api/v1/users", s.handleCreateUser)
