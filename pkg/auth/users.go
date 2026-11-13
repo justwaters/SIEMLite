@@ -143,7 +143,7 @@ func (a *Authenticator) Login(ctx context.Context, remote, username, password st
 	}
 	// Each attempt is counted before it is checked, in one step, so guesses sent
 	// in parallel can't all pass the limit before the first failure is recorded.
-	if !a.limiter.take(remote) || !a.accounts.take(account) {
+	if !a.limiter.take(remote) {
 		return "", nil, ErrTooManyAttempts
 	}
 	u, hash, err := a.repo.GetUserForLogin(ctx, username)
@@ -154,6 +154,11 @@ func (a *Authenticator) Login(ctx context.Context, remote, username, password st
 		return "", nil, ErrBadCredentials
 	case err != nil:
 		return "", nil, err
+	}
+	// Only real accounts are counted per account: counting made-up names would
+	// let a flood of them push a real account's entry out of the table.
+	if !a.accounts.take(account) {
+		return "", nil, ErrTooManyAttempts
 	}
 	// Accounts that sign in through a service, and disabled accounts, never
 	// sign in with a password. This looks the same as a wrong password.
