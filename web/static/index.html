@@ -244,6 +244,7 @@
   .facts-grid dd { margin: 2px 0 0; overflow-wrap: anywhere; }
   .facts-grid dd span { display: block; color: var(--ink-2); font-size: 13px; }
   .facts-grid dd .ip { display: inline; color: inherit; font-size: 13px; }
+  .facts-grid dd .who { display: inline; color: inherit; font-size: inherit; }
   .matches { margin: 0 0 14px; padding: 12px 14px; list-style: none; border-radius: 8px; box-shadow: inset 3px 0 0 var(--sev-5); background: var(--surface); }
   .matches li + li { margin-top: 8px; }
   .matches b { color: var(--sev-5); font-weight: 600; }
@@ -2290,7 +2291,7 @@ function details(ev) {
   add("Source", ev.source_name);
   add("Program", ev.source);
   add("Host", ev.host);
-  add("User", ev.user_display ? el("span", { textContent: ev.user_display, title: ev.user_name }) : ev.user_name);
+  add("User", ev.user_display ? el("span", { className: "who", textContent: ev.user_display, title: ev.user_name }) : ev.user_name);
   add("Category", CAT[ev.category_uid]);
   for (const [label, side, ip] of [["Source IP", "src_endpoint", ev.src_ip], ["Destination IP", "dst_endpoint", ev.dst_ip]]) {
     const e = enr[side] || {};
