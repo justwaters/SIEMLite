@@ -288,6 +288,7 @@ func (r *Repository) selfAlertGuard(ctx context.Context) (string, []any, error) 
 // RuleGroup is a group with new events matching a rule.
 type RuleGroup struct {
 	Value  string
+	NewMin int64 // oldest new event time
 	NewMax int64 // newest new event time
 	New    int64 // new matching events
 }
@@ -334,19 +335,20 @@ func (r *Repository) NewMatches(ctx context.Context, ru Rule, afterSeq, maxSeq i
 		if lw, la := d.legacyWhere(s); lw != "" {
 			where, args = append(where, lw), append(args, la...)
 		}
-		rows, err := db.QueryContext(ctx, `SELECT `+groupExpr(ru.GroupBy)+`, MAX(e.timestamp), COUNT(*) FROM `+from+
+		rows, err := db.QueryContext(ctx, `SELECT `+groupExpr(ru.GroupBy)+`, MIN(e.timestamp), MAX(e.timestamp), COUNT(*) FROM `+from+
 			whereSQL(where)+` GROUP BY 1`, args...)
 		if err != nil {
 			return nil, fmt.Errorf("rule %q: %w", ru.Name, err)
 		}
 		for rows.Next() {
 			var rg RuleGroup
-			if err := rows.Scan(&rg.Value, &rg.NewMax, &rg.New); err != nil {
+			if err := rows.Scan(&rg.Value, &rg.NewMin, &rg.NewMax, &rg.New); err != nil {
 				rows.Close()
 				return nil, err
 			}
 			if cur, ok := merged[rg.Value]; ok {
 				cur.New += rg.New
+				cur.NewMin = min(cur.NewMin, rg.NewMin)
 				cur.NewMax = max(cur.NewMax, rg.NewMax)
 			} else {
 				merged[rg.Value] = &rg
@@ -390,21 +392,31 @@ type WindowStat struct {
 	Count, First, Last int64
 }
 
-// WindowCounts counts, for each group, the rule's matching events in the
-// window ending at the group's newest new event (and arrived up to maxSeq).
-// It reads each day in the windows once for all groups: a query per group
+// maxWindowEvents bounds how many event times WindowCounts keeps in memory.
+// A bigger backlog is judged by the window ending at each group's newest new
+// event only.
+const maxWindowEvents = 4_000_000
+
+// WindowCounts finds, for each group with new events (arrived after afterSeq),
+// the busiest window of the rule's length that ends at one of them, counting
+// all the rule's matching events (arrived up to maxSeq). A catch-up batch
+// holding an old burst and a later single event therefore still raises the
+// burst. It reads each day in the range once for all groups: a query per group
 // would rescan the search index for each address.
-func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGroup, window, maxSeq int64) (map[string]WindowStat, error) {
+func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGroup, afterSeq, window, maxSeq int64) (map[string]WindowStat, error) {
 	out := make(map[string]WindowStat, len(groups))
 	if len(groups) == 0 {
 		return out, nil
 	}
 	newMax := make(map[string]int64, len(groups))
-	lo, hi := groups[0].NewMax, groups[0].NewMax
+	lo, hi := groups[0].NewMin, groups[0].NewMax
 	for _, g := range groups {
 		newMax[g.Value] = g.NewMax
-		lo, hi = min(lo, g.NewMax), max(hi, g.NewMax)
+		lo, hi = min(lo, g.NewMin), max(hi, g.NewMax)
 	}
+	// Event times per group, as time*2 plus 1 for an event that is new.
+	times := make(map[string][]int64, len(groups))
+	stored, over := 0, false
 	d := r.db.days
 	d.move.RLock()
 	defer d.move.RUnlock()
@@ -422,28 +434,40 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 		if lw, la := d.legacyWhere(s); lw != "" {
 			where, args = append(where, lw), append(args, la...)
 		}
-		rows, err := db.QueryContext(ctx, `SELECT `+groupExpr(ru.GroupBy)+`, e.timestamp FROM `+from+whereSQL(where), args...)
+		rows, err := db.QueryContext(ctx, `SELECT `+groupExpr(ru.GroupBy)+`, e.timestamp, COALESCE(`+s.seqCol()+`, 0) FROM `+from+whereSQL(where), args...)
 		if err != nil {
 			return nil, fmt.Errorf("rule %q window: %w", ru.Name, err)
 		}
 		for rows.Next() {
 			var v string
-			var ts int64
-			if err := rows.Scan(&v, &ts); err != nil {
+			var ts, seq int64
+			if err := rows.Scan(&v, &ts, &seq); err != nil {
 				rows.Close()
 				return nil, err
 			}
 			end, ok := newMax[v]
-			if !ok || ts < end-window || ts > end {
+			if !ok {
 				continue
 			}
-			st, seen := out[v]
-			if !seen {
-				st = WindowStat{First: ts, Last: ts}
+			if ts <= end && ts >= end-window { // the window ending at the group's newest new event
+				st, seen := out[v]
+				if !seen {
+					st = WindowStat{First: ts, Last: ts}
+				}
+				st.Count++
+				st.First, st.Last = min(st.First, ts), max(st.Last, ts)
+				out[v] = st
 			}
-			st.Count++
-			st.First, st.Last = min(st.First, ts), max(st.Last, ts)
-			out[v] = st
+			if !over {
+				packed := ts * 2
+				if seq > afterSeq {
+					packed++
+				}
+				times[v] = append(times[v], packed)
+				if stored++; stored > maxWindowEvents {
+					over, times = true, nil
+				}
+			}
 		}
 		err = rows.Err()
 		rows.Close()
@@ -451,7 +475,45 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 			return nil, err
 		}
 	}
+	if over {
+		return out, nil
+	}
+	for v, ev := range times {
+		if st, ok := busiestWindow(ev, window); ok {
+			out[v] = st
+		}
+	}
 	return out, nil
+}
+
+// busiestWindow takes event times (time*2, plus 1 when the event is new) and
+// returns the window of the given length with the most events among those
+// ending at a new event; of equal ones, the latest.
+func busiestWindow(ev []int64, window int64) (WindowStat, bool) {
+	slices.Sort(ev)
+	var best WindowStat
+	found := false
+	l, r := 0, 0
+	for i, e := range ev {
+		if e&1 == 0 {
+			continue
+		}
+		t := e >> 1
+		for r < len(ev)-1 && ev[r+1]>>1 <= t {
+			r++
+		}
+		if r < i {
+			r = i
+		}
+		for ev[l]>>1 < t-window {
+			l++
+		}
+		if n := int64(r - l + 1); n >= best.Count {
+			best = WindowStat{Count: n, First: ev[l] >> 1, Last: ev[r] >> 1}
+			found = true
+		}
+	}
+	return best, found
 }
 
 // CountRuleEvents counts the events a rule matches (as it matches them now, with its field
@@ -531,31 +593,59 @@ func (r *Repository) MaxEventSeq(ctx context.Context) (int64, error) {
 	return r.db.days.seq.Load(), nil
 }
 
+// AlertRaise is one group's alert for RaiseAlerts.
+type AlertRaise struct {
+	Value                 string
+	NewCount, WindowCount int64
+	First, Last           int64
+}
+
+// RaiseAlerts raises a rule's alerts for several groups in one transaction, so
+// a failure leaves none of them done and the check can be repeated without
+// counting any group twice. It reports, for each, whether a new alert opened.
+func (r *Repository) RaiseAlerts(ctx context.Context, ru Rule, raises []AlertRaise, nowMs int64) ([]bool, error) {
+	tx, err := r.db.Write.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	opened := make([]bool, len(raises))
+	for i, a := range raises {
+		if opened[i], err = raiseAlertTx(ctx, tx, ru, a, nowMs); err != nil {
+			return nil, err
+		}
+	}
+	return opened, tx.Commit()
+}
+
 // RaiseAlert records that a rule fired for a group: it updates the group's
 // open or acknowledged alert, or opens a new one.
 func (r *Repository) RaiseAlert(ctx context.Context, ru Rule, value string, newCount, windowCount, first, last int64, nowMs int64) (opened bool, err error) {
-	tx, err := r.db.Write.BeginTx(ctx, nil)
+	opened_, err := r.RaiseAlerts(ctx, ru, []AlertRaise{{Value: value, NewCount: newCount, WindowCount: windowCount, First: first, Last: last}}, nowMs)
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	return opened_[0], nil
+}
+
+func raiseAlertTx(ctx context.Context, tx *sql.Tx, ru Rule, a AlertRaise, nowMs int64) (opened bool, err error) {
 	var id int64
 	err = tx.QueryRowContext(ctx, `SELECT id FROM alerts WHERE rule_id = ? AND group_value = ? AND status <> 'closed'
-		ORDER BY id DESC LIMIT 1`, ru.ID, value).Scan(&id)
+		ORDER BY id DESC LIMIT 1`, ru.ID, a.Value).Scan(&id)
 	switch {
 	case err == nil:
 		_, err = tx.ExecContext(ctx, `UPDATE alerts SET count = count + ?, last_seen = MAX(last_seen, ?), first_seen = MIN(first_seen, ?),
-			severity = ?, updated_at = ? WHERE id = ?`, newCount, last, first, ru.Severity, nowMs, id)
+			severity = ?, updated_at = ? WHERE id = ?`, a.NewCount, a.Last, a.First, ru.Severity, nowMs, id)
 	case errors.Is(err, sql.ErrNoRows):
 		opened = true
 		_, err = tx.ExecContext(ctx, `INSERT INTO alerts (rule_id, rule_name, severity, group_by, group_value, status, count,
 			first_seen, last_seen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
-			ru.ID, ru.Name, ru.Severity, ru.GroupBy, value, windowCount, first, last, nowMs, nowMs)
+			ru.ID, ru.Name, ru.Severity, ru.GroupBy, a.Value, a.WindowCount, a.First, a.Last, nowMs, nowMs)
 	}
 	if err != nil {
 		return false, fmt.Errorf("raise alert: %w", err)
 	}
-	return opened, tx.Commit()
+	return opened, nil
 }
 
 // CountSourceEvents counts the events a source has in [from, to] (event

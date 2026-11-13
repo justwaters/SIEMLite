@@ -26,9 +26,9 @@ type Store interface {
 	ListRules(ctx context.Context) ([]storage.Rule, error)
 	MaxEventSeq(ctx context.Context) (int64, error)
 	NewMatches(ctx context.Context, ru storage.Rule, afterSeq, maxSeq int64) ([]storage.RuleGroup, error)
-	WindowCounts(ctx context.Context, ru storage.Rule, groups []storage.RuleGroup, window, maxSeq int64) (map[string]storage.WindowStat, error)
+	WindowCounts(ctx context.Context, ru storage.Rule, groups []storage.RuleGroup, afterSeq, window, maxSeq int64) (map[string]storage.WindowStat, error)
 	ActiveAlertGroups(ctx context.Context, ruleID int64) (map[string]bool, error)
-	RaiseAlert(ctx context.Context, ru storage.Rule, value string, newCount, windowCount, first, last int64, nowMs int64) (bool, error)
+	RaiseAlerts(ctx context.Context, ru storage.Rule, raises []storage.AlertRaise, nowMs int64) ([]bool, error)
 	CountSourceEvents(ctx context.Context, sourceID, from, to int64) (int64, error)
 	ListSources(ctx context.Context) ([]storage.Source, error)
 	CountRuleEvents(ctx context.Context, ru storage.Rule, groupValue string, startMs, endMs int64) (int64, error)
@@ -174,7 +174,7 @@ func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, no
 		return err
 	}
 	window := int64(ru.WindowMinutes) * 60_000
-	stats, err := e.store.WindowCounts(ctx, ru, groups, window, maxID)
+	stats, err := e.store.WindowCounts(ctx, ru, groups, from, window, maxID)
 	if err != nil {
 		return err
 	}
@@ -182,18 +182,28 @@ func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, no
 	if err != nil {
 		return err
 	}
+	// All of a rule's alerts for this range are raised in one step: if it fails,
+	// none were counted and the same range can be checked again.
+	var raises []storage.AlertRaise
 	for _, g := range groups {
 		st := stats[g.Value]
 		if st.Count == 0 || (!active[g.Value] && st.Count < int64(ru.Threshold)) {
 			continue
 		}
-		opened, err := e.store.RaiseAlert(ctx, ru, g.Value, g.New, st.Count, st.First, st.Last, now)
-		if err != nil {
-			return err
-		}
-		if opened {
+		raises = append(raises, storage.AlertRaise{Value: g.Value, NewCount: g.New, WindowCount: st.Count,
+			First: st.First, Last: max(st.Last, g.NewMax)})
+	}
+	if len(raises) == 0 {
+		return nil
+	}
+	opened, err := e.store.RaiseAlerts(ctx, ru, raises, now)
+	if err != nil {
+		return err
+	}
+	for i, a := range raises {
+		if opened[i] {
 			res.Opened++
-			e.log.Info("alert opened", "rule", ru.Name, "group", g.Value, "events", st.Count)
+			e.log.Info("alert opened", "rule", ru.Name, "group", a.Value, "events", a.WindowCount)
 		} else {
 			res.Updated++
 		}

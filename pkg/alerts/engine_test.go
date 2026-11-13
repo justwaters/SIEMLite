@@ -427,3 +427,64 @@ func TestVolumeRuleDropsSearchAndGrouping(t *testing.T) {
 		t.Errorf("saved volume rule = %+v, %v", got, err)
 	}
 }
+
+// A catch-up batch that holds an old burst and a later lone event still raises
+// the burst: the window isn't anchored only at the newest event.
+func TestOldBurstInCatchUpBatch(t *testing.T) {
+	repo, _, eng := setup(t)
+	ctx := context.Background()
+	base := time.Now().Add(-5 * time.Hour)
+	var burst []time.Time
+	for i := 0; i < 12; i++ {
+		burst = append(burst, base.Add(time.Duration(i)*20*time.Second))
+	}
+	failedPasswords(t, repo, "203.0.113.5", append(burst, base.Add(4*time.Hour))...)
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := alertsByRule(t, repo)["SSH brute force"]
+	if len(got) != 1 || got[0].GroupValue != "203.0.113.5" || got[0].Count != 12 {
+		t.Fatalf("old burst in a batch with a later event: %+v", got)
+	}
+}
+
+// failsRaise fails the first RaiseAlerts call.
+type failsRaise struct {
+	*storage.Repository
+	failed bool
+}
+
+func (f *failsRaise) RaiseAlerts(ctx context.Context, ru storage.Rule, r []storage.AlertRaise, now int64) ([]bool, error) {
+	if !f.failed {
+		f.failed = true
+		return nil, errors.New("database is locked")
+	}
+	return f.Repository.RaiseAlerts(ctx, ru, r, now)
+}
+
+// A failure while raising a rule's alerts leaves none of them counted, so the
+// retry doesn't count any group twice.
+func TestFailedRaiseIsNotCountedTwice(t *testing.T) {
+	repo, w, _ := setup(t)
+	ctx := context.Background()
+	eng := New(&failsRaise{Repository: repo}, nil)
+	now := time.Now()
+	for i := 0; i < 12; i++ {
+		ev := &ocsf.Event{Time: now.Add(time.Duration(i) * time.Second).UnixMilli(), CategoryUID: 3, ClassUID: 3002, ActivityID: 1, SeverityID: 5,
+			Message: "Failed password for root from 198.51.100.9", SrcEndpoint: &ocsf.Endpoint{IP: "198.51.100.9"}}
+		if err := w.Submit(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Drain(ctx)
+	for i := 0; i < 3; i++ {
+		eng.Check(ctx)
+	}
+	got := alertsByRule(t, repo)
+	if b := got["SSH brute force"]; len(b) != 1 || b[0].Count != 12 {
+		t.Errorf("brute force alerts after a failed raise: %+v", b)
+	}
+	if c := got["Critical event"]; len(c) != 1 || c[0].Count != 12 {
+		t.Errorf("critical event alerts after a failed raise: %+v", c)
+	}
+}

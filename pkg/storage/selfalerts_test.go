@@ -200,7 +200,7 @@ func TestARuleFailsWhenTheGuardCannotBeBuilt(t *testing.T) {
 	if _, err := repo.NewMatches(ctx, Rule{Name: "r", Query: "x", Threshold: 1, WindowMinutes: 5}, 0, seq); err == nil {
 		t.Error("NewMatches counted events without the guard")
 	}
-	if _, err := repo.WindowCounts(ctx, Rule{Name: "r", Query: "x"}, []RuleGroup{{Value: "", NewMax: now, New: 1}}, 60_000, seq); err == nil {
+	if _, err := repo.WindowCounts(ctx, Rule{Name: "r", Query: "x"}, []RuleGroup{{Value: "", NewMax: now, New: 1}}, 0, 60_000, seq); err == nil {
 		t.Error("WindowCounts counted events without the guard")
 	}
 	if _, err := repo.CountRuleEvents(ctx, Rule{Name: "r"}, "", now-1000, now+1000); err == nil {
