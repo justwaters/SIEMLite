@@ -1317,6 +1317,7 @@
       <div class="manage-choices">
         <button type="button" class="btn" id="manage-enable">Enable</button>
         <button type="button" class="btn" id="manage-disable">Disable</button>
+        <button type="button" class="btn" id="manage-rotate">New token</button>
         <button type="button" class="btn btn-danger" id="manage-delete">Delete</button>
       </div>
       <p class="notice bad" id="manage-err" role="alert" hidden></p>
@@ -1329,6 +1330,7 @@
       <div class="dialog-actions">
         <button type="button" class="btn" id="manage-cancel">Cancel</button>
         <button type="button" class="btn btn-danger" id="manage-delete-ok">Delete source</button>
+        <button type="button" class="btn btn-primary" id="manage-rotate-ok" hidden>Create new token</button>
       </div>
     </div>
   </form>
@@ -1346,7 +1348,7 @@
     </div>
     <div class="connect-section">
       <h3>Access token</h3>
-      <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, disable or delete the source and add another.</p>
+      <p>This is the only time it&rsquo;s shown. If it&rsquo;s lost, open Manage for this source and choose New token.</p>
       <div class="token-box"><input class="input" id="t-token" readonly aria-label="Access token"><button type="button" class="btn" id="t-copy">Copy</button></div>
     </div>
     <div class="connect-section">
@@ -2760,7 +2762,28 @@ function manageDialog(s) {
     () => apiJSON(`/api/v1/sources/${s.id}`, { method: "PATCH", json: { enabled } }), `${enabled ? "Enabled" : "Disabled"} ${s.name}.`);
   $("manage-enable").onclick = setEnabled(true);
   $("manage-disable").onclick = setEnabled(false);
+  $("manage-rotate").onclick = () => {
+    $("manage-confirm-title").textContent = `Create a new token for ${s.name}?`;
+    $("manage-confirm-body").textContent = "The current token stops working at once: anything still sending with it gets a 401 until it is given the new token. " +
+      `The source, its settings and its logs stay${on ? "" : ", and it stays disabled"}. The new token is shown once.`;
+    notice($("manage-confirm-err"), "");
+    $("manage-delete-ok").hidden = true; $("manage-rotate-ok").hidden = false;
+    view(true); $("manage-cancel").focus();
+  };
+  $("manage-rotate-ok").onclick = async () => {
+    notice($("manage-confirm-err"), "");
+    for (const b of d.querySelectorAll("button")) b.disabled = true;
+    try {
+      const data = await apiJSON(`/api/v1/sources/${s.id}/token`, { method: "POST" });
+      d.close(); await openSources(); tokenDialog(data.token, s.name);
+    } catch (err) {
+      notice($("manage-confirm-err"), err.message);
+      for (const b of d.querySelectorAll("button")) b.disabled = false;
+      $("manage-enable").disabled = on; $("manage-disable").disabled = !on;
+    }
+  };
   $("manage-delete").onclick = () => {
+    $("manage-delete-ok").hidden = false; $("manage-rotate-ok").hidden = true;
     $("manage-confirm-title").textContent = `Delete ${s.name}?`;
     $("manage-confirm-body").textContent = "Its token is removed for good and can\u2019t be restored. Its logs stay in the Database as \u201cDeleted source\u201d.";
     notice($("manage-confirm-err"), "");

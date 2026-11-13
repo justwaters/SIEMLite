@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.30.1` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.31` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -208,6 +208,12 @@ snippet that sends a log in curl, Python, Go, JavaScript or React, with the addr
 address starts as the one in your browser; change it to the address your apps use to reach SIEMLite if that differs.
 Tokens can only send logs; they can't search or sign in.
 
+To replace a token without losing the source, choose **Manage** on its row, then **New token**. The old token stops
+working at once, so anything still sending with it gets a `401` until you give it the new one. The source keeps its name,
+parser and logs (and stays disabled if it was), and the new token is shown once, like the first. Use this when a token
+is lost or may have leaked. After replacing the Log generator's token, save the new one over `siemlite-loggen.token` or
+pass it with `-token`.
+
 The snippets trust `siemlite.crt`, since the certificate is self-signed unless you supplied your own. Copy it next to
 the code (`docker compose cp siemlite:/data/siemlite.crt .` with Docker) and remove those lines if your certificate is
 already trusted. A log sent returns `202` when accepted, `401` if the token is wrong or the source is disabled, and
@@ -315,6 +321,7 @@ structured data) is not kept: if you need it, give that source a custom parser.
 | `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, by default 24 hours after the event arrived). |
 | `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
+| `POST /api/v1/sources/{id}/token` | admin | Give an access token a new token, returned once as `{"source", "token"}`. The old token stops working at once; the source, its settings and its logs stay, and a disabled source stays disabled. `400` for built-in sources, `404` for a missing one. |
 | `POST /api/v1/sources`, `PATCH`/`DELETE /api/v1/sources/{id}` | admin | Create an access token (`{"name", "parser_id", "parser_none"}`), rename, set how its lines are read (`"parser_id": 3` for a parser, `"parser_id": null` for Automatic, `"parser_none": true` for None; not both together), and switch a token on or off (`"enabled": true` or `false`; to disable a token use `PATCH`, not `DELETE`). `DELETE` removes the source and its token for good (it used to revoke the token); it returns `409` naming the alert rules that are scoped to the source, and `400` for built-in sources. Only access tokens can be enabled, disabled or deleted. A source shows `parser_none` and `enabled` in its JSON (`revoked_at` is set while it's disabled). |
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates`, `GET /api/v1/parsers/severity-defaults` | admin | Manage parsers; the templates, and the default keyword rules for a parser's severity. |
