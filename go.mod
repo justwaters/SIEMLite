@@ -1,6 +1,6 @@
 module siemlite
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/maxmind/mmdbwriter v1.2.0
