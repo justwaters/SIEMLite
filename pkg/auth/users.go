@@ -31,7 +31,7 @@ const (
 // HashCost is the bcrypt cost. Tests lower it.
 var HashCost = 12
 
-var ErrBadCredentials = errors.New("invalid username or password")
+var ErrBadCredentials = errors.New("invalid username or password, or the account is temporarily locked after too many attempts")
 
 // ParseUserRole validates a user role name. "analyst", the old name for a
 // standard user, is still accepted.
@@ -157,8 +157,12 @@ func (a *Authenticator) Login(ctx context.Context, remote, username, password st
 	}
 	// Only real accounts are counted per account: counting made-up names would
 	// let a flood of them push a real account's entry out of the table.
+	// At the account's limit the answer and the time taken match an unknown
+	// name's, so the limit can't be used to tell which names are accounts.
 	if !a.accounts.take(account) {
-		return "", nil, ErrTooManyAttempts
+		spendHashTime(password)
+		a.log.Warn("login refused: too many attempts for the account", "remote", remote, "user", u.Username)
+		return "", nil, ErrBadCredentials
 	}
 	// Accounts that sign in through a service, and disabled accounts, never
 	// sign in with a password. This looks the same as a wrong password.

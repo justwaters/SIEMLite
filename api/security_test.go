@@ -194,8 +194,9 @@ func checkAccountLockout(t *testing.T) {
 		}
 	}
 	b, _ := json.Marshal(map[string]string{"username": "alice", "password": password})
+	// Locked out, alice answers exactly like a wrong password, so the limit can't be used to find accounts.
 	expect(t, "alice with the right password after a spray", e.do(c, "POST", "/api/v1/login", string(b),
-		map[string]string{"X-Forwarded-For": "198.51.100.1"}), http.StatusTooManyRequests)
+		map[string]string{"X-Forwarded-For": "198.51.100.1"}), http.StatusUnauthorized)
 	b, _ = json.Marshal(map[string]string{"username": "bob", "password": password})
 	expect(t, "bob is unaffected", e.do(c, "POST", "/api/v1/login", string(b),
 		map[string]string{"X-Forwarded-For": "198.51.100.2"}), http.StatusOK)

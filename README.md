@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.31.3` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.31.4` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -838,7 +838,7 @@ on every other browser). Wrong guesses there are limited separately from signing
 can't lock the owner out of signing in. Admins can set anyone's password on the Users page.
 
 Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an `HttpOnly`, `Secure`, `SameSite=Strict` cookie,
-and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window.
+and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window, and an account is locked after 50 failed sign-ins from any addresses. A locked account answers like a wrong password, so the lockout can't be used to find out which usernames exist.
 
 ### Sign-in restrictions
 
