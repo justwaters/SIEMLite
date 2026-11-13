@@ -279,6 +279,10 @@
   #audit-reason { min-height: 90px; font: inherit; }
   /* Admin lists */
   .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  /* Sources: three fixed slots (View logs, Rename/Add logs, Manage) so a missing button leaves a gap instead of shifting the others. */
+  .row-actions.slots { display: grid; grid-template-columns: repeat(3, 88px); justify-content: end; }
+  .row-actions.slots > * { width: 88px; justify-content: center; text-align: center; }
+  .row-actions.slots > .slot-empty { height: 30px; }
   .data td.actions { width: 1%; white-space: nowrap; }
   .data .select { height: 32px; padding: 4px 8px; }
   .kind { color: var(--ink-2); font-size: 13.5px; }
@@ -2496,11 +2500,12 @@ async function openSources() {
         el("td", {}, s.kind === "internal" ? el("span", { className: "muted", textContent: "Built in" }) : parserSel),
         el("td", {}, el("span", { className: "pill" + (fresh ? " on" : ""), textContent: ago(s.last_used_at), title: s.last_used_at ? new Date(s.last_used_at).toString() : "" })),
         el("td", { className: "muted", textContent: shortDate(s.created_at) }),
-        el("td", { className: "actions" }, el("div", { className: "row-actions" },
+        el("td", { className: "actions" }, el("div", { className: "row-actions slots" },
           el("a", { className: "btn btn-small", href: `#/database?source=${s.id}`, textContent: "View logs" }),
-          s.kind === "upload" ? el("button", { className: "btn btn-small", textContent: "Add logs", onclick: logsDialog }) : "",
-          s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) }) : "",
-          s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) }) : "")));
+          s.kind === "upload" ? el("button", { className: "btn btn-small", textContent: "Add logs", onclick: logsDialog })
+            : s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) })
+            : el("span", { className: "slot-empty" }),
+          s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) }) : el("span", { className: "slot-empty" }))));
     }));
   } catch (err) { notice($("sources-msg"), err.message); }
 }
