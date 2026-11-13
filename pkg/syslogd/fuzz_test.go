@@ -13,12 +13,14 @@ import (
 // limit, the reader always makes progress, and well-formed octet-counted
 // frames come back exactly.
 func FuzzReadFrame(f *testing.F) {
-	f.Add([]byte("<34>Oct  2 11:58:01 web1 sshd[311]: hi\n12 <34>abcdefgh9 newline\n"), []byte("hello world"))
+	f.Add([]byte("<34>Oct  2 11:58:01 web1 sshd[311]: hi\n12 <34>abcdefgh9 newline\n"), []byte("<13>hello world"))
 	f.Add([]byte("0 \n00 x\n9999999 x\n-1 y\n"), []byte(""))
-	f.Add([]byte("65537 "+strings.Repeat("a", 70000)), []byte("x"))
+	f.Add([]byte("65537 "+strings.Repeat("a", 70000)), []byte("<1>x"))
 	f.Add([]byte(strings.Repeat("b", 70000)+"\nok\n"), []byte("\n\n"))
 	f.Fuzz(func(t *testing.T, stream, framed []byte) {
-		if len(framed) == 0 || len(framed) > MaxMessageSize {
+		// A counted message is a syslog message, which starts with its <PRI>; a
+		// line such as "10 failed logins" is not read as a count (see readFrame).
+		if len(framed) == 0 || len(framed) > MaxMessageSize || framed[0] != '<' {
 			return
 		}
 		// A well-formed octet-counted frame after the junk must come back
