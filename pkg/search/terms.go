@@ -11,7 +11,7 @@ import (
 )
 
 // The search box takes field terms beside words: src_ip=10.0.0.1,10.0.0.2
-// (commas mean "any of these") or user="Jonathan Martinez". Terms are separated
+// (commas mean "any of these") or user="Jonathan Martinez" or user='Jonathan Martinez'. Terms are separated
 // by spaces and all apply, together with the words. A name that isn't one of the
 // fields below is an extra field a parser found, such as action=login.
 //
@@ -30,11 +30,13 @@ var severityNames = map[string]string{
 	"unknown": "0", "info": "1", "informational": "1", "low": "2", "medium": "3", "high": "4", "critical": "5", "fatal": "6",
 }
 
-// splitTokens splits s on spaces that are outside double quotes.
+// splitTokens splits s on spaces that are outside quotes. Double quotes work
+// anywhere; single quotes only where a value starts (after = or a comma), so an
+// apostrophe in a name such as O'Brien stays a plain character.
 func splitTokens(s string) []string {
 	var out []string
 	var cur strings.Builder
-	inQuote := false
+	var quote, prev rune
 	flush := func() {
 		if cur.Len() > 0 {
 			out = append(out, cur.String())
@@ -43,37 +45,43 @@ func splitTokens(s string) []string {
 	}
 	for _, r := range s {
 		switch {
-		case r == '"':
-			inQuote = !inQuote
+		case quote == 0 && r == '"', quote == 0 && r == '\'' && (prev == '=' || prev == ','):
+			quote = r
 			cur.WriteRune(r)
-		case (r == ' ' || r == '\t' || r == '\n' || r == '\r') && !inQuote:
+		case quote != 0 && r == quote:
+			quote = 0
+			cur.WriteRune(r)
+		case (r == ' ' || r == '\t' || r == '\n' || r == '\r') && quote == 0:
 			flush()
 		default:
 			cur.WriteRune(r)
 		}
+		prev = r
 	}
 	flush()
 	return out
 }
 
-// splitValues splits a field term's value on commas outside double quotes and
-// takes the quotes off.
+// splitValues splits a field term's value on commas outside quotes ("John Doe"
+// or 'John Doe') and takes the quotes off.
 func splitValues(s string) ([]string, error) {
 	var out []string
 	var cur strings.Builder
-	inQuote := false
+	var quote rune
 	for _, r := range s {
 		switch {
-		case r == '"':
-			inQuote = !inQuote
-		case r == ',' && !inQuote:
+		case quote == 0 && r == '"', quote == 0 && r == '\'' && strings.TrimSpace(cur.String()) == "":
+			quote = r
+		case quote != 0 && r == quote:
+			quote = 0
+		case r == ',' && quote == 0:
 			out = append(out, strings.TrimSpace(cur.String()))
 			cur.Reset()
 		default:
 			cur.WriteRune(r)
 		}
 	}
-	if inQuote {
+	if quote != 0 {
 		return nil, fmt.Errorf("a quote isn't closed")
 	}
 	out = append(out, strings.TrimSpace(cur.String()))

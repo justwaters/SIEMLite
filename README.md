@@ -287,7 +287,7 @@ means all of them apply, and quotes hold a value with spaces:
 | `src_ip=10.0.0.1,10.0.0.2` | the source address is one of those |
 | `dst_ip=...` | the destination address is one of those |
 | `ip=192.168.48.21` | either address is |
-| `user="Jonathan Martinez",bob` | the user is one of those |
+| `user="Jonathan Martinez",bob` | the user is one of those (single quotes work too: `user='Jonathan Martinez'`) |
 | `host=web1` · `program=sshd` | the reporting host, or the program that wrote it |
 | `source=Firewall,Syslog` | the log source (its name, or id) is one of those |
 | `severity=high,critical` | the severity is (1-6, or info, low, medium, high, critical, fatal) |

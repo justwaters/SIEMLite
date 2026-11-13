@@ -42,6 +42,10 @@ func TestParseTerms(t *testing.T) {
 		`src_ip=1.1.1.1 AND failed`:            {words: "failed", conds: []storage.Cond{{Field: "src_ip", Values: []string{"1.1.1.1"}}}},
 		`a AND src_ip=1.1.1.1 AND b`:           {words: "a AND b", conds: []storage.Cond{{Field: "src_ip", Values: []string{"1.1.1.1"}}}},
 		`USER="Jonathan Martinez",bob`:         {conds: []storage.Cond{{Field: "user", Values: []string{"Jonathan Martinez", "bob"}}}},
+		`user='John Doe'`:                      {conds: []storage.Cond{{Field: "user", Values: []string{"John Doe"}}}},
+		`failed user='John Doe',bob host=web1`: {words: "failed", conds: []storage.Cond{{Field: "user", Values: []string{"John Doe", "bob"}}, {Field: "host", Values: []string{"web1"}}}},
+		`user="O'Brien"`:                       {conds: []storage.Cond{{Field: "user", Values: []string{"O'Brien"}}}},
+		`user=O'Brien`:                         {conds: []storage.Cond{{Field: "user", Values: []string{"O'Brien"}}}},
 		`"a=b" user=x`:                         {words: `"a=b"`, conds: []storage.Cond{{Field: "user", Values: []string{"x"}}}},
 		`severity=high,critical,3`:             {conds: []storage.Cond{{Field: "severity", Values: []string{"4", "5", "3"}}}},
 		`country=nl,de asn=AS15169`:            {conds: []storage.Cond{{Field: "country", Values: []string{"NL", "DE"}}, {Field: "asn", Values: []string{"15169"}}}},
@@ -61,6 +65,7 @@ func TestParseTerms(t *testing.T) {
 	for in, why := range map[string]string{
 		`src_ip=`:                    "needs a value",
 		`user="unclosed`:             "quote",
+		`user='unclosed`:             "quote",
 		`NOT user=bob`:               "NOT",
 		`user=bob OR user=ann`:       "OR",
 		`severity=loud`:              "1-6",
