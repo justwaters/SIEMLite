@@ -433,6 +433,13 @@ func TestManageSource(t *testing.T) {
 	builtin := fmt.Sprintf("/api/v1/sources/%d", syslog.ID)
 	expect(t, "disable built-in", e.do(root, "PATCH", builtin, `{"enabled": false}`, nil), 400)
 	expect(t, "delete built-in", e.do(root, "DELETE", builtin, "", nil), 400)
+	// The upload source (Added in the UI) can be renamed, and logs still land in it; Syslog and INTERNAL can't be.
+	expect(t, "rename built-in syslog", e.do(root, "PATCH", builtin, `{"name": "Edge syslog"}`, nil), 400)
+	upload, _ := e.repo.BuiltinSource(ctx, storage.SourceUpload)
+	expect(t, "rename upload source", e.do(root, "PATCH", fmt.Sprintf("/api/v1/sources/%d", upload.ID), `{"name": "Pasted logs"}`, nil), 200)
+	if got, _ := e.repo.BuiltinSource(ctx, storage.SourceUpload); got == nil || got.ID != upload.ID || got.Name != "Pasted logs" {
+		t.Errorf("upload source after rename = %+v", got)
+	}
 	expect(t, "disable missing", e.do(root, "PATCH", "/api/v1/sources/9999", `{"enabled": false}`, nil), 404)
 	expect(t, "delete missing", e.do(root, "DELETE", "/api/v1/sources/9999", "", nil), 404)
 

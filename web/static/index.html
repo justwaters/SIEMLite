@@ -1388,7 +1388,7 @@
 <dialog id="dlg-logs" class="wide">
   <form method="dialog" id="logs-form">
     <h2>Add logs</h2>
-    <p>Paste logs, one per line, or load a file. They&rsquo;re stored under &ldquo;Added in the UI&rdquo; and read with its parser.</p>
+    <p>Paste logs, one per line, or load a file. They&rsquo;re stored under &ldquo;<span id="logs-source">Added in the UI</span>&rdquo; and read with its parser.</p>
     <label class="visually-hidden" for="logs">Logs</label>
     <textarea id="logs" rows="10" placeholder="Oct  2 11:58:01 web1 sshd[311]: Failed password for root from 203.0.113.7 port 22 ssh2"></textarea>
     <div class="two">
@@ -2493,6 +2493,7 @@ async function openSources() {
           notice($("sources-msg"), `${s.name} now uses ${parserSel.value === "" ? "automatic parsing" : parserSel.value === "none" ? "no parser" : parserSel.selectedOptions[0].textContent}.`, true);
         } catch (err) { notice($("sources-msg"), err.message); }
       };
+      if (s.kind === "upload") uploadSourceName = s.name;
       const fresh = s.last_used_at && Date.now() - s.last_used_at < 86400000;
       return el("tr", { className: s.revoked_at ? "disabled" : "" },
         el("td", {}, el("b", { textContent: s.name })),
@@ -2502,10 +2503,10 @@ async function openSources() {
         el("td", { className: "muted", textContent: shortDate(s.created_at) }),
         el("td", { className: "actions" }, el("div", { className: "row-actions slots" },
           el("a", { className: "btn btn-small", href: `#/database?source=${s.id}`, textContent: "View logs" }),
+          s.kind === "upload" || (s.kind === "token" && !s.revoked_at) ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) }) : el("span", { className: "slot-empty" }),
           s.kind === "upload" ? el("button", { className: "btn btn-small", textContent: "Add logs", onclick: logsDialog })
-            : s.kind === "token" && !s.revoked_at ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) })
-            : el("span", { className: "slot-empty" }),
-          s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) }) : el("span", { className: "slot-empty" }))));
+            : s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) })
+            : el("span", { className: "slot-empty" }))));
     }));
   } catch (err) { notice($("sources-msg"), err.message); }
 }
@@ -2802,7 +2803,9 @@ function manageDialog(s) {
 }
 
 // --- Add logs ---
+let uploadSourceName = "";
 function logsDialog() {
+  if (uploadSourceName) $("logs-source").textContent = uploadSourceName;
   notice($("logs-msg"), "");
   const d = $("dlg-logs");
   $("logs-form").onsubmit = async (e) => {

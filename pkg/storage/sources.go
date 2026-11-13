@@ -153,8 +153,8 @@ func (r *Repository) UpdateSource(ctx context.Context, id int64, name *string, p
 		return errors.New("the built-in INTERNAL source doesn't use a parser")
 	}
 	if name != nil {
-		if s.Kind != SourceToken {
-			return errors.New("built-in sources can't be renamed")
+		if s.Kind != SourceToken && s.Kind != SourceUpload {
+			return errors.New("the built-in Syslog and INTERNAL sources can't be renamed")
 		}
 		if _, err := r.db.Write.ExecContext(ctx, `UPDATE sources SET name = ? WHERE id = ?`, *name, id); err != nil {
 			return fmt.Errorf("rename source: %w", err)

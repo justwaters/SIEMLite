@@ -224,6 +224,8 @@ def main(binary, loggen):
             check(options[:2] == ["Automatic", "None"] and "Log generator" in options[2:],
                   f"the parser dropdown lists Automatic, None, then the parsers ({options})")
             check(ui_sel.evaluate("s => s.options[s.selectedIndex].text") == "Automatic", "a source starts on Automatic")
+            ui_btns = ui_row().locator(".row-actions > .btn").all_inner_texts()
+            check(ui_btns == ["View logs", "Rename", "Add logs"], f"the Added in the UI source offers View logs, Rename, Add logs ({ui_btns})")
             ui_sel.select_option(label="None")
             page.wait_for_selector("#sources-msg:not([hidden])")
             check("no parser" in page.inner_text("#sources-msg"), "choosing None says so")
