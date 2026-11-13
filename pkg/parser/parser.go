@@ -213,12 +213,20 @@ func parseJSON(line string, d Defaults) *ocsf.Event {
 		}
 	}
 	for _, k := range []string{"timestamp", "time", "ts", "@timestamp"} {
-		if s, ok := generic[k].(string); ok {
-			if t, ok := parseISO(s); ok {
-				ev.Time = t.UnixMilli()
-				used = append(used, k)
-				break
+		var t time.Time
+		var ok bool
+		switch v := generic[k].(type) {
+		case string:
+			if t, ok = parseISO(v); !ok {
+				t, ok = ParseTime(v, time.Now())
 			}
+		case float64: // Unix epoch seconds or milliseconds, as zap, pino and Bunyan write them
+			t, ok = ParseTime(strconv.FormatFloat(v, 'f', -1, 64), time.Now())
+		}
+		if ok {
+			ev.Time = t.UnixMilli()
+			used = append(used, k)
+			break
 		}
 	}
 	level := ""
@@ -337,7 +345,7 @@ func syslogHeader(s string, now time.Time) (t time.Time, host, app, rest string,
 
 func parseISO(s string) (time.Time, bool) {
 	s = strings.Replace(s, ",", ".", 1)
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02T15:04:05.999999999Z0700", "2006-01-02 15:04:05.999999999Z0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t, true
 		}

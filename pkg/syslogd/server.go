@@ -337,6 +337,11 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 			if n <= 0 {
 				break
 			}
+			// A counted message starts with its <PRI>. "10 failed logins" at the
+			// start of a newline-delimited line is not a count.
+			if next, err := r.Peek(i + 1); err != nil || next[i] != '<' {
+				break
+			}
 			r.Discard(i)
 			if n > MaxMessageSize {
 				_, err := r.Discard(n)

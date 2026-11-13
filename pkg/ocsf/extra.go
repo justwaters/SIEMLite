@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strconv"
+	"unicode/utf8"
 )
 
 // Limits on the values ExtraFields keeps from one event. They are generous
@@ -62,7 +63,11 @@ func (w *walk) put(k, v string) {
 		return
 	}
 	if len(v) > maxExtraFieldLen {
-		v = v[:maxExtraFieldLen]
+		n := maxExtraFieldLen
+		for n > 0 && !utf8.RuneStart(v[n]) {
+			n--
+		}
+		v = v[:n]
 	}
 	w.out[k] = v
 }

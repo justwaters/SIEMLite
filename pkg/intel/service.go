@@ -181,9 +181,14 @@ func FetchFeed(ctx context.Context, client *http.Client, store Store, f Feed) (n
 	if resp.StatusCode != http.StatusOK {
 		return 0, 0, fmt.Errorf("GET %s: %s", f.URL, resp.Status)
 	}
-	inds, skipped, err := ParseFeed(io.LimitReader(resp.Body, maxFeedBytes), "", f.Name, "")
+	body := &io.LimitedReader{R: resp.Body, N: maxFeedBytes + 1}
+	inds, skipped, err := ParseFeed(body, "", f.Name, "")
 	if err != nil {
 		return 0, skipped, err
+	}
+	if body.N <= 0 {
+		// A feed cut off in the middle could end on a half-written address; keep the indicators we have.
+		return 0, skipped, fmt.Errorf("feed %s is larger than %d MiB, so it was not used", f.Name, maxFeedBytes>>20)
 	}
 	if len(inds) == 0 {
 		return 0, skipped, fmt.Errorf("feed %s contained no indicators", f.Name)

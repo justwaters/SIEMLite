@@ -141,14 +141,15 @@ func (a *Authenticator) Login(ctx context.Context, remote, username, password st
 	if err := a.passwordAllowed(ctx, username); err != nil {
 		return "", nil, err
 	}
-	if !a.limiter.allow(remote) || !a.accounts.allow(account) {
+	// Each attempt is counted before it is checked, in one step, so guesses sent
+	// in parallel can't all pass the limit before the first failure is recorded.
+	if !a.limiter.take(remote) || !a.accounts.take(account) {
 		return "", nil, ErrTooManyAttempts
 	}
 	u, hash, err := a.repo.GetUserForLogin(ctx, username)
 	switch {
 	case errors.Is(err, storage.ErrUserNotFound):
 		spendHashTime(password)
-		a.limiter.fail(remote)
 		a.log.Warn("login failed", "remote", remote, "user", "(unknown username)")
 		return "", nil, ErrBadCredentials
 	case err != nil:
@@ -158,14 +159,10 @@ func (a *Authenticator) Login(ctx context.Context, remote, username, password st
 	// sign in with a password. This looks the same as a wrong password.
 	if u.AuthProvider != storage.ProviderLocal || u.Disabled {
 		spendHashTime(password)
-		a.limiter.fail(remote)
-		a.accounts.fail(account)
 		a.log.Warn("login failed", "remote", remote, "user", u.Username)
 		return "", nil, ErrBadCredentials
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
-		a.limiter.fail(remote)
-		a.accounts.fail(account)
 		a.log.Warn("login failed", "remote", remote, "user", u.Username)
 		return "", nil, ErrBadCredentials
 	}

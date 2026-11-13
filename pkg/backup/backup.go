@@ -528,6 +528,11 @@ func (m *Manager) CleanTemp() {
 	entries, _ := os.ReadDir(m.dir)
 	for _, e := range entries {
 		if n := e.Name(); strings.HasPrefix(n, ".") || strings.HasSuffix(n, ".partial") {
+			// Snapshot and verify folders hold whole database copies.
+			if e.IsDir() && (strings.HasSuffix(n, ".snapshot") || strings.HasPrefix(n, ".verify-")) {
+				os.RemoveAll(filepath.Join(m.dir, n))
+				continue
+			}
 			os.Remove(filepath.Join(m.dir, n))
 		}
 	}

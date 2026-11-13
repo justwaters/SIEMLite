@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"siemlite/pkg/ocsf"
 )
@@ -208,7 +210,7 @@ func CompilePattern(pattern string) (*regexp.Regexp, []string, error) {
 			expr = `.*`
 		}
 		if custom != "" {
-			expr = custom
+			expr = noCapture(custom)
 		}
 		switch {
 		case name == "" || name == "_":
@@ -550,7 +552,7 @@ func (p *Parser) extract(body string) (map[string]string, error) {
 			return
 		}
 		if len(v) > maxFieldLen {
-			v = v[:maxFieldLen]
+			v = cutUTF8(v, maxFieldLen)
 		}
 		out[k] = v
 	}
@@ -757,4 +759,36 @@ func Explain(pattern, line string) (matched, next string, ok bool) {
 		}
 	}
 	return pattern[:best], pattern[best:end], false
+}
+
+// cutUTF8 shortens v to at most n bytes without splitting a character.
+func cutUTF8(v string, n int) string {
+	if len(v) <= n {
+		return v
+	}
+	for n > 0 && !utf8.RuneStart(v[n]) {
+		n--
+	}
+	return v[:n]
+}
+
+// noCapture turns capture groups in a placeholder's own regex, such as
+// {a:(x|y)}, into plain groups, so they can't shift the numbering of the
+// fields after them.
+func noCapture(expr string) string {
+	re, err := syntax.Parse(expr, syntax.Perl)
+	if err != nil {
+		return expr
+	}
+	var strip func(*syntax.Regexp)
+	strip = func(r *syntax.Regexp) {
+		for _, sub := range r.Sub {
+			strip(sub)
+		}
+		if r.Op == syntax.OpCapture {
+			r.Op, r.Cap, r.Name = syntax.OpConcat, 0, ""
+		}
+	}
+	strip(re)
+	return re.String()
 }

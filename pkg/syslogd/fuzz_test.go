@@ -64,3 +64,18 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// A newline-delimited line that starts with a number and a space is not an octet count.
+func TestReadFrameNumberStartedLine(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("10 failed logins for root\nsecond\n"))
+	for _, want := range []string{"10 failed logins for root\n", "second\n"} {
+		got, err := readFrame(r)
+		if err != nil || strings.TrimSpace(string(got)) != strings.TrimSpace(want) {
+			t.Fatalf("frame = %q, %v; want %q", got, err, want)
+		}
+	}
+	r = bufio.NewReader(strings.NewReader("11 <13>hello x\n"))
+	if got, err := readFrame(r); err != nil || string(got) != "<13>hello x" {
+		t.Errorf("counted frame = %q, %v", got, err)
+	}
+}

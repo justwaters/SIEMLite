@@ -348,6 +348,9 @@ func migrate(ctx context.Context, db *sql.DB) (err error) {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read user_version: %w", err)
 	}
+	if version > schemaVersion {
+		return fmt.Errorf("this database was made by a newer SIEMLite (schema %d, this version knows %d); run the newer version, or restore a backup made before the upgrade", version, schemaVersion)
+	}
 	for _, stmt := range schemaStatements {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("apply schema: %w", err)

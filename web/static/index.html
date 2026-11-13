@@ -1280,7 +1280,7 @@
     </div>
     <p class="notice bad" id="u-err" role="alert" hidden></p>
     <div class="dialog-actions">
-      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
       <button class="btn btn-primary" id="u-save" value="save">Add user</button>
     </div>
   </form>
@@ -1294,7 +1294,7 @@
       <span>At least 12 characters. They&rsquo;ll be signed out everywhere.</span></label>
     <p class="notice bad" id="pw-err" role="alert" hidden></p>
     <div class="dialog-actions">
-      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
       <button class="btn btn-primary" value="save">Change password</button>
     </div>
   </form>
@@ -1308,7 +1308,7 @@
     <label class="field-label" id="s-parser-wrap">Parser <select class="select" id="s-parser"></select></label>
     <p class="notice bad" id="s-err" role="alert" hidden></p>
     <div class="dialog-actions">
-      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
       <button class="btn btn-primary" id="s-save" value="save">Add source</button>
     </div>
   </form>
@@ -1403,7 +1403,7 @@
     </div>
     <p id="logs-msg" class="notice" role="status" hidden></p>
     <div class="dialog-actions">
-      <button class="btn" value="cancel" formnovalidate>Close</button>
+      <button class="btn" type="button" value="cancel">Close</button>
       <button class="btn btn-primary" id="send" value="send">Store logs</button>
     </div>
   </form>
@@ -1440,7 +1440,7 @@
     <label class="check"><input type="checkbox" id="r-enabled" checked> Rule is on</label>
     <p class="notice bad" id="r-err" role="alert" hidden></p>
     <div class="dialog-actions">
-      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
       <button class="btn btn-primary" id="r-save" value="save">Save rule</button>
     </div>
   </form>
@@ -1451,7 +1451,7 @@
     <h2 id="c-title"></h2>
     <p id="c-body"></p>
     <div class="dialog-actions">
-      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
       <button class="btn btn-primary" id="c-ok" value="ok"></button>
     </div>
   </form>
@@ -1465,7 +1465,7 @@
       <textarea id="audit-reason" required maxlength="500" placeholder="For example: a cloud security group filters this port"></textarea>
     </label>
     <div class="dialog-actions">
-      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
       <button class="btn btn-primary" value="ok">Accept risk</button>
     </div>
   </form>
@@ -2323,6 +2323,13 @@ function rawLine(ev) {
 function prettyRaw(raw) { try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; } }
 
 // --- Confirm dialog ---
+// Cancel and Close buttons are plain buttons that close their dialog. As the
+// first button in a form they would otherwise be what Enter "presses" in a text
+// field, closing the dialog instead of saving it.
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest('dialog button[value="cancel"]');
+  if (b) b.closest("dialog").close("cancel");
+});
 function confirmAction(title, body, ok) {
   return new Promise((resolve) => {
     $("c-title").textContent = title; $("c-body").textContent = body; $("c-ok").textContent = ok;

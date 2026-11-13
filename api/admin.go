@@ -444,6 +444,8 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.deps.Repo.UpdateUserAccess(r.Context(), id, role, limited, req.Sources); err != nil {
+		// Don't leave an account that was meant to be limited with access to everything.
+		_ = s.deps.Repo.DeleteUserByID(r.Context(), id)
 		s.internal(w, "set user sources", err)
 		return
 	}
@@ -451,7 +453,11 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, audit.Entry{Action: "user.create", Class: audit.AccountChange,
 		Message: fmt.Sprintf("%s added the %s user %s", auth.FromContext(r.Context()).Name, role, req.Username),
 		Fields:  map[string]string{"target": req.Username, "role": role, "limited": strconv.FormatBool(limited)}})
-	u, _ := s.deps.Repo.GetUser(r.Context(), id)
+	u, err := s.deps.Repo.GetUser(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "the user was created and has since been removed")
+		return
+	}
 	writeJSON(w, http.StatusCreated, u)
 }
 
@@ -510,7 +516,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, "update user", err)
 		return
 	}
-	u, _ := s.deps.Repo.GetUser(r.Context(), id)
+	u, err := s.deps.Repo.GetUser(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "that user was removed meanwhile")
+		return
+	}
 	s.audit(r, audit.Entry{Action: "user.update", Class: audit.AccountChange, Severity: 2,
 		Message: fmt.Sprintf("%s changed %s's access: %s, %s", auth.FromContext(r.Context()).Name, u.Username, role,
 			map[bool]string{true: fmt.Sprintf("limited to %d sources", len(sources)), false: "every source"}[limited]),
