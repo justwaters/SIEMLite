@@ -1838,8 +1838,22 @@ $("logout").onclick = async () => {
 };
 
 // --- Routing: #/page or #/page?query ---
+// withBusy runs fn for a form once at a time: a second submit (double click, Enter) while
+// the first is in flight is ignored, and the form's submit buttons stay disabled until it ends.
+async function withBusy(form, fn) {
+  if (form.dataset.busy) return;
+  form.dataset.busy = "1";
+  const btns = [...form.querySelectorAll("button")].filter((b) => b.type !== "button" && b.value !== "cancel" && !b.disabled);
+  for (const b of btns) b.disabled = true;
+  try { return await fn(); }
+  finally { delete form.dataset.busy; for (const b of btns) b.disabled = false; }
+}
+let routeSeq = 0;
 const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "parsers", "parser", "integrations", "system", "security", "account"];
 function route() {
+  ++routeSeq;
+  // Page-scoped timers stop when the page changes (the health and alert-count timers in start() keep going).
+  clearTimeout(backupPoll); clearTimeout(tlsPoll); clearTimeout(aiPoll); clearTimeout(previewTimer);
   const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
   let [view, arg] = path.split("/");
   if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
@@ -1856,7 +1870,6 @@ function route() {
   ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources,
      parsers: openParsers, parser: () => openParserEditor(arg), integrations: openIntegrations, system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
   document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
-  if (view !== "system") { clearTimeout(backupPoll); clearTimeout(tlsPoll); }
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
 function setMenu(open) {
@@ -1926,13 +1939,16 @@ function openDashboard() {
   loadStats();
   setTimeout(() => $("dash-q").focus(), 0);
 }
+let statsSeq = 0;
 async function loadStats() {
+  const my = ++statsSeq;
   try {
     const s = await apiJSON("/api/v1/stats?hours=" + dashHours);
+    if (my !== statsSeq) return;
     lastStats = s;
     renderStats(s);
   } catch (err) {
-    $("dash-range-label").textContent = "The dashboard couldn't load: " + err.message;
+    if (my === statsSeq) $("dash-range-label").textContent = "The dashboard couldn't load: " + err.message;
   }
 }
 function rangeText(h) { return h === 24 ? "the last 24 hours" : h === 168 ? "the last 7 days" : "the last 30 days"; }
@@ -1981,8 +1997,11 @@ function renderStats(s) {
 }
 function bucketLabel(ms, width, long) {
   const d = new Date(ms);
-  if (width >= 86400000) return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  // Server buckets start on UTC boundaries, so a day or 6-hour bucket seldom starts at a local midnight:
+  // name the local time it really starts at instead of a date that is off by the zone's offset.
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
   const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (width >= 86400000) return d.getHours() === 0 && d.getMinutes() === 0 ? date : date + ", " + t;
   return long || width > 3600000 ? d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + t : t;
 }
 function niceMax(v) {
@@ -2382,11 +2401,14 @@ $("acct-pw-form").onsubmit = async (e) => {
 
 // --- Users ---
 let usersCache = [];
+let usersSeq = 0;
 async function openUsers() {
+  const my = ++usersSeq;
   notice($("users-msg"), "");
   loadSignin();
   try {
     const [users] = await Promise.all([apiJSON("/api/v1/users"), loadSources()]);
+    if (my !== usersSeq) return;
     usersCache = users;
     const name = (id) => (sourcesCache.find((s) => s.id === id) || {}).name || `Source ${id}`;
     $("users-body").replaceChildren(...users.map((u) => el("tr", {},
@@ -2401,7 +2423,7 @@ async function openUsers() {
         el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => userDialog(u) }),
         u.auth_provider && u.auth_provider !== "local" ? "" : el("button", { className: "btn btn-small", textContent: "Change password", onclick: () => passwordDialog(u) }),
         u.username === me.username ? "" : el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: () => deleteUser(u) }))))));
-  } catch (err) { notice($("users-msg"), err.message); }
+  } catch (err) { if (my === usersSeq) notice($("users-msg"), err.message); }
 }
 function userDialog(u) {
   const editing = !!u;
@@ -2421,6 +2443,7 @@ function userDialog(u) {
   $("user-form").onsubmit = async (e) => {
     if (e.submitter && e.submitter.value === "cancel") return;
     e.preventDefault();
+    await withBusy($("user-form"), async () => {
     const role = $("u-role").value;
     const some = document.querySelector('[name="u-scope"]:checked').value === "some";
     const limited = role !== "admin" && some;
@@ -2433,6 +2456,7 @@ function userDialog(u) {
       await openUsers();
       notice($("users-msg"), editing ? `Saved ${u.username}.` : `Added ${$("u-name").value.trim()}.`, true);
     } catch (err) { notice($("u-err"), err.message); }
+    });
   };
   d.showModal();
   (editing ? $("u-role") : $("u-name")).focus();
@@ -2453,11 +2477,13 @@ function passwordDialog(u) {
   $("pw-form").onsubmit = async (e) => {
     if (e.submitter && e.submitter.value === "cancel") return;
     e.preventDefault();
+    await withBusy($("pw-form"), async () => {
     try {
       await apiJSON(`/api/v1/users/${u.id}/password`, { method: "POST", json: { password: $("pw-new").value } });
       d.close();
       notice($("users-msg"), `Changed the password for ${u.username}.`, true);
     } catch (err) { notice($("pw-err"), err.message); }
+    });
   };
   d.showModal(); $("pw-new").focus();
 }
@@ -2487,10 +2513,13 @@ function parserChoice(value) {
   if (value === "none") return { parser_none: true };
   return { parser_id: value ? Number(value) : null };
 }
+let sourcesSeq = 0;
 async function openSources() {
+  const my = ++sourcesSeq;
   notice($("sources-msg"), "");
   try {
     await Promise.all([loadSources(), loadParsers()]);
+    if (my !== sourcesSeq) return;
     $("sources-body").replaceChildren(...sourcesCache.map((s) => {
       const parserSel = el("select", { className: "select", "aria-label": `Parser for ${s.name}` }, ...parserOptions(s.parser_id, s.parser_none));
       parserSel.disabled = s.kind === "internal" || !!s.revoked_at;
@@ -2515,7 +2544,7 @@ async function openSources() {
             : s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) })
             : el("span", { className: "slot-empty" }))));
     }));
-  } catch (err) { notice($("sources-msg"), err.message); }
+  } catch (err) { if (my === sourcesSeq) notice($("sources-msg"), err.message); }
 }
 function sourceDialog(s) {
   const editing = !!s;
@@ -2530,6 +2559,7 @@ function sourceDialog(s) {
   $("source-form").onsubmit = async (e) => {
     if (e.submitter && e.submitter.value === "cancel") return;
     e.preventDefault();
+    await withBusy($("source-form"), async () => {
     const name = $("s-name").value.trim();
     try {
       if (editing) {
@@ -2543,6 +2573,7 @@ function sourceDialog(s) {
       await openSources();
       tokenDialog(res.token, name);
     } catch (err) { notice($("s-err"), err.message); }
+    });
   };
   d.showModal(); $("s-name").focus();
 }
@@ -2836,9 +2867,12 @@ $("add-logs-btn").onclick = logsDialog;
 $("file").onchange = async (e) => { const f = e.target.files[0]; if (f) $("logs").value = await f.text(); };
 
 // --- Parsers ---
+let parsersSeq = 0;
 async function openParsers() {
+  const my = ++parsersSeq;
   notice($("parsers-msg"), "");
   await loadParsers();
+  if (my !== parsersSeq) return;
   $("parsers-body").replaceChildren(...(parsersCache.length ? parsersCache.map((p) => el("tr", {},
     el("td", {}, el("b", { textContent: p.name }), p.description ? el("div", { className: "muted", textContent: p.description }) : ""),
     el("td", { className: "kind", textContent: ({ pattern: "Text with a fixed layout", json: "JSON objects", kv: "key=value pairs" })[p.format] || p.format }),
@@ -2884,11 +2918,20 @@ let editId = null, templates = [], previewTimer = null, previewSeq = 0, knownFie
 const pe = (id) => $("pe-" + id);
 // Fatal is not offered for a parser; a parser that already uses it keeps it.
 function sevOptions(sel) { return [1, 2, 3, 4, 5, 6, 0].filter((n) => n !== 6 || sel === 6).map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === sel })); }
+let editorSeq = 0;
+// Locked while a parser is loading or failed to load: no editing, saving or exporting a blank form.
+function setEditorLocked(locked) {
+  pe("save").disabled = pe("export").disabled = locked;
+  document.querySelector("#view-parser .editor").inert = locked;
+}
 async function openParserEditor(arg) {
+  const my = ++editorSeq;
   pe("error").hidden = true;
+  setEditorLocked(false);
   editId = arg && arg !== "new" ? Number(arg) : null;
   $("parser-title").textContent = editId ? "Edit parser" : "New parser";
   if (!templates.length) { try { templates = await apiJSON("/api/v1/parsers/templates"); } catch {} }
+  if (my !== editorSeq) return;
   pe("template").replaceChildren(el("option", { value: "", textContent: editId ? "Replace with a template" : "Start from scratch" }),
     ...templates.map((t, i) => el("option", { value: String(i), textContent: t.name })));
   pe("suggest").hidden = !(me.ai && me.ai.enabled);
@@ -2897,8 +2940,15 @@ async function openParserEditor(arg) {
     : "Draft a parser fills it in from the samples; Suggest with AI also asks " + (me.ai.provider && me.ai.provider !== "local" ? "a cloud AI model." : "the AI model on this server.");
   let def = { name: "", format: "pattern", pattern: "", severity: { from: "auto" }, category: 6, samples: [] };
   if (editId) {
+    // A parser that didn't load leaves the form blank: Save stays off so a blank form can't replace the real parser.
+    setEditorLocked(true);
     try { def = (await apiJSON(`/api/v1/parsers/${editId}`)).definition; }
-    catch (err) { pe("error").textContent = err.message; pe("error").hidden = false; }
+    catch (err) {
+      if (my === editorSeq) { fillEditor(def); pe("error").textContent = "This parser couldn't be loaded, so it can't be saved from here: " + err.message; pe("error").hidden = false; }
+      return;
+    }
+    if (my !== editorSeq) return;
+    setEditorLocked(false);
   }
   fillEditor(def);
 }
@@ -3058,14 +3108,17 @@ function renderMapping(names) {
   if (want) fieldSel.value = want;
 }
 pe("save").onclick = async () => {
+  if (pe("save").disabled) return;
   pe("error").hidden = true;
   const def = readDefinition();
   if (!def.name) { pe("error").textContent = "Give the parser a name."; pe("error").hidden = false; pe("name").focus(); return; }
+  pe("save").disabled = true;
   try {
     const res = await apiJSON(editId ? `/api/v1/parsers/${editId}` : "/api/v1/parsers", { method: editId ? "PUT" : "POST", json: def });
     location.hash = "#/parsers";
     setTimeout(() => notice($("parsers-msg"), `Saved ${res.definition.name}. Choose it for a source on the Sources page.`, true), 50);
   } catch (err) { pe("error").textContent = err.message; pe("error").hidden = false; window.scrollTo(0, 0); }
+  finally { pe("save").disabled = false; }
 };
 pe("export").onclick = () => download(readDefinition());
 // Pasted JSON (pretty-printed objects, or an array of them) becomes one
@@ -3145,11 +3198,14 @@ async function refreshAlertCount() {
 for (const b of document.querySelectorAll("[data-atab]")) {
   b.onclick = () => { alertTab = b.dataset.atab; history.replaceState(null, "", "#/alerts" + (alertTab === "open" ? "" : "?tab=" + alertTab)); loadAlertsView(); };
 }
+let alertsSeq = 0;
 async function openAlerts(params) {
+  const my = ++alertsSeq;
   alertTab = params.get("tab") || "open";
   $("add-rule").hidden = !isAdmin;
   notice($("alerts-msg"), "");
   try { rulesCache = await apiJSON("/api/v1/rules"); } catch { rulesCache = []; }
+  if (my !== alertsSeq) return;
   loadAlertsView();
 }
 function ruleSentence(r) {
@@ -3172,13 +3228,15 @@ function ruleSentence(r) {
   return out;
 }
 async function loadAlertsView() {
+  const my = ++alertsSeq;
   for (const b of document.querySelectorAll("[data-atab]")) b.setAttribute("aria-pressed", String(b.dataset.atab === alertTab));
   const rules = alertTab === "rules";
   $("alerts-wrap").hidden = rules; $("rules-wrap").hidden = !rules;
-  if (rules) { await loadSources(); renderRules(); }
+  if (rules) { await loadSources(); if (my !== alertsSeq) return; renderRules(); }
   let data;
   try { data = await apiJSON("/api/v1/alerts?status=" + (rules ? "open" : alertTab)); }
-  catch (err) { notice($("alerts-msg"), err.message); return; }
+  catch (err) { if (my === alertsSeq) notice($("alerts-msg"), err.message); return; }
+  if (my !== alertsSeq) return;
   for (const k of ["open", "acknowledged", "closed"]) $("cnt-" + k).textContent = data.counts[k] ? nf.format(data.counts[k]) : "";
   setNavAlerts(data.counts.open);
   if (rules) return;
@@ -3282,6 +3340,7 @@ function ruleDialog(r) {
   $("rule-form").onsubmit = async (e) => {
     if (e.submitter && e.submitter.value === "cancel") return;
     e.preventDefault();
+    await withBusy($("rule-form"), async () => {
     const body = { name: $("r-name").value.trim(), description: $("r-desc").value.trim(), severity: Number($("r-severity").value), kind: $("r-kind").value,
       query: $("r-query").value.trim(), threat_only: $("r-threat").checked, group_by: $("r-group").value,
       threshold: Number($("r-threshold").value), window_minutes: Number($("r-window").value), enabled: $("r-enabled").checked };
@@ -3294,6 +3353,7 @@ function ruleDialog(r) {
       renderRules();
       notice($("alerts-msg"), `Saved the rule ${body.name}.`, true);
     } catch (err) { notice($("r-err"), err.message); }
+    });
   };
   d.showModal(); $("r-name").focus();
 }
@@ -3337,7 +3397,7 @@ async function openSystem() {
     }
   } catch (err) { notice($("system-msg"), err.message); }
   loadUpdate(false);
-  loadTLS();
+  loadTLS(true);
   loadRetention();
   loadRawKeep();
   notice($("tls-msg"), "");
@@ -3389,10 +3449,15 @@ let audit = null, auditFilter = "open", auditBusy = false;
 const AUDIT_STATUS = { pass: "Pass", warn: "Warning", fail: "Failed", skip: "Skipped" };
 const AUDIT_SEV = { low: 2, medium: 3, high: 4, critical: 5 };
 const AUDIT_CHANGE = { new: "New since the last audit", worse: "Worse than the last audit", resolved: "Resolved since the last audit" };
+let auditSeq = 0;
 async function openAudit() {
+  const my = ++auditSeq;
   notice($("audit-msg"), "");
-  try { audit = await apiJSON("/api/v1/security-audit"); }
-  catch (err) { notice($("audit-msg"), err.message); return; }
+  let data;
+  try { data = await apiJSON("/api/v1/security-audit"); }
+  catch (err) { if (my === auditSeq) notice($("audit-msg"), err.message); return; }
+  if (my !== auditSeq) return;
+  audit = data;
   renderAudit();
 }
 function auditCounts() {
@@ -3718,7 +3783,7 @@ function aiFill(v, keepForm) {
   else st.textContent = v.ready ? `On: suggestions come from ${v.local_model} on this server.` : pulling ? "On, and downloading the model. Suggestions start when it's done." : "On, but waiting for Ollama and the model.";
   clearTimeout(aiPoll);
   if (v.enabled && v.provider === "local" && !v.ready && !$("view-integrations").hidden)
-    aiPoll = setTimeout(async () => { try { aiFill(await apiJSON("/api/v1/integrations/ai"), true); refreshIntegrationCards(); } catch {} }, pulling ? 2000 : 10000);
+    aiPoll = setTimeout(async () => { try { const v = await apiJSON("/api/v1/integrations/ai"); if ($("view-integrations").hidden) return; aiFill(v, true); refreshIntegrationCards(); } catch {} }, pulling ? 2000 : 10000);
 }
 function aiChosenLocal() {
   const r = document.querySelector('[name="ai-model"]:checked');
@@ -4039,17 +4104,21 @@ $("mail-remove").onclick = async () => {
   mailBusy(false);
 };
 // --- HTTPS certificate ---
-let tlsNow = null, tlsMode = "self-signed", tlsPoll;
+let tlsNow = null, tlsMode = "self-signed", tlsPoll, tlsDirty = false; // tlsDirty: the admin has changed the form since it was filled
 const tlsDate = (ms) => new Date(ms).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 function tlsPick(mode) {
   tlsMode = mode;
   for (const b of document.querySelectorAll("[data-tls]")) b.setAttribute("aria-pressed", String(b.dataset.tls === mode));
   $("tls-domain-wrap").hidden = $("tls-check").hidden = mode !== "letsencrypt";
 }
-function tlsFill(v) {
+function tlsFill(v, force) {
   tlsNow = v;
-  tlsPick(v.mode);
-  if (v.domain || !$("tls-domain").value) $("tls-domain").value = v.domain || "";
+  // A poll must not overwrite what is being typed: the form is only filled from the server when it's untouched (or after a save).
+  if (force) tlsDirty = false;
+  if (!tlsDirty && document.activeElement !== $("tls-domain")) {
+    tlsPick(v.mode);
+    if (v.domain || !$("tls-domain").value) $("tls-domain").value = v.domain || "";
+  }
   const st = $("tls-status"), self = v.self_signed_certificate || {};
   clearTimeout(tlsPoll);
   if (v.mode !== "letsencrypt") {
@@ -4134,11 +4203,16 @@ $("raw-form").onsubmit = async (e) => {
   $("raw-save").disabled = false;
 };
 
-async function loadTLS() {
-  try { tlsFill(await apiJSON("/api/v1/system/tls")); }
+async function loadTLS(force) {
+  try {
+    const v = await apiJSON("/api/v1/system/tls");
+    if ($("view-system").hidden) return; // the admin left the page: don't start the poll again
+    tlsFill(v, force === true);
+  }
   catch (err) { $("tls-status").textContent = err.message; }
 }
-for (const b of document.querySelectorAll("[data-tls]")) b.onclick = () => { tlsPick(b.dataset.tls); if (tlsMode === "letsencrypt") $("tls-domain").focus(); };
+for (const b of document.querySelectorAll("[data-tls]")) b.onclick = () => { tlsDirty = true; tlsPick(b.dataset.tls); if (tlsMode === "letsencrypt") $("tls-domain").focus(); };
+$("tls-domain").addEventListener("input", () => { tlsDirty = true; });
 $("tls-form").onsubmit = async (e) => {
   e.preventDefault();
   const domain = $("tls-domain").value.trim().toLowerCase().replace(/\.$/, "");
@@ -4148,7 +4222,7 @@ $("tls-form").onsubmit = async (e) => {
   $("tls-save").disabled = true;
   try {
     const v = await apiJSON("/api/v1/system/tls", { method: "PUT", json: { mode: tlsMode, domain } });
-    tlsFill(v);
+    tlsFill(v, true);
     notice($("tls-msg"), v.mode === "letsencrypt"
       ? `Saved. SIEMLite is getting a certificate for ${v.domain}; the status above follows it. Once it's ready, open https://${v.domain}.`
       : "Saved. SIEMLite now uses its self-signed certificate for every address.", true);
@@ -4171,6 +4245,7 @@ async function loadBackups(fillSettings) {
   clearTimeout(backupPoll);
   let data;
   try { data = await apiJSON("/api/v1/backups"); } catch (err) { notice($("system-msg"), err.message); return; }
+  if ($("view-system").hidden) return;
   if (fillSettings) { $("sched-interval").value = String(data.settings.interval_hours); $("sched-keep").value = String(data.settings.keep); }
   const rows = [];
   if (data.status.running) {
@@ -4195,17 +4270,21 @@ async function loadBackups(fillSettings) {
 }
 $("update-check").onclick = () => loadUpdate(true);
 $("backup-now").onclick = async () => {
+  if ($("backup-now").disabled) return;
+  $("backup-now").disabled = true;
   try { await apiJSON("/api/v1/backups", { method: "POST" }); notice($("system-msg"), ""); }
   catch (err) { notice($("system-msg"), err.message); }
   loadBackups(false);
 };
 $("sched-form").onsubmit = async (e) => {
   e.preventDefault();
+  await withBusy($("sched-form"), async () => {
   try {
     const s = await apiJSON("/api/v1/backups/settings", { method: "PUT", json: { interval_hours: Number($("sched-interval").value), keep: Number($("sched-keep").value) } });
     notice($("system-msg"), s.interval_hours ? `Saved. A backup is made ${({ 6: "every 6 hours", 24: "every day", 168: "every week" })[s.interval_hours]}, keeping the newest ${s.keep}.` : "Saved. Automatic backups are off.", true);
     setTimeout(() => loadBackups(false), 1500);
   } catch (err) { notice($("system-msg"), err.message); }
+  });
 };
 $("backup-upload").onchange = async (e) => {
   const f = e.target.files[0];

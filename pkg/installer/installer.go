@@ -297,16 +297,11 @@ func (e *Env) planInstall(ctx context.Context, o Options) (*result, error) {
 		note("program: %s is already this version (%s)", BinPath, e.Version)
 	default:
 		binChanged = true
-		add("copy this program to "+BinPath+" (0755, replaced atomically)", func(context.Context) error {
+		add("copy this program to "+BinPath+" (0755, checked first, the old one kept as "+BinPath+".bak, replaced atomically)", func(ctx context.Context) error {
 			if err := os.MkdirAll(e.p(path.Dir(BinPath)), 0o755); err != nil {
 				return err
 			}
-			f, err := os.Open(e.Self)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			return writeAtomic(e.p(BinPath), f, 0o755)
+			return e.replaceProgram(ctx)
 		})
 		if binHere && r.oldVer == "" {
 			note("program: replaced the one in %s (its version couldn't be read) with %s", BinPath, e.Version)
@@ -666,6 +661,72 @@ func decideUnit(existing string, exists bool, want string) unitDecision {
 }
 
 // ---- files ----
+
+// replaceProgram puts this program at BinPath without ever leaving a bad one
+// there: it copies to a temp file beside the destination, runs the copy to see
+// that it is a working program reporting this version, keeps the old program
+// as BinPath+".bak", and only then renames the copy over it. On any failure
+// the installed program is untouched.
+func (e *Env) replaceProgram(ctx context.Context) error {
+	dest := e.p(BinPath)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Open(e.Self)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".siemlite-install-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // gone already once renamed
+	if _, err := io.Copy(tmp, f); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	out, err := e.Exec(ctx, tmp.Name(), "version")
+	if err != nil {
+		return fmt.Errorf("the new program does not run (%v); %s was left as it was", err, BinPath)
+	}
+	fields := strings.Fields(out)
+	if len(fields) == 0 || (e.Version != "" && fields[len(fields)-1] != e.Version) {
+		return fmt.Errorf("the new program does not report version %s (it printed %q); %s was left as it was", e.Version, strings.TrimSpace(out), BinPath)
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		bak := dest + ".bak"
+		os.Remove(bak)
+		if err := os.Link(dest, bak); err != nil {
+			if cf, err2 := os.Open(dest); err2 == nil {
+				err = writeAtomic(bak, cf, 0o755)
+				cf.Close()
+			}
+			if err != nil {
+				return fmt.Errorf("could not keep a backup of %s: %w; it was left as it was", BinPath, err)
+			}
+		}
+	}
+	if err := os.Rename(tmp.Name(), dest); err != nil {
+		return err
+	}
+	if d, err := os.Open(filepath.Dir(dest)); err == nil {
+		d.Sync()
+		d.Close()
+	}
+	return nil
+}
 
 // writeAtomic writes src to a temp file beside dest and renames it into place,
 // so a running program or a reader never sees half a file.

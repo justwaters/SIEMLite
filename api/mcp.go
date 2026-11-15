@@ -30,6 +30,34 @@ import (
 
 const mcpMaxBody = 1 << 20
 
+// Limits on a batch of log lines handed to a tool, so one call can't make the
+// server parse an unbounded amount. The byte limit matches the parser pages.
+const (
+	mcpMaxBatchLines = 1000
+	mcpMaxBatchBytes = maxParserBody
+)
+
+// checkLineBatch refuses a "lines" argument over the batch limits, naming them.
+func checkLineBatch(args json.RawMessage) error {
+	var a struct {
+		Lines []string `json:"lines"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return nil // the handler reports malformed arguments
+	}
+	if len(a.Lines) > mcpMaxBatchLines {
+		return fmt.Errorf("too many lines: %d sent, the limit is %d per call. Send fewer lines.", len(a.Lines), mcpMaxBatchLines)
+	}
+	total := 0
+	for _, l := range a.Lines {
+		total += len(l)
+	}
+	if total > mcpMaxBatchBytes {
+		return fmt.Errorf("lines are too large: %d bytes sent, the limit is %d bytes per call. Send fewer or shorter lines.", total, mcpMaxBatchBytes)
+	}
+	return nil
+}
+
 type mcpCtxKey struct{}
 
 // mcpCaller is who a tool call is for: the token's principal, and the HTTP
@@ -249,6 +277,9 @@ func (s *Server) mcpServer() *mcp.Server {
 			Schema: mcpSchema(map[string]any{"lines": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Sample log lines (up to 50)."},
 				"text": prop("string", "Or pasted text: pretty-printed JSON objects, or lines.")}),
 			Run: run(func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
+				if err := checkLineBatch(args); err != nil {
+					return mcp.Result{}, err
+				}
 				return api(ctx, s.handleDraftParser, http.MethodPost, "/api/v1/parsers/draft", nil, json.RawMessage(args), nil)
 			})},
 		{Name: "test_parser", Min: mcp.LevelAdmin, ReadOnly: true,
@@ -256,6 +287,9 @@ func (s *Server) mcpServer() *mcp.Server {
 			Schema: mcpSchema(map[string]any{"definition": parserDefinitionSchema(), "lines": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Log lines to parse (up to 200)."}},
 				"definition", "lines"),
 			Run: run(func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
+				if err := checkLineBatch(args); err != nil {
+					return mcp.Result{}, err
+				}
 				return api(ctx, s.handleTestParser, http.MethodPost, "/api/v1/parsers/test", nil, json.RawMessage(args), nil)
 			})},
 		{Name: "save_parser", Min: mcp.LevelAdmin,

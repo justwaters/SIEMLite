@@ -324,3 +324,35 @@ func TestKeyValueLineSaysWhenFieldsWereDropped(t *testing.T) {
 		t.Errorf("truncated=%q user=%q", res.Fields["fields_truncated"], res.Fields["user"])
 	}
 }
+
+func TestParseTimeZoneAbbreviations(t *testing.T) {
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct{ in, want string }{
+		{"Mon, 02 Jan 2006 15:04:05 PST", "2006-01-02T23:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 PDT", "2006-01-02T22:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 EST", "2006-01-02T20:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 EDT", "2006-01-02T19:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 CST", "2006-01-02T21:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 CDT", "2006-01-02T20:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 MST", "2006-01-02T22:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 MDT", "2006-01-02T21:04:05Z"},
+		{"Mon, 02 Jan 2006 15:04:05 GMT", "2006-01-02T15:04:05Z"},
+		{"Mon Jan  2 15:04:05 PST 2006", "2006-01-02T23:04:05Z"},
+		{"2006-01-02 15:04:05 EST", "2006-01-02T20:04:05Z"},
+		{"2006-01-02 15:04:05 UTC", "2006-01-02T15:04:05Z"},
+		{"2006-01-02T15:04:05Z", "2006-01-02T15:04:05Z"},
+		{"2006-01-02 15:04:05 CET", "2006-01-02T14:04:05Z"},
+		{"2006-01-02 15:04:05 CEST", "2006-01-02T13:04:05Z"},
+		{"2006-01-02 15:04:05 BST", "2006-01-02T14:04:05Z"},
+		{"2006-01-02 15:04:05 EET", "2006-01-02T13:04:05Z"},
+		{"2006-01-02 15:04:05 EEST", "2006-01-02T12:04:05Z"},
+	} {
+		got, ok := ParseTime(c.in, now)
+		if !ok || got.UTC().Format(time.RFC3339) != c.want {
+			t.Errorf("ParseTime(%q) = %v %v, want %s", c.in, got.UTC(), ok, c.want)
+		}
+		if g, ok := parseISO(c.in); ok && g.UTC().Format(time.RFC3339) != c.want {
+			t.Errorf("parseISO(%q) = %v, want %s", c.in, g.UTC(), c.want)
+		}
+	}
+}

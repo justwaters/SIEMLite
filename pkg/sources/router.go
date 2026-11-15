@@ -24,6 +24,7 @@ type Router struct {
 
 	mu      sync.Mutex
 	cache   map[int64]cached
+	gen     uint64 // bumped by Invalidate so a lookup already under way can't cache stale data
 	builtin map[string]int64
 }
 
@@ -43,6 +44,7 @@ func New(repo *storage.Repository) *Router {
 func (r *Router) Invalidate() {
 	r.mu.Lock()
 	r.cache = map[int64]cached{}
+	r.gen++
 	r.mu.Unlock()
 }
 
@@ -70,6 +72,7 @@ func (r *Router) parserFor(ctx context.Context, sourceID int64) (p *parser.Parse
 	now := time.Now()
 	r.mu.Lock()
 	c, ok := r.cache[sourceID]
+	gen := r.gen
 	r.mu.Unlock()
 	if ok && now.Before(c.expires) {
 		return c.p, c.name, c.none, nil
@@ -98,7 +101,9 @@ func (r *Router) parserFor(ctx context.Context, sourceID int64) (p *parser.Parse
 		}
 	}
 	r.mu.Lock()
-	r.cache[sourceID] = c
+	if r.gen == gen {
+		r.cache[sourceID] = c
+	}
 	r.mu.Unlock()
 	return c.p, c.name, c.none, nil
 }

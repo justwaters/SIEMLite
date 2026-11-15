@@ -177,12 +177,13 @@ func (r *Repository) UpdateUserAccess(ctx context.Context, id int64, role string
 	}
 	defer tx.Rollback()
 	var current string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, id).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+	var disabled bool
+	if err := tx.QueryRowContext(ctx, `SELECT role, disabled FROM users WHERE id = ?`, id).Scan(&current, &disabled); errors.Is(err, sql.ErrNoRows) {
 		return ErrUserNotFound
 	} else if err != nil {
 		return fmt.Errorf("get user: %w", err)
 	}
-	if current == "admin" && role != "admin" {
+	if current == "admin" && !disabled && role != "admin" {
 		if err := lastAdminCheck(ctx, tx); err != nil {
 			return err
 		}
@@ -207,6 +208,9 @@ func (r *Repository) UpdateUserAccess(ctx context.Context, id int64, role string
 // ErrLastAdmin protects against locking everyone out.
 var ErrLastAdmin = errors.New("there must always be at least one admin")
 
+// lastAdminCheck refuses when the admin about to be removed, demoted or
+// disabled is the only enabled one. Callers skip it for an admin who is
+// already disabled, since that changes nothing about who can sign in as admin.
 func lastAdminCheck(ctx context.Context, tx *sql.Tx) error {
 	var n int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n); err != nil {
@@ -227,12 +231,13 @@ func (r *Repository) DeleteUserByID(ctx context.Context, id int64) error {
 	}
 	defer tx.Rollback()
 	var role string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, id).Scan(&role); errors.Is(err, sql.ErrNoRows) {
+	var disabled bool
+	if err := tx.QueryRowContext(ctx, `SELECT role, disabled FROM users WHERE id = ?`, id).Scan(&role, &disabled); errors.Is(err, sql.ErrNoRows) {
 		return ErrUserNotFound
 	} else if err != nil {
 		return fmt.Errorf("get user: %w", err)
 	}
-	if role == "admin" {
+	if role == "admin" && !disabled {
 		if err := lastAdminCheck(ctx, tx); err != nil {
 			return err
 		}

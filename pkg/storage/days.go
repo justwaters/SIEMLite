@@ -317,11 +317,14 @@ type days struct {
 	mu     sync.Mutex
 	shards map[int]*shard // every day file that exists
 
-	// writeMu serializes storing events, so arrival numbers (seq) are
-	// committed in order and the alert engine never passes one that isn't
-	// visible yet.
+	// writeMu serializes storing events in this process. Other processes
+	// store theirs meanwhile, so the alert engine goes by safeSeq.
 	writeMu sync.Mutex
 	seq     atomic.Int64 // highest seq committed by this process
+
+	// afterAllocate, when set (by tests), runs between numbering a batch and
+	// storing it.
+	afterAllocate func()
 
 	// While events are being moved out of the main database, a batch's copy
 	// and the legacy shard's new starting point change together (move.Lock);
@@ -430,16 +433,68 @@ func (d *days) legacyWhere(s *shard) (string, []any) {
 	return "e.id > ?", []any{d.movedThrough}
 }
 
+// Arrival numbers are reserved in the main database before a batch is stored
+// in its day files, and another process (or a slower batch) can commit a lower
+// number after a higher one. So each reservation is recorded as in flight
+// (a settings row "event_seq_pending:<first>" holding when it was made) until
+// its batch is stored or has failed, and the alert engine only goes up to the
+// number below the oldest one in flight (safeSeq): it never passes an event
+// that can still appear. A reservation older than pendingStale is taken to be
+// left by a process that died while storing, and is ignored and cleared.
+const (
+	pendingPrefix = "event_seq_pending:"
+	pendingEnd    = "event_seq_pending;" // the first key after every pendingPrefix key
+	pendingStale  = 5 * time.Minute
+)
+
 // allocate reserves n arrival numbers in the main database (so processes
-// sharing the files never reuse one) and returns the first.
-func (d *days) allocate(ctx context.Context, n int) (int64, error) {
-	var last int64
-	err := d.main.Write.QueryRowContext(ctx, `INSERT INTO settings (key, value) VALUES ('event_seq', ?)
-		ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + ? RETURNING CAST(value AS INTEGER)`, n, n).Scan(&last)
+// sharing the files never reuse one) and returns the first. release must be
+// called once the batch is stored or has failed.
+func (d *days) allocate(ctx context.Context, n int) (first int64, release func(), err error) {
+	tx, err := d.main.Write.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("number events: %w", err)
+		return 0, nil, fmt.Errorf("number events: %w", err)
 	}
-	return last - int64(n) + 1, nil
+	defer tx.Rollback()
+	var last int64
+	if err := tx.QueryRowContext(ctx, `INSERT INTO settings (key, value) VALUES ('event_seq', ?)
+		ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + ? RETURNING CAST(value AS INTEGER)`, n, n).Scan(&last); err != nil {
+		return 0, nil, fmt.Errorf("number events: %w", err)
+	}
+	first = last - int64(n) + 1
+	now := time.Now().UnixMilli()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM settings WHERE key >= ? AND key < ? AND CAST(value AS INTEGER) < ?`,
+		pendingPrefix, pendingEnd, now-pendingStale.Milliseconds()); err != nil {
+		return 0, nil, fmt.Errorf("number events: %w", err)
+	}
+	key := pendingPrefix + strconv.FormatInt(first, 10)
+	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, key, strconv.FormatInt(now, 10)); err != nil {
+		return 0, nil, fmt.Errorf("number events: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, nil, fmt.Errorf("number events: %w", err)
+	}
+	release = func() {
+		// Even when the batch was cancelled: until this row goes (or goes
+		// stale) the alert engine waits for it.
+		_, _ = d.main.Write.ExecContext(context.WithoutCancel(ctx), `DELETE FROM settings WHERE key = ?`, key)
+	}
+	return first, release, nil
+}
+
+// safeSeq returns the highest arrival number at or below which every event
+// is either stored or will never be (no batch numbered at or below it is
+// still in flight), and the highest number reserved so far.
+func (d *days) safeSeq(ctx context.Context) (safe, top int64, err error) {
+	err = d.main.Read.QueryRowContext(ctx, `SELECT
+		COALESCE((SELECT MIN(CAST(substr(key, ?) AS INTEGER)) - 1 FROM settings WHERE key >= ? AND key < ? AND CAST(value AS INTEGER) >= ?), top),
+		top
+		FROM (SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'event_seq'), 0) AS top)`,
+		len(pendingPrefix)+1, pendingPrefix, pendingEnd, time.Now().UnixMilli()-pendingStale.Milliseconds()).Scan(&safe, &top)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read event numbers: %w", err)
+	}
+	return min(safe, top), top, nil
 }
 
 const insertCols = `seq, legacy_id, timestamp, category_uid, class_uid, severity_id, src_ip, dst_ip, user_name, message, raw_data,
@@ -508,9 +563,14 @@ func (d *days) insert(ctx context.Context, recs []Record, legacy bool) error {
 	defer d.writeMu.Unlock()
 	var first int64
 	if !legacy {
+		var release func()
 		var err error
-		if first, err = d.allocate(ctx, len(recs)); err != nil {
+		if first, release, err = d.allocate(ctx, len(recs)); err != nil {
 			return err
+		}
+		defer release() // after every day is committed (or has failed)
+		if d.afterAllocate != nil {
+			d.afterAllocate()
 		}
 	}
 	byDay := map[int][]int{}

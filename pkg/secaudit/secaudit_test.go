@@ -530,3 +530,100 @@ func TestSSHIncludeStaysInsideTheSSHFolder(t *testing.T) {
 		t.Errorf("an Include outside /etc/ssh was followed: %s %q", got.Status, got.Detail)
 	}
 }
+
+func firewallEnv(t *testing.T, outs map[string]string) *Env {
+	e := hostEnv(t, nil)
+	e.Euid = 0
+	e.Exec = func(_ context.Context, name string, args ...string) (string, error) {
+		if out, ok := outs[name+" "+strings.Join(args, " ")]; ok {
+			return out, nil
+		}
+		return "", os.ErrNotExist
+	}
+	return e
+}
+
+const dockerIptables = `-P INPUT ACCEPT
+-P FORWARD DROP
+-P OUTPUT ACCEPT
+-N DOCKER
+-N DOCKER-USER
+-N DOCKER-ISOLATION-STAGE-1
+-A FORWARD -j DOCKER-USER
+-A FORWARD -j DOCKER-ISOLATION-STAGE-1
+-A DOCKER-USER -j RETURN
+-A DOCKER -d 172.17.0.2/32 ! -i docker0 -o docker0 -p tcp -m tcp --dport 80 -j ACCEPT
+`
+
+func TestFirewallIgnoresDockerChains(t *testing.T) {
+	e := firewallEnv(t, map[string]string{"iptables -S": dockerIptables, "iptables -V": "iptables v1.8.9 (legacy)\n"})
+	got := outcome(t, "host.firewall", e)
+	if got.Status == Pass {
+		t.Errorf("docker-only rules passed: %s", got.Detail)
+	}
+	if got.Status != Warn {
+		t.Errorf("docker-only rules = %s, want warn", got.Status)
+	}
+}
+
+func TestFirewallIptablesInputDrop(t *testing.T) {
+	e := firewallEnv(t, map[string]string{"iptables -S": strings.Replace(dockerIptables, "-P INPUT ACCEPT", "-P INPUT DROP", 1) + "-A INPUT -i lo -j ACCEPT\n"})
+	if got := outcome(t, "host.firewall", e); got.Status != Pass {
+		t.Errorf("input policy drop = %s %s", got.Status, got.Detail)
+	}
+}
+
+const nftDockerOnly = `table ip filter {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+	}
+	chain FORWARD {
+		type filter hook forward priority filter; policy drop;
+		counter jump DOCKER-USER
+	}
+	chain DOCKER-USER {
+		counter return
+	}
+	chain DOCKER {
+		iifname != "docker0" oifname "docker0" counter drop
+	}
+}
+`
+
+func TestFirewallNftablesShim(t *testing.T) {
+	// iptables-nft with Docker: iptables -S shows rules, nft shows no restriction on input.
+	e := firewallEnv(t, map[string]string{
+		"iptables -V":      "iptables v1.8.9 (nf_tables)\n",
+		"iptables -S":      dockerIptables,
+		"nft list ruleset": nftDockerOnly,
+	})
+	if got := outcome(t, "host.firewall", e); got.Status != Warn {
+		t.Errorf("nft shim with docker only = %s %s, want warn", got.Status, got.Detail)
+	}
+	e = firewallEnv(t, map[string]string{
+		"iptables -V":      "iptables v1.8.9 (nf_tables)\n",
+		"nft list ruleset": "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy drop;\n\t\ttcp dport 22 accept\n\t}\n}\n" + nftDockerOnly,
+	})
+	if got := outcome(t, "host.firewall", e); got.Status != Pass {
+		t.Errorf("nft input policy drop = %s %s", got.Status, got.Detail)
+	}
+}
+
+func TestFirewallCantTell(t *testing.T) {
+	// nftables service active but unreadable (not root): unknown, not pass.
+	e := hostEnv(t, nil)
+	e.Exec = func(_ context.Context, name string, args ...string) (string, error) {
+		if name == "systemctl" && args[1] == "nftables" {
+			return "active\n", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if got := outcome(t, "host.firewall", e); got.Status != Skip {
+		t.Errorf("active nftables, no root = %s %s, want skip", got.Status, got.Detail)
+	}
+	// Input jumps to a custom chain nothing is known about.
+	e = firewallEnv(t, map[string]string{"iptables -S": "-P INPUT ACCEPT\n-N mine\n-A INPUT -j mine\n-A mine -p tcp --dport 22 -j ACCEPT\n"})
+	if got := outcome(t, "host.firewall", e); got.Status != Skip {
+		t.Errorf("custom chain = %s %s, want skip", got.Status, got.Detail)
+	}
+}

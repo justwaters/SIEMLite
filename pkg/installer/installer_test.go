@@ -33,8 +33,15 @@ func newHost(t *testing.T, version string) *host {
 		Exec: func(_ context.Context, name string, args ...string) (string, error) {
 			h.calls = append(h.calls, strings.TrimSpace(name+" "+strings.Join(args, " ")))
 			switch {
-			case name == BinPath: // the installed program says its version: its file's content
-				b, err := os.ReadFile(h.path(BinPath))
+			case name == BinPath || strings.HasPrefix(name, h.root): // a program says its version: its file's content
+				p := name
+				if name == BinPath {
+					p = h.path(BinPath)
+				}
+				b, err := os.ReadFile(p)
+				if err == nil && strings.HasPrefix(string(b), "BROKEN") {
+					return "", errors.New("exec format error")
+				}
 				return "SIEMLite " + string(b) + "\n", err
 			case name == "useradd":
 				h.append("/etc/passwd", User+":x:999:999::"+DataDir+":/usr/sbin/nologin\n")
@@ -535,5 +542,40 @@ func TestLocalUserIsOnlyWhatPasswdHolds(t *testing.T) {
 	h.append("/etc/passwd", User+":x:999:999::"+DataDir+":/usr/sbin/nologin\n")
 	if !h.env.localUser(User) || h.env.localUser("siemli") {
 		t.Error("localUser must match the whole name")
+	}
+}
+
+func TestBrokenNewProgramLeavesTheOldOneInPlace(t *testing.T) {
+	h := newHost(t, "v0.27")
+	if err := h.run(Options{}); err != nil {
+		t.Fatal(err)
+	}
+	h.setBinary("BROKEN v0.28")
+	err := h.run(Options{})
+	if err == nil || !strings.Contains(err.Error(), "does not run") {
+		t.Fatalf("err = %v", err)
+	}
+	if h.read(BinPath) != "v0.27" {
+		t.Errorf("installed program = %q, want the old one untouched", h.read(BinPath))
+	}
+	entries, _ := os.ReadDir(filepath.Dir(h.path(BinPath)))
+	for _, en := range entries {
+		if strings.HasPrefix(en.Name(), ".siemlite-install-") {
+			t.Errorf("temp file left behind: %s", en.Name())
+		}
+	}
+}
+
+func TestUpdateKeepsABackupOfTheOldProgram(t *testing.T) {
+	h := newHost(t, "v0.27")
+	if err := h.run(Options{}); err != nil {
+		t.Fatal(err)
+	}
+	h.setBinary("v0.28")
+	if err := h.run(Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if h.read(BinPath) != "v0.28" || h.read(BinPath+".bak") != "v0.27" {
+		t.Errorf("binary %q, backup %q", h.read(BinPath), h.read(BinPath+".bak"))
 	}
 }

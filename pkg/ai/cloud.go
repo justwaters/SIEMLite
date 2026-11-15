@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Cloud services that can run the model, besides a model on this server.
@@ -151,6 +152,36 @@ func send(ctx context.Context, client *http.Client, service, method, url string,
 	return nil
 }
 
+// noTemperature remembers the provider+model pairs that refused a
+// temperature setting, so later calls leave it out. In memory only.
+var noTemperature sync.Map
+
+const requestTemperature = 0.1
+
+// temperatureRejected reports whether an error is a 400 that complains about
+// the temperature parameter (unsupported, deprecated, only the default allowed).
+func temperatureRejected(err error) bool {
+	var se *serviceError
+	return errors.As(err, &se) && se.status == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(se.msg), "temperature")
+}
+
+// sendWithTemperature sends the body build(true) makes, which carries a
+// temperature; when the service refuses that setting it asks once more with
+// build(false), and remembers the refusal for this service and model.
+func sendWithTemperature(ctx context.Context, client *http.Client, service, model, method, url string, headers map[string]string, build func(withTemperature bool) any, out any) error {
+	key := service + "|" + model
+	if _, skip := noTemperature.Load(key); skip {
+		return send(ctx, client, service, method, url, headers, build(false), out)
+	}
+	err := send(ctx, client, service, method, url, headers, build(true), out)
+	if temperatureRejected(err) {
+		noTemperature.Store(key, true)
+		return send(ctx, client, service, method, url, headers, build(false), out)
+	}
+	return err
+}
+
 // --- OpenAI's API, and NVIDIA's, which follows it ---
 
 type openAICompat struct {
@@ -168,9 +199,15 @@ func (o *openAICompat) chat(ctx context.Context, msgs []map[string]string, schem
 	}
 	var last error
 	for _, f := range formats {
-		body := map[string]any{"model": o.model, "messages": msgs, "temperature": 0.1}
-		if f != nil {
-			body["response_format"] = f
+		build := func(withTemp bool) any {
+			body := map[string]any{"model": o.model, "messages": msgs}
+			if withTemp {
+				body["temperature"] = requestTemperature
+			}
+			if f != nil {
+				body["response_format"] = f
+			}
+			return body
 		}
 		var out struct {
 			Choices []struct {
@@ -179,7 +216,7 @@ func (o *openAICompat) chat(ctx context.Context, msgs []map[string]string, schem
 				} `json:"message"`
 			} `json:"choices"`
 		}
-		err := send(ctx, o.http, o.service, http.MethodPost, o.base+"/chat/completions", map[string]string{"Authorization": "Bearer " + o.key}, body, &out)
+		err := sendWithTemperature(ctx, o.http, o.service, o.model, http.MethodPost, o.base+"/chat/completions", map[string]string{"Authorization": "Bearer " + o.key}, build, &out)
 		var se *serviceError
 		if errors.As(err, &se) && se.status == http.StatusBadRequest {
 			last = err
@@ -219,11 +256,17 @@ func (a *anthropic) chat(ctx context.Context, msgs []map[string]string, schema a
 		}
 		conv = append(conv, map[string]string{"role": m["role"], "content": m["content"]})
 	}
-	body := map[string]any{
-		"model": a.model, "max_tokens": 4096, "temperature": 0.1, "messages": conv,
-		"system":      strings.Join(system, "\n\n"),
-		"tools":       []map[string]any{{"name": "parser", "description": "The answer, as a parser definition.", "input_schema": schema}},
-		"tool_choice": map[string]any{"type": "tool", "name": "parser"},
+	build := func(withTemp bool) any {
+		body := map[string]any{
+			"model": a.model, "max_tokens": 4096, "messages": conv,
+			"system":      strings.Join(system, "\n\n"),
+			"tools":       []map[string]any{{"name": "parser", "description": "The answer, as a parser definition.", "input_schema": schema}},
+			"tool_choice": map[string]any{"type": "tool", "name": "parser"},
+		}
+		if withTemp {
+			body["temperature"] = requestTemperature
+		}
+		return body
 	}
 	var out struct {
 		Content []struct {
@@ -232,7 +275,7 @@ func (a *anthropic) chat(ctx context.Context, msgs []map[string]string, schema a
 			Input json.RawMessage `json:"input"`
 		} `json:"content"`
 	}
-	if err := send(ctx, a.http, "Anthropic", http.MethodPost, a.base+"/messages", a.headers(), body, &out); err != nil {
+	if err := sendWithTemperature(ctx, a.http, "Anthropic", a.model, http.MethodPost, a.base+"/messages", a.headers(), build, &out); err != nil {
 		return "", err
 	}
 	for _, c := range out.Content {
@@ -269,13 +312,19 @@ func (g *gemini) chat(ctx context.Context, msgs []map[string]string, schema any)
 		}
 	}
 	for _, withSchema := range []bool{true, false} {
-		config := map[string]any{"temperature": 0.1, "responseMimeType": "application/json"}
-		if withSchema {
-			config["responseJsonSchema"] = schema
-		}
-		body := map[string]any{"contents": contents, "generationConfig": config}
-		if len(system) > 0 {
-			body["systemInstruction"] = map[string]any{"parts": []map[string]string{{"text": strings.Join(system, "\n\n")}}}
+		build := func(withTemp bool) any {
+			config := map[string]any{"responseMimeType": "application/json"}
+			if withTemp {
+				config["temperature"] = requestTemperature
+			}
+			if withSchema {
+				config["responseJsonSchema"] = schema
+			}
+			body := map[string]any{"contents": contents, "generationConfig": config}
+			if len(system) > 0 {
+				body["systemInstruction"] = map[string]any{"parts": []map[string]string{{"text": strings.Join(system, "\n\n")}}}
+			}
+			return body
 		}
 		var out struct {
 			Candidates []struct {
@@ -286,8 +335,8 @@ func (g *gemini) chat(ctx context.Context, msgs []map[string]string, schema any)
 				} `json:"content"`
 			} `json:"candidates"`
 		}
-		err := send(ctx, g.http, "Google Gemini", http.MethodPost, g.base+"/models/"+url.PathEscape(g.model)+":generateContent",
-			map[string]string{"x-goog-api-key": g.key}, body, &out)
+		err := sendWithTemperature(ctx, g.http, "Google Gemini", g.model, http.MethodPost, g.base+"/models/"+url.PathEscape(g.model)+":generateContent",
+			map[string]string{"x-goog-api-key": g.key}, build, &out)
 		var se *serviceError
 		if withSchema && errors.As(err, &se) && se.status == http.StatusBadRequest {
 			continue // a model that won't take the schema still answers in JSON

@@ -25,6 +25,7 @@ const checkpointKey = "alert_checkpoint"
 type Store interface {
 	ListRules(ctx context.Context) ([]storage.Rule, error)
 	MaxEventSeq(ctx context.Context) (int64, error)
+	TopEventSeq(ctx context.Context) (int64, error)
 	NewMatches(ctx context.Context, ru storage.Rule, afterSeq, maxSeq int64) ([]storage.RuleGroup, error)
 	WindowCounts(ctx context.Context, ru storage.Rule, groups []storage.RuleGroup, afterSeq, window, maxSeq int64) (map[string]storage.WindowStat, error)
 	ActiveAlertGroups(ctx context.Context, ruleID int64) (map[string]bool, error)
@@ -76,11 +77,21 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 		return res, err
 	}
 	cp, _ := strconv.ParseInt(cpStr, 10, 64)
+	// Events up to maxID are all stored. One numbered below a checkpoint can
+	// still be on its way (another process, or a batch still storing,
+	// numbered it first), so checkpoints only move up to maxID, never past
+	// it, and never back: a checkpoint above maxID is waiting for such a
+	// batch. Only one above every number handed out means a restore went
+	// back in time.
 	maxID, err := e.store.MaxEventSeq(ctx)
 	if err != nil {
 		return res, err
 	}
-	cp = min(cp, maxID) // a restore went back in time
+	top, err := e.store.TopEventSeq(ctx)
+	if err != nil {
+		return res, err
+	}
+	cp = min(cp, top)
 	rules, err := e.store.ListRules(ctx)
 	if err != nil {
 		return res, err
@@ -98,7 +109,7 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 		} else if v != "" {
 			from, _ = strconv.ParseInt(v, 10, 64)
 		}
-		from = min(from, maxID)
+		from = min(from, top)
 		if ru.IsVolume() { // judged by the clock, not by new events: see checkVolume
 			continue
 		}
@@ -115,12 +126,12 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 		}
 		// A switched-off rule moves along too, so switching it back on
 		// doesn't raise alerts for everything that happened meanwhile.
-		if err := e.store.SetSetting(ctx, key, strconv.FormatInt(maxID, 10)); err != nil {
+		if err := e.store.SetSetting(ctx, key, strconv.FormatInt(max(from, maxID), 10)); err != nil {
 			return res, err
 		}
 	}
 	e.checkVolume(ctx, rules, now, &res)
-	return res, e.store.SetSetting(ctx, checkpointKey, strconv.FormatInt(maxID, 10))
+	return res, e.store.SetSetting(ctx, checkpointKey, strconv.FormatInt(max(cp, maxID), 10))
 }
 
 // checkVolume runs the rules that watch how much a source sends: it counts the

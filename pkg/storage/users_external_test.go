@@ -181,3 +181,40 @@ func TestSessionsAndAdminsByProvider(t *testing.T) {
 		t.Errorf("second delete = %d", n)
 	}
 }
+
+// A disabled admin isn't the one that has to remain: with one enabled admin
+// left, a disabled one can still be demoted or deleted, and the enabled one
+// still can't.
+func TestDisabledAdminCanBeRemovedButLastEnabledCannot(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewRepository(db)
+	keep, _ := repo.CreateUser(ctx, "keep", "h", "admin", 1)
+	gone, _ := repo.CreateUser(ctx, "gone", "h", "admin", 2)
+	other, _ := repo.CreateUser(ctx, "other", "h", "admin", 3)
+	if err := repo.SetUserDisabled(ctx, gone, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetUserDisabled(ctx, other, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpdateUserAccess(ctx, gone, "standard", false, nil); err != nil {
+		t.Errorf("demoting a disabled admin: %v", err)
+	}
+	if err := repo.DeleteUserByID(ctx, other); err != nil {
+		t.Errorf("deleting a disabled admin: %v", err)
+	}
+	if err := repo.DeleteUserByID(ctx, keep); !errors.Is(err, ErrLastAdmin) {
+		t.Errorf("deleting the last enabled admin: %v", err)
+	}
+	if err := repo.UpdateUserAccess(ctx, keep, "standard", false, nil); !errors.Is(err, ErrLastAdmin) {
+		t.Errorf("demoting the last enabled admin: %v", err)
+	}
+	if err := repo.SetUserDisabled(ctx, keep, true); !errors.Is(err, ErrLastAdmin) {
+		t.Errorf("disabling the last enabled admin: %v", err)
+	}
+}

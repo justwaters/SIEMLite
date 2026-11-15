@@ -678,8 +678,33 @@ var timeLayouts = []string{
 	"01/02/2006 15:04:05",
 	"Mon Jan _2 15:04:05 2006",
 	"Mon Jan _2 15:04:05 MST 2006",
+	"2006-01-02 15:04:05.999999999 MST",
+	"2006-01-02T15:04:05.999999999 MST",
 	time.RFC1123Z,
 	time.RFC1123,
+}
+
+// zoneOffsets are the unambiguous zone abbreviations, in seconds east of UTC.
+// time.Parse gives an abbreviation it doesn't know a zero offset, which would
+// make PST 8 hours early. IST, CST (China, Cuba) and the like are left alone.
+var zoneOffsets = map[string]int{
+	"UTC": 0, "GMT": 0, "Z": 0, "UT": 0,
+	"PST": -8 * 3600, "PDT": -7 * 3600, "MST": -7 * 3600, "MDT": -6 * 3600,
+	"CST": -6 * 3600, "CDT": -5 * 3600, "EST": -5 * 3600, "EDT": -4 * 3600,
+	"CET": 3600, "CEST": 2 * 3600, "BST": 3600, "EET": 2 * 3600, "EEST": 3 * 3600,
+}
+
+// fixZone corrects a time parsed with a zone abbreviation to the real instant.
+func fixZone(t time.Time) time.Time {
+	name, _ := t.Zone()
+	off, ok := zoneOffsets[name]
+	if !ok || t.Location() == time.UTC {
+		return t
+	}
+	y, mo, d := t.Date()
+	h, mi, sec := t.Clock()
+	wall := time.Date(y, mo, d, h, mi, sec, t.Nanosecond(), time.UTC)
+	return wall.Add(-time.Duration(off) * time.Second)
 }
 
 // ParseTime reads the common timestamp formats, syslog's yearless
@@ -697,7 +722,7 @@ func ParseTime(v string, now time.Time) (time.Time, bool) {
 	}
 	for _, layout := range timeLayouts {
 		if t, err := time.Parse(layout, v); err == nil {
-			return t, true
+			return fixZone(t), true
 		}
 	}
 	if t, _, _, _, ok := syslogHeader(v+" x", now); ok {

@@ -304,3 +304,79 @@ func TestArchiveRejectsOtherNames(t *testing.T) {
 		t.Error("a file was written outside the backups folder")
 	}
 }
+
+// TestApplyRestoreDropsStaleWAL: the old database's -wal/-shm are gone after a
+// restore, so they can't be replayed onto the restored file, and no
+// ".before-restore" leftovers remain.
+func TestApplyRestoreDropsStaleWAL(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addEvent("before")
+	b, err := e.m.Create(ctx, Manual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.addEvent("after")
+	if _, err := e.m.StageRestore(ctx, b.Name); err != nil {
+		t.Fatal(err)
+	}
+	e.db.Close()
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := os.WriteFile(e.path+suffix, []byte("stale wal from the old database"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := ApplyPendingRestore(e.path, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(e.path + suffix); !os.IsNotExist(err) {
+			t.Errorf("%s of the old database survived the restore (%v)", suffix, err)
+		}
+	}
+	left, _ := filepath.Glob(e.path + "*.before-restore")
+	if more, _ := filepath.Glob(storage.EventsDir(e.path) + "*.before-restore"); len(left)+len(more) > 0 {
+		t.Errorf("old files left behind: %v %v", left, more)
+	}
+	e.open()
+	defer e.db.Close()
+	if got := e.events(); len(got) != 1 || got[0] != "before" {
+		t.Errorf("events after restore = %v", got)
+	}
+}
+
+// TestBadStagedRestoreLeavesLiveDatabaseAlone: a staged snapshot that fails
+// its check is set aside, and the live database, with its WAL, is untouched.
+func TestBadStagedRestoreLeavesLiveDatabaseAlone(t *testing.T) {
+	e := newEnv(t)
+	e.addEvent("live")
+	e.db.Close()
+	before, err := os.ReadFile(e.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.path+"-wal", []byte("live wal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pending := PendingPath(e.path)
+	if err := os.MkdirAll(pending, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pending, storage.MainFile), []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := ApplyPendingRestore(e.path, nil)
+	if err == nil || applied != nil {
+		t.Fatalf("apply = %+v, %v; want an error", applied, err)
+	}
+	after, _ := os.ReadFile(e.path)
+	if !bytes.Equal(before, after) {
+		t.Error("live database changed by a rejected restore")
+	}
+	if w, _ := os.ReadFile(e.path + "-wal"); string(w) != "live wal" {
+		t.Error("live WAL removed by a rejected restore")
+	}
+	if _, err := os.Stat(pending + ".rejected"); err != nil {
+		t.Error("rejected snapshot not set aside:", err)
+	}
+}

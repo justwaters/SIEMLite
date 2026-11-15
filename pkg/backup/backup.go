@@ -393,24 +393,48 @@ func ApplyPendingRestore(dbPath string, log *slog.Logger) (*RestoreInfo, error) 
 	if err != nil {
 		return nil, setAside(pending, err)
 	}
-	for _, suffix := range []string{"-wal", "-shm"} {
-		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
-			return nil, err
+	// Nothing of the live database is deleted until the restore has gone in:
+	// the old main file, its -wal/-shm (so a stale WAL can never be replayed
+	// onto the restored file) and its day files are moved aside, and put back
+	// if any step fails.
+	daysDir := storage.EventsDir(dbPath)
+	type move struct{ from, to string }
+	var aside []move // live path -> where the old one waits
+	undo := func() {
+		for i := len(aside) - 1; i >= 0; i-- {
+			os.RemoveAll(aside[i].from) // whatever of the restore landed there
+			_ = os.Rename(aside[i].to, aside[i].from)
 		}
+	}
+	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm", daysDir} {
+		if _, err := os.Lstat(p); err != nil {
+			continue
+		}
+		to := p + ".before-restore"
+		os.RemoveAll(to)
+		if err := os.Rename(p, to); err != nil {
+			undo()
+			return nil, fmt.Errorf("apply restore: %w", err)
+		}
+		aside = append(aside, move{p, to})
 	}
 	// The backup's days replace all of today's; a backup from before day
 	// files has none (its events are in its main database, and move on start).
-	daysDir := storage.EventsDir(dbPath)
-	if err := os.RemoveAll(daysDir); err != nil {
-		return nil, fmt.Errorf("apply restore: %w", err)
-	}
 	if events != "" {
 		if err := os.Rename(events, daysDir); err != nil {
+			undo()
 			return nil, fmt.Errorf("apply restore: %w", err)
 		}
 	}
 	if err := os.Rename(main, dbPath); err != nil {
+		if events != "" {
+			_ = os.Rename(daysDir, events)
+		}
+		undo()
 		return nil, fmt.Errorf("apply restore: %w", err)
+	}
+	for _, m := range aside { // success: the old files can go
+		os.RemoveAll(m.to)
 	}
 	os.RemoveAll(pending)
 	log.Warn("restored the database from a backup", "db", dbPath, "backup", info.Backup)

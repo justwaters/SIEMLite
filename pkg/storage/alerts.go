@@ -587,10 +587,20 @@ func (r *Repository) SetAlertCount(ctx context.Context, id, count, nowMs int64) 
 	return nil
 }
 
-// MaxEventSeq is the arrival number of the newest event this process has
-// stored (or the newest when it started). Every event up to it is visible.
+// MaxEventSeq is the arrival number up to which every event is stored and
+// visible, by any process sharing the files: no event numbered at or below it
+// can still appear, so the alert engine may move its checkpoint up to it. It
+// stays below a batch that is numbered but not stored yet (see safeSeq).
 func (r *Repository) MaxEventSeq(ctx context.Context) (int64, error) {
-	return r.db.days.seq.Load(), nil
+	safe, _, err := r.db.days.safeSeq(ctx)
+	return safe, err
+}
+
+// TopEventSeq is the highest arrival number handed out so far, stored or not.
+// A checkpoint above it means the database went back in time (a restore).
+func (r *Repository) TopEventSeq(ctx context.Context) (int64, error) {
+	_, top, err := r.db.days.safeSeq(ctx)
+	return top, err
 }
 
 // AlertRaise is one group's alert for RaiseAlerts.

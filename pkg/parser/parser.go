@@ -345,9 +345,9 @@ func syslogHeader(s string, now time.Time) (t time.Time, host, app, rest string,
 
 func parseISO(s string) (time.Time, bool) {
 	s = strings.Replace(s, ",", ".", 1)
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02T15:04:05.999999999Z0700", "2006-01-02 15:04:05.999999999Z0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02T15:04:05.999999999Z0700", "2006-01-02 15:04:05.999999999Z0700", "2006-01-02T15:04:05", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02 15:04:05.999999999 MST", "2006-01-02T15:04:05.999999999 MST"} {
 		if t, err := time.Parse(layout, s); err == nil {
-			return t, true
+			return fixZone(t), true
 		}
 	}
 	return time.Time{}, false

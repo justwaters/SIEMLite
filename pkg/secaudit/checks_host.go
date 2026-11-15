@@ -127,18 +127,48 @@ func checkFirewall(ctx context.Context, e *Env) Outcome {
 			}
 		}
 	}
-	for _, unit := range []string{"firewalld", "nftables", "ufw"} {
+	for _, unit := range []string{"firewalld", "ufw"} {
 		if out, _ := e.Exec(ctx, "systemctl", "is-active", unit); strings.TrimSpace(out) == "active" {
 			return Outcome{Status: Pass, Detail: unit + " is active."}
 		}
 	}
+	nftUnit := false
+	if out, _ := e.Exec(ctx, "systemctl", "is-active", "nftables"); strings.TrimSpace(out) == "active" {
+		nftUnit = true
+	}
 	if e.Euid == 0 {
-		if out, err := e.Exec(ctx, "iptables", "-S"); err == nil && strings.Contains(out, "-A ") {
-			return Outcome{Status: Pass, Detail: "iptables has rules loaded."}
+		// Docker adds its own chains, and iptables may be the nf_tables shim, so
+		// "some rules exist" proves nothing: look for something that restricts
+		// inbound traffic, ignoring what Docker manages.
+		var verdicts []fwVerdict
+		if out, err := e.Exec(ctx, "iptables", "-S"); err == nil {
+			verdicts = append(verdicts, judgeIptables(out))
 		}
-		if out, err := e.Exec(ctx, "nft", "list", "ruleset"); err == nil && (strings.Contains(out, "rule") || strings.Contains(out, "policy drop")) {
-			return Outcome{Status: Pass, Detail: "nftables has rules loaded."}
+		nftOut, nftErr := e.Exec(ctx, "nft", "list", "ruleset")
+		if nftErr == nil {
+			verdicts = append(verdicts, judgeNft(nftOut))
 		}
+		best := fwNone
+		for _, v := range verdicts {
+			if v > best {
+				best = v
+			}
+		}
+		switch best {
+		case fwRestricts:
+			return Outcome{Status: Pass, Detail: "The firewall is loaded and drops or rejects inbound traffic that isn't allowed (Docker's own rules were not counted)."}
+		case fwUnclear:
+			return Outcome{Status: Skip, Detail: "Firewall rules are loaded, but whether they restrict inbound traffic couldn't be told (the input chain only jumps to custom chains). Check with iptables -S or nft list ruleset."}
+		case fwOpen:
+			return Outcome{Status: Warn, Detail: "Firewall rules are loaded, but none of them (outside Docker's) restrict inbound traffic: the input chain accepts by default.",
+				Fix: "Set the default for incoming traffic to drop and allow only what you use, for example: ufw default deny incoming, ufw allow 22/tcp, ufw allow 8443/tcp, ufw enable. " +
+					"If a firewall in front of the server (a cloud security group) does this, use Accept risk and say so."}
+		}
+		if len(verdicts) == 0 && nftUnit {
+			return Outcome{Status: Skip, Detail: "The nftables service is active, but its rules couldn't be read (iptables and nft failed), so whether it restricts inbound traffic is unknown."}
+		}
+	} else if nftUnit {
+		return Outcome{Status: Skip, Detail: "The nftables service is active, but its rules can't be read without root, so whether it restricts inbound traffic is unknown."}
 	}
 	d := "No active firewall was found (ufw, firewalld or nftables)."
 	if e.Euid != 0 {
@@ -396,4 +426,137 @@ func checkAutoUpdates(ctx context.Context, e *Env) Outcome {
 	}
 	return Outcome{Status: Warn, Detail: "Nothing installs security updates automatically, so the server stays exposed to known flaws until someone logs in.",
 		Fix: "On Debian or Ubuntu: apt install unattended-upgrades. On Fedora, RHEL and similar: dnf install dnf-automatic, then systemctl enable --now dnf-automatic-install.timer."}
+}
+
+// fwVerdict is what a rule listing says about inbound traffic; larger is stronger.
+type fwVerdict int
+
+const (
+	fwNone      fwVerdict = iota // nothing (outside Docker's) loaded
+	fwOpen                       // rules exist but the input path accepts everything
+	fwUnclear                    // input jumps to custom chains we can't judge
+	fwRestricts                  // input drops or rejects something by policy or rule
+)
+
+// dockerChain reports chains Docker creates and manages, which say nothing about
+// the host's own firewall.
+func dockerChain(name string) bool {
+	n := strings.ToUpper(strings.Trim(name, `"`))
+	return strings.HasPrefix(n, "DOCKER") || strings.HasPrefix(n, "BR-") || strings.HasPrefix(n, "CNI-") || strings.HasPrefix(n, "KUBE-")
+}
+
+// judgeIptables reads `iptables -S` output (legacy or the nf_tables shim; both print
+// the same). Only the INPUT chain, and chains it jumps to, are considered.
+func judgeIptables(out string) fwVerdict {
+	userChains := map[string][]string{} // chain -> rule lines
+	var inputRules []string
+	policy := ""
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 2 {
+			continue
+		}
+		switch f[0] {
+		case "-P":
+			if f[1] == "INPUT" && len(f) > 2 {
+				policy = f[2]
+			}
+		case "-A":
+			if f[1] == "INPUT" {
+				inputRules = append(inputRules, l)
+			} else if !dockerChain(f[1]) {
+				userChains[f[1]] = append(userChains[f[1]], l)
+			}
+		}
+	}
+	if policy == "DROP" {
+		return fwRestricts
+	}
+	if len(inputRules) == 0 && len(userChains) == 0 {
+		return fwNone
+	}
+	verdict := fwOpen
+	for _, l := range inputRules {
+		f := strings.Fields(l)
+		target := ""
+		for i, w := range f {
+			if (w == "-j" || w == "-g") && i+1 < len(f) {
+				target = f[i+1]
+			}
+		}
+		switch {
+		case target == "DROP" || target == "REJECT":
+			return fwRestricts
+		case target == "" || target == "ACCEPT" || target == "RETURN" || target == "LOG" || dockerChain(target):
+		default:
+			// A jump into a custom chain (ufw-*, fail2ban, hand-made): if that chain
+			// drops or rejects something, the host restricts inbound traffic.
+			for _, cl := range userChains[target] {
+				if strings.HasSuffix(cl, "-j DROP") || strings.Contains(cl, "-j REJECT") {
+					return fwRestricts
+				}
+			}
+			verdict = fwUnclear
+		}
+	}
+	return verdict
+}
+
+// judgeNft reads `nft list ruleset`: only base chains hooked on input count, and
+// tables or chains Docker manages are skipped. A policy drop, or a drop/reject
+// rule, in such a chain means inbound traffic is restricted.
+func judgeNft(out string) fwVerdict {
+	type frame struct{ kind, name string }
+	var stack []frame
+	verdict := fwNone
+	inputChain, inputPolicy, inputRules := false, "", false
+	for _, raw := range strings.Split(out, "\n") {
+		l := strings.TrimSpace(raw)
+		switch {
+		case strings.HasSuffix(l, "{"):
+			f := strings.Fields(strings.TrimSuffix(l, "{"))
+			switch {
+			case len(f) >= 3 && f[0] == "table":
+				stack = append(stack, frame{"table", f[2]})
+			case len(f) >= 2 && f[0] == "chain":
+				stack = append(stack, frame{"chain", f[1]})
+				inputChain, inputPolicy, inputRules = false, "", false
+			default: // sets, maps, flowtables
+				stack = append(stack, frame{"other", ""})
+			}
+		case l == "}":
+			if n := len(stack); n > 0 {
+				top := stack[n-1]
+				stack = stack[:n-1]
+				if top.kind == "chain" && inputChain {
+					skip := dockerChain(top.name)
+					for _, fr := range stack {
+						if fr.kind == "table" && strings.Contains(strings.ToLower(fr.name), "docker") {
+							skip = true
+						}
+					}
+					if !skip {
+						switch {
+						case inputPolicy == "drop" || inputRules:
+							return fwRestricts
+						default:
+							verdict = max(verdict, fwOpen)
+						}
+					}
+				}
+			}
+		default:
+			if n := len(stack); n > 0 && stack[n-1].kind == "chain" {
+				if strings.Contains(l, "hook input") {
+					inputChain = true
+					if _, p, ok := strings.Cut(l, "policy "); ok {
+						inputPolicy = strings.TrimSuffix(strings.Fields(p + " ")[0], ";")
+					}
+				} else if w := strings.Fields(l); len(w) > 0 && (w[len(w)-1] == "drop" || w[len(w)-1] == "reject" || strings.Contains(l, " reject ")) {
+					inputRules = true
+				}
+			}
+		}
+	}
+	return verdict
 }

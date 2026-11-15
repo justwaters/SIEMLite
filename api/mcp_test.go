@@ -466,3 +466,30 @@ func TestMCPTools(t *testing.T) {
 		t.Error("the audit entry for an agent's change isn't marked via=mcp")
 	}
 }
+
+func TestMCPLineBatchIsCapped(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	tok := e.mcpToken(root, "agent", "admin")
+
+	many := make([]string, 1001)
+	for i := range many {
+		many[i] = "a"
+	}
+	for _, tool := range []string{"draft_parser", "test_parser"} {
+		text, isErr := e.tool(tok, tool, map[string]any{"lines": many, "definition": map[string]any{"name": "x", "format": "text", "pattern": "{message}"}})
+		if !isErr || !strings.Contains(text, "limit is 1000") {
+			t.Errorf("%s with 1001 lines = %v %q", tool, isErr, text)
+		}
+	}
+	big := strings.Repeat("x", 100<<10)
+	text, isErr := e.tool(tok, "draft_parser", map[string]any{"lines": []string{big, big, big}})
+	if !isErr || !strings.Contains(text, "bytes per call") {
+		t.Errorf("oversized lines = %v %q", isErr, text)
+	}
+	if _, isErr := e.tool(tok, "draft_parser", map[string]any{"lines": []string{"a=1 b=2", "a=3 b=4"}}); isErr {
+		t.Errorf("a small batch was refused")
+	}
+}
