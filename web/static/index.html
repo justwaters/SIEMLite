@@ -6,7 +6,7 @@
 <title>SIEMLite</title>
 <script>
   // Apply a saved theme before first paint so the page never flashes.
-  try { const t = localStorage.getItem("siemlite-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}
+  try { const t = localStorage.getItem("siemlite-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; if (localStorage.getItem("siemlite-look") === "glass") document.documentElement.dataset.look = "glass"; } catch {}
 </script>
 <style>
   @font-face { font-family: "Instrument Sans"; src: url(fonts/instrument-sans.woff2) format("woff2");
@@ -40,6 +40,110 @@
     --sev-0: #78828a; --sev-1: #8796a3; --sev-2: #49a985; --sev-3: #cfa52a; --sev-4: #e2793a; --sev-5: #e77478; --sev-6: #c0559a;
     --chart-other: #7d858a;
     --login-art: #131619;
+  }
+
+  /* Glass look (optional, Account > Theme). Same layout and colours; the surfaces turn into frosted, translucent panes over a soft
+     backdrop. It sits on top of the light and dark themes, so the variables below are set for each. */
+  :root[data-look="glass"] {
+    --g-back: radial-gradient(60vw 50vh at 12% 8%, rgba(120, 160, 255, .35), transparent 70%),
+              radial-gradient(55vw 55vh at 92% 18%, rgba(200, 140, 255, .28), transparent 70%),
+              radial-gradient(70vw 60vh at 60% 100%, rgba(90, 210, 200, .30), transparent 70%),
+              linear-gradient(160deg, #e9eef6, #eef0f4 50%, #e8edf0);
+    --g-fill: rgba(255, 255, 255, .50); --g-fill-hi: rgba(255, 255, 255, .72); --g-hover: rgba(255, 255, 255, .62);
+    --g-bar: rgba(244, 247, 251, .55);
+    --g-line: rgba(30, 45, 70, .13); --g-edge: rgba(255, 255, 255, .85); --g-shine: rgba(255, 255, 255, .55);
+    --g-shadow: 0 10px 34px -14px rgba(30, 50, 90, .30), 0 1px 3px rgba(30, 50, 90, .08);
+    --surface: var(--g-fill); --raised: var(--g-hover); --rule: var(--g-line);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-look="glass"]:not([data-theme="light"]) {
+      --g-back: radial-gradient(60vw 50vh at 12% 8%, rgba(70, 100, 200, .45), transparent 70%),
+                radial-gradient(55vw 55vh at 92% 18%, rgba(130, 80, 200, .36), transparent 70%),
+                radial-gradient(70vw 60vh at 60% 100%, rgba(40, 150, 150, .34), transparent 70%),
+                linear-gradient(160deg, #11151b, #14181e 50%, #101417);
+      --g-fill: rgba(40, 48, 58, .46); --g-fill-hi: rgba(52, 62, 74, .66); --g-hover: rgba(80, 94, 110, .42);
+      --g-bar: rgba(20, 25, 31, .55);
+      --g-line: rgba(255, 255, 255, .12); --g-edge: rgba(255, 255, 255, .20); --g-shine: rgba(255, 255, 255, .10);
+      --g-shadow: 0 14px 40px -16px rgba(0, 0, 0, .65), 0 1px 3px rgba(0, 0, 0, .3);
+    }
+  }
+  :root[data-look="glass"][data-theme="dark"] {
+    --g-back: radial-gradient(60vw 50vh at 12% 8%, rgba(70, 100, 200, .45), transparent 70%),
+              radial-gradient(55vw 55vh at 92% 18%, rgba(130, 80, 200, .36), transparent 70%),
+              radial-gradient(70vw 60vh at 60% 100%, rgba(40, 150, 150, .34), transparent 70%),
+              linear-gradient(160deg, #11151b, #14181e 50%, #101417);
+    --g-fill: rgba(40, 48, 58, .46); --g-fill-hi: rgba(52, 62, 74, .66); --g-hover: rgba(80, 94, 110, .42);
+    --g-bar: rgba(20, 25, 31, .55);
+    --g-line: rgba(255, 255, 255, .12); --g-edge: rgba(255, 255, 255, .20); --g-shine: rgba(255, 255, 255, .10);
+    --g-shadow: 0 14px 40px -16px rgba(0, 0, 0, .65), 0 1px 3px rgba(0, 0, 0, .3);
+  }
+  /* The backdrop is its own fixed layer, so it stays still while the page scrolls and never repeats or shows a seam. */
+  :root[data-look="glass"] { background: var(--paper); }
+  :root[data-look="glass"] body { background: transparent; }
+  :root[data-look="glass"]::before { content: ""; position: fixed; inset: 0; z-index: -1; background: var(--g-back); pointer-events: none; }
+  /* Panes: frosted fill, a bright top edge, a faint diagonal sheen, a soft shadow. */
+  :root[data-look="glass"] :is(.panel, .table-wrap, .range, .field, .figure, .matches, .preview-line, .error, .mail-warn, .tooltip) {
+    -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
+    background-image: linear-gradient(135deg, var(--g-shine), transparent 42%);
+    box-shadow: inset 0 1px 0 var(--g-edge), var(--g-shadow);
+  }
+  :root[data-look="glass"] :is(.panel, .table-wrap, .range) { border-radius: 16px; }
+  /* A row of figures becomes separate cards with space between them, not one box cut into cells. */
+  :root[data-look="glass"] .figures { gap: 14px; background: none; border: 0; border-radius: 0; overflow: visible; }
+  :root[data-look="glass"] :is(.figure, .audit-figures button.figure) { border: 1px solid var(--g-line); border-radius: 16px; }
+  :root[data-look="glass"] :is(.figure-link:hover, .audit-figures button.figure:hover, .audit-figures button.figure[aria-pressed="true"]) { background-color: var(--g-hover); }
+  :root[data-look="glass"] .error { background-color: var(--g-fill); }
+  :root[data-look="glass"] .mail-warn { box-shadow: inset 3px 0 0 var(--sev-4), inset 0 1px 0 var(--g-edge), var(--g-shadow); }
+  :root[data-look="glass"] .matches { box-shadow: inset 3px 0 0 var(--sev-5), inset 0 1px 0 var(--g-edge), var(--g-shadow); }
+  :root[data-look="glass"] .side { background: var(--g-bar); border-right-color: var(--g-line);
+    -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%); box-shadow: inset -1px 0 0 var(--g-edge); }
+  :root[data-look="glass"] .db-bar { background: var(--g-bar); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+    padding-left: 12px; padding-right: 12px; margin: 0 -12px; border-radius: 0 0 16px 16px; }
+  :root[data-look="glass"] .nav-item { border-radius: 10px; }
+  :root[data-look="glass"] .nav-item[aria-current="page"] { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 2px 10px -4px rgba(30, 50, 90, .25); }
+  :root[data-look="glass"] .nav-item:hover { background: var(--g-hover); }
+  :root[data-look="glass"] .account { border-radius: 10px; box-shadow: none; }
+  /* Controls. */
+  :root[data-look="glass"] :is(.btn, .input, .select, textarea, input[type="file"]::file-selector-button) {
+    -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%);
+    box-shadow: inset 0 1px 0 var(--g-edge), 0 1px 2px rgba(30, 50, 90, .08);
+  }
+  :root[data-look="glass"] .btn { border-radius: 10px; transition: background .15s, transform .1s; }
+  :root[data-look="glass"] .btn:hover { background: var(--g-fill-hi); }
+  :root[data-look="glass"] .btn:active { transform: scale(.975); }
+  :root[data-look="glass"] .btn:disabled { background: var(--g-fill); }
+  :root[data-look="glass"] .btn-primary { background: var(--ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 6px 16px -8px rgba(0, 0, 0, .5); }
+  :root[data-look="glass"] .btn-primary:hover { background: var(--ink); }
+  :root[data-look="glass"] :is(.input, .select, textarea) { border-radius: 10px; }
+  :root[data-look="glass"] :is(.input, .select, textarea):focus { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 0 0 3px var(--g-line); }
+  :root[data-look="glass"] .seg, :root[data-look="glass"] .theme { background: var(--g-fill); border-radius: 12px; box-shadow: inset 0 1px 0 var(--g-edge);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  :root[data-look="glass"] :is(.seg button, .theme button) { border-radius: 9px; }
+  :root[data-look="glass"] :is(.seg button[aria-pressed="true"], .seg button[aria-selected="true"], .theme button[aria-pressed="true"],
+      .account-grid .theme button[aria-pressed="true"]) { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 2px 8px -3px rgba(30, 50, 90, .3); }
+  :root[data-look="glass"] .track { background: var(--g-line); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12); }
+  :root[data-look="glass"] .track::after { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+  :root[data-look="glass"] .switch input:checked + .track { background: var(--ink); }
+  /* Tables sit on the pane; rows are lit on hover. */
+  :root[data-look="glass"] tr.ev:hover td, :root[data-look="glass"] tr.ev.open td, :root[data-look="glass"] tr.detail td { background: var(--g-hover); }
+  :root[data-look="glass"] :is(pre.raw, pre.example, pre.code) { background: var(--g-fill); box-shadow: inset 0 1px 0 var(--g-edge); }
+  /* Dialogs float above a blurred page. */
+  :root[data-look="glass"] dialog { border-radius: 20px; background: var(--g-fill-hi); border-color: var(--g-edge);
+    -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%);
+    box-shadow: inset 0 1px 0 var(--g-edge), 0 40px 90px -30px rgba(0, 0, 0, .55); }
+  :root[data-look="glass"] dialog::backdrop { background: rgba(20, 30, 50, .28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  /* Sign-in and the restart screen. */
+  :root[data-look="glass"] :is(.login, .restarting) { background: var(--g-back); }
+  :root[data-look="glass"] .login-art { background: transparent; }
+  :root[data-look="glass"] .login-main { background: var(--g-bar); -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+    box-shadow: inset 1px 0 0 var(--g-edge); }
+  /* When the system asks for less transparency, the panes turn solid. */
+  @media (prefers-reduced-transparency: reduce) {
+    :root[data-look="glass"] * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    :root[data-look="glass"] { --g-fill: #fff; --g-fill-hi: #fff; --g-hover: #eef0f3; --g-bar: #f2f3f1; }
+  }
+  @media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
+    :root[data-look="glass"]:not([data-theme="light"]) { --g-fill: #21262a; --g-fill-hi: #2a3035; --g-hover: #2a3035; --g-bar: #1a1e21; }
   }
 
   * { box-sizing: border-box; }
@@ -118,9 +222,11 @@
   .account b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .avatar { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--paper);
             font-size: 12.5px; font-weight: 700; text-transform: uppercase; }
-  .account-grid { display: grid; gap: 16px; max-width: 760px; }
+  #view-account { max-width: 760px; margin-left: auto; margin-right: auto; } /* one centred column */
+  .account-grid { display: grid; gap: 16px; }
   .account-grid .panel h2 { margin-bottom: 4px; }
   .account-grid .theme { margin: 10px 0 0; max-width: 300px; }
+  .account-grid .glass-switch { margin: 16px 0 6px; padding: 0; max-width: 300px; }
   .account-grid .theme button[aria-pressed="true"] { background: var(--raised); box-shadow: none; }
   .acct-pw-form { display: grid; gap: 12px; margin-top: 12px; max-width: 360px; }
   .acct-pw-form .input { width: 100%; }
@@ -1106,6 +1212,8 @@
             <button type="button" data-theme-choice="light">Light</button>
             <button type="button" data-theme-choice="dark">Dark</button>
           </div>
+          <label class="switch glass-switch"><span>Glass look</span><input type="checkbox" id="glass-toggle"><span class="track"></span></label>
+          <p class="hint">Frosted, translucent panels over a soft backdrop. Works with light and dark.</p>
         </section>
         <section class="panel" aria-labelledby="acct-auth-title">
           <h2 id="acct-auth-title">Sign-in</h2>
@@ -1613,6 +1721,15 @@ function setTheme(choice) {
   loginNet.recolor();
 }
 for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => setTheme(b.dataset.themeChoice);
+
+// --- Glass look ---
+function setGlass(on) {
+  if (on) document.documentElement.dataset.look = "glass"; else delete document.documentElement.dataset.look;
+  try { on ? localStorage.setItem("siemlite-look", "glass") : localStorage.removeItem("siemlite-look"); } catch {}
+  $("glass-toggle").checked = on;
+}
+$("glass-toggle").onchange = (e) => setGlass(e.target.checked);
+$("glass-toggle").checked = document.documentElement.dataset.look === "glass";
 
 // --- Sign-in and API ---
 const SSO_ERRORS = {

@@ -205,6 +205,19 @@ def main(binary, loggen):
                 page.wait_for_timeout(400)
                 check(page.is_visible(f"#view-{name}"), f"{name} page opens")
 
+            # The glass look is off until chosen, then stays on after a reload, and turns off again.
+            page.goto(url + "#/account")
+            page.wait_for_selector("#view-account:not([hidden])")
+            look = lambda: page.evaluate("document.documentElement.dataset.look || ''")
+            check(look() == "", "the glass look is off by default")
+            page.click(".glass-switch")
+            check(look() == "glass", "the Glass look switch turns it on")
+            page.reload()
+            page.wait_for_selector("#view-account:not([hidden])")
+            check(look() == "glass" and page.is_checked("#glass-toggle"), "the glass look is still on after a reload")
+            page.click(".glass-switch")
+            check(look() == "", "the Glass look switch turns it off again")
+
             # The generator's attacks raise alerts (the engine checks every 10s),
             # and an alert links to its events.
             page.goto(url + "#/sources")

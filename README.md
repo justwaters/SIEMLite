@@ -9,7 +9,7 @@ a built-in web UI and a small JSON API.
 - **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the parsed event is stored, and the original line is kept for 24 hours after it arrives (or as long as you choose on the System page).
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
 - **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
-- **A quiet web UI**: one search field to start, light and dark themes (or follow the system), and fonts bundled
+- **A quiet web UI**: one search field to start, light and dark themes (or follow the system), an optional glass look, and fonts bundled
   in the binary, so the UI never contacts a font service.
 - **Full-text search**: SQLite FTS5 over the message, program, host, user, addresses and parsed fields, combined with time, severity, category, IP, user, source, country, ASN and threat filters.
 - **HTTPS only**: a self-signed certificate is generated on first start, or SIEMLite gets one from Let's Encrypt for your domain and
@@ -97,7 +97,7 @@ SIEMLite can't swap the program that an admin later runs with `sudo`. The card s
 ### Run with Docker
 
 The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.31.6` in `.env` to use it, or leave it out to build from the
+and ARM64: set `SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.32` in `.env` to use it, or leave it out to build from the
 checkout. Either way, start and update with `./update.sh`:
 
 ```sh
@@ -198,7 +198,7 @@ usually within seconds, then who issued it and until when. Or set it from the st
 - **System** (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 - **Security audit** (admins): checks SIEMLite's setup and the server it runs on, and tracks each finding until it is fixed. See [Security audit](#security-audit).
 - **Account** (everyone; select your name at the bottom of the sidebar): your role and what it lets you see, the theme (System, Light
-  or Dark), signing out, and how you sign in: a local password, which you can change here, or Microsoft Entra ID.
+  or Dark) and an optional frosted Glass look that works with both, signing out, and how you sign in: a local password, which you can change here, or Microsoft Entra ID.
 
 ### Send logs from an app
 
