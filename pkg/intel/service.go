@@ -126,6 +126,7 @@ func (s *Service) Load(ctx context.Context) error {
 		return err
 	}
 	s.Matcher.Load(inds, friendly)
+	s.Matcher.SetMeta(s.listMeta())
 	s.version.Store(v)
 	s.cfg.Logger.Info("threat intel loaded", "indicators", s.Matcher.Size())
 	return nil
@@ -266,4 +267,17 @@ func FetchFeed(ctx context.Context, client *http.Client, store Store, f Feed) (n
 	}
 	n, err = store.ReplaceIndicators(ctx, f.Name, inds, time.Now().UnixMilli())
 	return n, skipped, err
+}
+
+// listMeta is what is known about each list a match can come from: the feeds on offer, and
+// feeds set with -intel-feed. Lists imported by hand have no entry.
+func (s *Service) listMeta() map[string]Meta {
+	meta := map[string]Meta{}
+	for _, f := range s.cfg.Feeds {
+		meta[f.Name] = Meta{Category: "Custom feed", Reference: f.URL}
+	}
+	for _, p := range Presets {
+		meta[p.Name] = Meta{Category: p.Category, Confidence: p.Confidence, Reference: p.Terms}
+	}
+	return meta
 }

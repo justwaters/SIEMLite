@@ -321,6 +321,7 @@
   .empty-note { color: var(--ink-2); font-size: 14px; margin: 0; }
 
   /* Database */
+  #db-form { display: contents; } /* so the search bar stays stuck while the results scroll under it */
   .db-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; position: sticky; top: 0; z-index: 2;
             background: var(--paper); padding: 12px 0 10px; }
   .range { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 0 6px 0 12px; height: 50px; }
@@ -369,6 +370,8 @@
   .ip-link:hover, .ip-link:focus-visible { text-decoration-style: solid; text-decoration-color: currentColor; }
   .ip-tip { position: fixed; z-index: 50; font-family: var(--sans); font-size: 12px; padding: 6px 9px; }
   .ip-tip b { font-size: 13px; }
+  .ip-tip .ip-tip-threat { color: var(--sev-5); font-weight: 600; }
+  .ip-tip .ip-tip-list { color: var(--ink); max-width: 340px; white-space: normal; }
   .ip-tip-src { font-size: 11px; margin-top: 3px; }
   .ip-tip-hint { margin-top: 4px; font-size: 11px; }
   .cc { margin-left: 6px; color: var(--ink-2); font-family: var(--sans); font-size: 12px; }
@@ -383,6 +386,10 @@
   .facts-grid dd span { display: block; color: var(--ink-2); font-size: 13px; }
   .facts-grid dd .ip { display: inline; color: inherit; font-size: 13px; }
   .facts-grid dd .who { display: inline; color: inherit; font-size: inherit; }
+  .matches .match { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; }
+  .matches .match-list { font-weight: 600; }
+  .matches .match .tag { margin-right: 0; }
+  .matches li + li { margin-top: 12px; }
   .matches { margin: 0 0 14px; padding: 12px 14px; list-style: none; border-radius: 8px; box-shadow: inset 3px 0 0 var(--sev-5); background: var(--surface); }
   .matches li + li { margin-top: 8px; }
   .matches b { color: var(--sev-5); font-weight: 600; }
@@ -525,7 +532,9 @@
   .integ-switch { padding: 0; gap: 8px; font-size: 13.5px; }
   .integ-switch input:disabled ~ .track { opacity: .45; }
   .integ-body { border-top: 1px solid var(--rule); padding: 18px 20px; }
-  .intel-tabs { margin: 0 0 16px; }
+  .intel-head { align-items: center; justify-content: flex-start; gap: 28px; }
+  .intel-tabs { grid-auto-columns: 1fr; min-width: min(560px, 100%); padding: 3px; }
+  .intel-tabs button { font-size: 16px; padding: 9px 26px; }
   .soon { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 56px 24px; }
   .soon-art { width: 96px; height: 96px; color: var(--ink-2); margin-bottom: 10px; }
   .soon h2 { margin: 0; }
@@ -956,13 +965,13 @@
 
     <!-- Intel -->
     <section id="view-intel" class="page" aria-labelledby="intel-title" hidden>
-      <div class="page-head">
-        <div><h1 id="intel-title">Intel</h1><p>Lists of known-bad IP addresses to flag, and lists of friendly addresses to leave alone.</p></div>
-      </div>
-      <div class="seg intel-tabs" role="tablist" aria-label="Intel">
-        <button type="button" role="tab" id="itab-feeds" data-tab="feeds" aria-controls="ipane-feeds">Threat Feeds</button>
-        <button type="button" role="tab" id="itab-friendlies" data-tab="friendlies" aria-controls="ipane-friendlies">Friendlies</button>
-        <button type="button" role="tab" id="itab-cve" data-tab="cve" aria-controls="ipane-cve">CVE</button>
+      <div class="page-head intel-head">
+        <h1 id="intel-title">Intel</h1>
+        <div class="seg intel-tabs" role="tablist" aria-label="Intel">
+          <button type="button" role="tab" id="itab-feeds" data-tab="feeds" aria-controls="ipane-feeds">Threat Feeds</button>
+          <button type="button" role="tab" id="itab-friendlies" data-tab="friendlies" aria-controls="ipane-friendlies">Friendlies</button>
+          <button type="button" role="tab" id="itab-cve" data-tab="cve" aria-controls="ipane-cve">CVE List</button>
+        </div>
       </div>
       <p class="notice" id="intel-msg" role="status" hidden></p>
       <section class="panel" id="ipane-feeds" role="tabpanel" aria-labelledby="tf-title">
@@ -2549,7 +2558,7 @@ function renderRow(ev) {
       textContent: when.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) }),
     el("td", {}, sev),
     el("td", { textContent: ev.source_name || "", title: ev.source_name || "" }),
-    ipCell(ev.src_ip, ev.src_country, (ev.enrichment || {}).src_endpoint), ipCell(ev.dst_ip, ev.dst_country, (ev.enrichment || {}).dst_endpoint),
+    ipCell(ev.src_ip, ev.src_country, (ev.enrichment || {}).src_endpoint, (ev.enrichment || {}).threat_intel), ipCell(ev.dst_ip, ev.dst_country, (ev.enrichment || {}).dst_endpoint, (ev.enrichment || {}).threat_intel),
     el("td", { textContent: ev.user_display || ev.user_name || "", title: ev.user_display ? ev.user_name : "" }),
     msg);
   row.setAttribute("aria-expanded", "false");
@@ -2567,8 +2576,8 @@ function renderRow(ev) {
   row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
   return row;
 }
-function ipCell(ip, cc, enr) {
-  const td = el("td", { className: "mono" }, ipLink(ip, enr));
+function ipCell(ip, cc, enr, intel) {
+  const td = el("td", { className: "mono" }, ipLink(ip, enr, intel));
   if (cc) td.append(el("span", { className: "cc", textContent: cc }));
   return td;
 }
@@ -2576,17 +2585,20 @@ function ipCell(ip, cc, enr) {
 const PRIVATE_IP = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/i;
 let ipTip;
 const countryName = (cc) => { try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || cc; } catch { return cc; } };
-function ipLink(ip, enr) {
+function ipLink(ip, enr, intel) {
   if (!ip) return "";
   const priv = PRIVATE_IP.test(ip);
   enr = enr || {};
   const a = el("a", { className: "ip-link", textContent: ip, target: "_blank", rel: "noopener noreferrer",
     href: "https://talosintelligence.com/reputation_center/lookup?search=" + encodeURIComponent(ip) });
   const as = enr.autonomous_system, loc = enr.location;
+  const listed = (intel || []).filter((m) => (m.matched || m.value) === ip);
   const place = loc ? [loc.city, countryName(loc.country)].filter(Boolean).join(", ") : "";
   const show = () => {
     if (!ipTip) { ipTip = el("div", { className: "tooltip ip-tip", hidden: true }); document.body.append(ipTip); }
     ipTip.replaceChildren(
+      listed.length ? el("span", { className: "ip-tip-threat", textContent: "On " + (listed.length === 1 ? "a threat list" : listed.length + " threat lists") }) : "",
+      ...listed.map((m) => el("span", { className: "ip-tip-list", textContent: m.source + (m.category ? ` · ${m.category}` : "") + (m.description ? ` · ${m.description}` : "") })),
       as && as.name ? el("b", { textContent: as.name }) : el("b", { className: "mono", textContent: ip }),
       place ? el("span", { textContent: place }) : "",
       as && as.number ? el("span", { className: "mono", textContent: "AS" + as.number }) : "",
@@ -2606,15 +2618,30 @@ function ipLink(ip, enr) {
   a.addEventListener("keydown", (e) => e.stopPropagation()); // Enter follows the link, it doesn't open the row
   return a;
 }
+// Every list that has an address (or file, or domain) found in an event: the list, what kind of threat it
+// tracks, what it says about this one, how far to trust it, and where to read about it.
+const CONFIDENCE = { high: "High confidence", medium: "Medium confidence", low: "Low confidence" };
+function threatBox(matches) {
+  const groups = new Map();
+  for (const m of matches) {
+    const k = m.matched || m.value;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(m);
+  }
+  return el("ul", { className: "matches", "aria-label": "Threat intel matches" }, ...[...groups].map(([value, ms]) => el("li", {},
+    el("b", { textContent: `${value} is on ${ms.length === 1 ? "a threat list" : ms.length + " threat lists"}` }),
+    ...ms.map((m) => el("div", { className: "match" },
+      el("span", { className: "match-list", textContent: m.source }),
+      m.category ? el("span", { className: "tag tag-plain", textContent: m.category }) : "",
+      m.confidence ? el("span", { className: "tag tag-plain", textContent: CONFIDENCE[m.confidence] || m.confidence }) : "",
+      el("span", { textContent: `Found in ${FIELD[m.field] || m.field}` + (m.matched ? `, inside ${m.value}` : "") + (m.description ? `. ${m.description}.` : ".") }),
+      m.reference ? el("a", { href: m.reference, target: "_blank", rel: "noopener noreferrer", textContent: "About this list" }) : "")))));
+}
 function details(ev) {
   const frag = document.createDocumentFragment();
   const enr = ev.enrichment || {};
   const matches = enr.threat_intel || [];
-  if (matches.length) {
-    frag.append(el("ul", { className: "matches", "aria-label": "Threat intel matches" }, ...matches.map((m) => el("li", {},
-      el("b", { textContent: (m.matched || m.value) + " is on a threat list" }),
-      el("span", { textContent: `Found in ${FIELD[m.field] || m.field}` + (m.matched ? `, inside ${m.value}` : "") + `. Listed by ${m.source}` + (m.description ? `: ${m.description}.` : ".") })))));
-  }
+  if (matches.length) frag.append(threatBox(matches));
   const dl = el("dl", { className: "facts-grid" });
   const add = (k, v, ...sub) => { if (v) dl.append(el("div", {}, el("dt", { textContent: k }), el("dd", {}, v, ...sub.filter(Boolean).map((s) => el("span", { textContent: s }))))); };
   add("Time", new Date(ev.timestamp).toLocaleString());
@@ -2627,7 +2654,7 @@ function details(ev) {
     const e = enr[side] || {};
     const loc = e.location ? [e.location.city, e.location.country].filter(Boolean).join(", ") : "";
     const as = e.autonomous_system ? `AS${e.autonomous_system.number}${e.autonomous_system.name ? " " + e.autonomous_system.name : ""}` : "";
-    add(label, ip ? el("span", { className: "mono ip" }, ipLink(ip, e)) : "", loc, as);
+    add(label, ip ? el("span", { className: "mono ip" }, ipLink(ip, e, enr.threat_intel)) : "", loc, as);
   }
   for (const [k, v] of Object.entries(ev.fields || {})) add(k === "parse_error" ? "Parser" : k, v);
   frag.append(dl);
@@ -3977,6 +4004,7 @@ async function loadFeeds() {
     return el("div", { className: "tf-item" }, box,
       el("label", { className: "tf-name", htmlFor: box.id, textContent: f.name + (f.custom ? " (set on the command line)" : "") }),
       f.description ? el("p", { className: "hint", textContent: f.description }) : "",
+      f.category ? el("p", { className: "hint" }, el("span", { className: "tag tag-plain", textContent: f.category }), " ", el("span", { className: "tag tag-plain", textContent: (CONFIDENCE[f.confidence] || f.confidence || "") })) : "",
       f.terms ? el("p", { className: "hint" }, "Terms: ", el("a", { href: f.terms, target: "_blank", rel: "noopener noreferrer", textContent: f.license || f.terms })) : "",
       status);
   }));

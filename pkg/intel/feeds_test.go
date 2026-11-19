@@ -150,6 +150,9 @@ func TestTorExitFeedIsLabelled(t *testing.T) {
 	if len(d.ThreatIntel) != 1 || d.ThreatIntel[0].Description != "Tor exit node" || d.ThreatIntel[0].Source != "Tor exit nodes" {
 		t.Errorf("match = %+v", d.ThreatIntel)
 	}
+	if m := d.ThreatIntel[0]; m.Category != "Anonymizer (Tor exit node)" || m.Confidence != "high" || m.Reference != tor.Terms {
+		t.Errorf("the list's details are missing from the match: %+v", m)
+	}
 }
 
 type slowNet struct{ release chan struct{} }

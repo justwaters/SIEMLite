@@ -149,11 +149,32 @@ func ParseFeed(r io.Reader, typ, source, description string) (inds []storage.Ind
 		}
 		if key := t + "\x00" + norm; !seen[key] {
 			seen[key] = true
-			inds = append(inds, storage.Indicator{Type: t, Value: norm, Source: source, Description: description})
+			inds = append(inds, storage.Indicator{Type: t, Value: norm, Source: source, Description: lineNote(line, v, description)})
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return nil, skipped, fmt.Errorf("read feed: %w", err)
 	}
 	return inds, skipped, nil
+}
+
+// lineNote is what a feed line says about its indicator besides the indicator itself: the
+// words after it ("1.2.3.4,Possible Cobaltstrike C2 IP", "1.2.0.0/16 ; SBL12345"). A bare number
+// (a count or score) says nothing worth keeping, so the feed's own description is used.
+func lineNote(line, indicator, fallback string) string {
+	rest := line
+	if i := strings.Index(rest, indicator); i >= 0 {
+		rest = rest[i+len(indicator):]
+	}
+	rest = strings.Trim(rest, " \t,;|\"")
+	if strings.HasPrefix(line, "0.0.0.0 ") || strings.HasPrefix(line, "127.0.0.1 ") {
+		rest = ""
+	}
+	if rest == "" || strings.Trim(rest, "0123456789.\t ") == "" {
+		return fallback
+	}
+	if r := []rune(rest); len(r) > 120 {
+		rest = string(r[:120]) + "…"
+	}
+	return rest
 }

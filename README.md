@@ -495,7 +495,10 @@ Only events stored after GeoIP is enabled are enriched.
 SIEMLite checks every event against a list of indicators: IP addresses, CIDR ranges, domains (which also match
 subdomains) and MD5/SHA-1/SHA-256 hashes. It looks at the source and destination IPs and at IPv4 addresses, domain
 names and hashes anywhere in the raw log. A hit marks the event as a threat (red bar and **INTEL** badge in the UI,
-`threat=true` in search) and records which indicator, source and field matched.
+`threat=true` in search) and records which indicator, source and field matched, plus what each list says about it:
+the list's name, the kind of threat it tracks (botnet C2, Tor exit node, brute-force attacker…), how far to trust it
+(high, medium or low), a link to read about it, and the feed's own note for that line (for example "Possible
+Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an underlined IP in the Database to see its lists.
 
 The easy way: the **Intel** page (admins). Its **Threat feeds** section lists free IP blocklists that need no account
 (Feodo Tracker, C2IntelFeeds, IPsum, two from Blocklist.de, and the Tor exit nodes). Tick the ones you want and save: they download right

@@ -107,8 +107,18 @@ func newSet(inds []storage.Indicator, friendly []string) *set {
 // Matcher checks events against the loaded indicators. Load swaps in a new
 // set atomically, so matching never blocks on a reload.
 type Matcher struct {
-	cur atomic.Pointer[set]
+	cur  atomic.Pointer[set]
+	meta atomic.Pointer[map[string]Meta]
 }
+
+// Meta describes a list as a whole: what its matches say about the kind of threat, how far to
+// trust it, and where to read about it. It is added to every match from that list.
+type Meta struct {
+	Category, Confidence, Reference string
+}
+
+// SetMeta replaces what is known about each list, by the list's name.
+func (m *Matcher) SetMeta(meta map[string]Meta) { m.meta.Store(&meta) }
 
 // NewMatcher returns a matcher with no indicators.
 func NewMatcher() *Matcher {
@@ -132,6 +142,10 @@ func (m *Matcher) Enrich(ev *ocsf.Event, d *enrich.Data) {
 	if s.size == 0 {
 		return
 	}
+	var meta map[string]Meta
+	if p := m.meta.Load(); p != nil {
+		meta = *p
+	}
 	seen := map[string]bool{}
 	add := func(field, matched string, es []entry) {
 		for _, e := range es {
@@ -141,6 +155,9 @@ func (m *Matcher) Enrich(ev *ocsf.Event, d *enrich.Data) {
 			}
 			seen[key] = true
 			mt := enrich.IntelMatch{Type: e.typ, Value: e.value, Field: field, Source: e.source, Description: e.description}
+			if mm, ok := meta[e.source]; ok {
+				mt.Category, mt.Confidence, mt.Reference = mm.Category, mm.Confidence, mm.Reference
+			}
 			if matched != e.value {
 				mt.Matched = matched
 			}

@@ -49,8 +49,13 @@ garbage line!
 	var got []string
 	for _, in := range inds {
 		got = append(got, in.Type+":"+in.Value)
-		if in.Source != "test" || in.Description != "desc" {
-			t.Errorf("indicator %+v lost source/description", in)
+		// A line's own note ("; SBL12345") is kept; the others take the feed's description.
+		want := "desc"
+		if in.Value == "198.51.100.0/24" {
+			want = "SBL12345"
+		}
+		if in.Source != "test" || in.Description != want {
+			t.Errorf("indicator %+v lost source/description (want %q)", in, want)
 		}
 	}
 	want := "ip:203.0.113.7 cidr:198.51.100.0/24 domain:ads.example domain:malware.example"
@@ -103,5 +108,31 @@ func TestMatcher(t *testing.T) {
 	}
 	if got := match(&ocsf.Event{RawData: "all quiet 10.1.2.3"}); len(got) != 0 {
 		t.Errorf("unexpected matches = %+v", got)
+	}
+}
+
+// A line's note, and a list's category, confidence and reference, are in each match.
+func TestMatchesCarryTheListsDetails(t *testing.T) {
+	inds, _, err := ParseFeed(strings.NewReader("ip,desc\n1.117.74.144,Possible Cobaltstrike C2 IP\n203.0.113.9\t17\n"), "", "C2IntelFeeds (30 days)", "Command and control server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewMatcher()
+	m.Load(inds, nil)
+	m.SetMeta(map[string]Meta{"C2IntelFeeds (30 days)": {Category: "C2 server", Confidence: "medium", Reference: "https://example.test/c2"}})
+	check := func(ip string) enrich.IntelMatch {
+		var d enrich.Data
+		m.Enrich(&ocsf.Event{SrcEndpoint: &ocsf.Endpoint{IP: ip}}, &d)
+		if len(d.ThreatIntel) != 1 {
+			t.Fatalf("%s: %+v", ip, d.ThreatIntel)
+		}
+		return d.ThreatIntel[0]
+	}
+	got := check("1.117.74.144")
+	if got.Description != "Possible Cobaltstrike C2 IP" || got.Category != "C2 server" || got.Confidence != "medium" || got.Reference != "https://example.test/c2" || got.Source != "C2IntelFeeds (30 days)" {
+		t.Errorf("match = %+v", got)
+	}
+	if got := check("203.0.113.9"); got.Description != "Command and control server" {
+		t.Errorf("a bare count was kept as the note: %+v", got)
 	}
 }

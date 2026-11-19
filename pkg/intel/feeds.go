@@ -24,6 +24,8 @@ type FeedState struct {
 	Description string `json:"description,omitempty"`
 	Terms       string `json:"terms,omitempty"`
 	License     string `json:"license,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Confidence  string `json:"confidence,omitempty"`
 	Custom      bool   `json:"custom"` // set with -intel-feed, not from this card
 	Selected    bool   `json:"selected"`
 	Indicators  int    `json:"indicators"`
@@ -166,7 +168,7 @@ func (s *Service) Feeds(ctx context.Context) (FeedsView, error) {
 	defer s.statusMu.Unlock()
 	var v FeedsView
 	for _, p := range Presets {
-		fs := FeedState{ID: p.ID, Name: p.Name, Description: p.Description, Terms: p.Terms, License: p.License, Selected: chosen[p.ID], Error: s.errs[p.ID]}
+		fs := FeedState{ID: p.ID, Name: p.Name, Description: p.Description, Terms: p.Terms, License: p.License, Category: p.Category, Confidence: p.Confidence, Selected: chosen[p.ID], Error: s.errs[p.ID]}
 		if chosen[p.ID] {
 			fs.Indicators, fs.UpdatedAt = int(by[p.Name][0]), by[p.Name][1]
 		}

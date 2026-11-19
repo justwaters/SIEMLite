@@ -59,9 +59,12 @@ type IntelMatch struct {
 	Type        string `json:"type"`  // ip, cidr, domain or hash
 	Value       string `json:"value"` // the indicator as listed
 	Matched     string `json:"matched,omitempty"`
-	Field       string `json:"field"` // where it was found, e.g. src_endpoint.ip or raw_data
-	Source      string `json:"source"`
-	Description string `json:"description,omitempty"`
+	Field       string `json:"field"`                 // where it was found, e.g. src_endpoint.ip or raw_data
+	Source      string `json:"source"`                // the list that has it: "Feodo Tracker"
+	Description string `json:"description,omitempty"` // what the list says about it: "Possible Cobaltstrike C2 IP"
+	Category    string `json:"category,omitempty"`    // the kind of threat the list is about: "Botnet C2", "Tor exit node"
+	Confidence  string `json:"confidence,omitempty"`  // how much the list can be trusted: high, medium or low
+	Reference   string `json:"reference,omitempty"`   // where to read about the list
 }
 
 // Country returns the endpoint's country code or "".
