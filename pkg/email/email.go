@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -100,11 +101,35 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// Message is a plain-text email.
+// Message is a plain-text email, with files attached if there are any.
 type Message struct {
-	To      []string
-	Subject string
-	Body    string
+	To          []string
+	Subject     string
+	Body        string
+	Attachments []Attachment
+}
+
+// Attachment is a file sent with a message.
+type Attachment struct {
+	Name        string // shown to the reader; path separators, quotes and control characters are dropped
+	ContentType string // e.g. application/pdf
+	Data        []byte
+}
+
+// MaxAttachmentBytes is the most a message may carry; mail servers refuse much more than this.
+const MaxAttachmentBytes = 20 << 20
+
+func safeFileName(n string) string {
+	n = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 || r == '"' || r == '\\' || r == '/' || r == ';' {
+			return -1
+		}
+		return r
+	}, n)
+	if n = strings.TrimSpace(n); n == "" {
+		return "attachment"
+	}
+	return n
 }
 
 // build returns the message as it goes on the wire, and the bare envelope
@@ -143,19 +168,62 @@ func build(cfg Config, m Message, now time.Time) (msg []byte, rcpts []string, er
 	h("Date", now.Format(time.RFC1123Z))
 	h("Message-ID", "<"+hex.EncodeToString(id)+"@"+domain+">")
 	h("MIME-Version", "1.0")
-	h("Content-Type", `text/plain; charset="utf-8"`)
-	h("Content-Transfer-Encoding", "quoted-printable")
 	h("X-Mailer", "SIEMLite")
-	b.WriteString("\r\n")
-	qp := quotedprintable.NewWriter(&b)
 	// Quoted-printable wants CRLF line ends.
 	body := strings.ReplaceAll(strings.ReplaceAll(m.Body, "\r\n", "\n"), "\n", "\r\n")
-	if _, err := qp.Write([]byte(body)); err != nil {
+	text := func(w *strings.Builder) error {
+		qp := quotedprintable.NewWriter(w)
+		if _, err := qp.Write([]byte(body)); err != nil {
+			return err
+		}
+		return qp.Close()
+	}
+	if len(m.Attachments) == 0 {
+		h("Content-Type", `text/plain; charset="utf-8"`)
+		h("Content-Transfer-Encoding", "quoted-printable")
+		b.WriteString("\r\n")
+		if err := text(&b); err != nil {
+			return nil, nil, err
+		}
+		return []byte(b.String()), rcpts, nil
+	}
+	total := 0
+	for _, a := range m.Attachments {
+		total += len(a.Data)
+	}
+	if total > MaxAttachmentBytes {
+		return nil, nil, InputError(fmt.Sprintf("The attachment is %d MB; mail servers won't take more than %d MB.", total>>20, MaxAttachmentBytes>>20))
+	}
+	bnd := make([]byte, 16)
+	if _, err := rand.Read(bnd); err != nil {
 		return nil, nil, err
 	}
-	if err := qp.Close(); err != nil {
+	boundary := "siemlite-" + hex.EncodeToString(bnd)
+	h("Content-Type", `multipart/mixed; boundary="`+boundary+`"`)
+	b.WriteString("\r\n")
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
+	if err := text(&b); err != nil {
 		return nil, nil, err
 	}
+	for _, a := range m.Attachments {
+		name := mime.QEncoding.Encode("utf-8", safeFileName(a.Name))
+		ct := strings.NewReplacer("\r", "", "\n", "").Replace(strings.TrimSpace(a.ContentType))
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		b.WriteString("\r\n--" + boundary + "\r\n")
+		b.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", ct, name))
+		b.WriteString("Content-Transfer-Encoding: base64\r\n")
+		b.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", name))
+		enc := base64.StdEncoding.EncodeToString(a.Data)
+		for len(enc) > 76 {
+			b.WriteString(enc[:76] + "\r\n")
+			enc = enc[76:]
+		}
+		b.WriteString(enc + "\r\n")
+	}
+	b.WriteString("--" + boundary + "--\r\n")
 	return []byte(b.String()), rcpts, nil
 }
 

@@ -902,3 +902,49 @@ func (r *Repository) RaiseManualAlert(ctx context.Context, a Alert, nowMs int64)
 	}
 	return &out, created, tx.Commit()
 }
+
+// AlertsInRange returns the alerts opened between fromMs and toMs: the most serious (then the
+// largest) first, at most limit of them, and how many there were in all, by severity and by status.
+func (r *Repository) AlertsInRange(ctx context.Context, fromMs, toMs int64, limit int) (list []Alert, total int64, bySeverity map[int]int64, byStatus map[string]int64, err error) {
+	rows, err := r.db.Read.QueryContext(ctx, `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen,
+		last_seen, created_at, updated_at, updated_by, note FROM alerts WHERE created_at >= ? AND created_at < ?
+		ORDER BY severity DESC, count DESC, id DESC LIMIT ?`, fromMs, toMs, limit)
+	if err != nil {
+		return nil, 0, nil, nil, fmt.Errorf("alerts in range: %w", err)
+	}
+	defer rows.Close()
+	list = []Alert{}
+	for rows.Next() {
+		var a Alert
+		var rid sql.NullInt64
+		if err := rows.Scan(&a.ID, &rid, &a.RuleName, &a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count,
+			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note); err != nil {
+			return nil, 0, nil, nil, err
+		}
+		if rid.Valid {
+			a.RuleID = &rid.Int64
+		}
+		list = append(list, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, nil, nil, err
+	}
+	bySeverity, byStatus = map[int]int64{}, map[string]int64{}
+	crow, err := r.db.Read.QueryContext(ctx, `SELECT severity, status, COUNT(*) FROM alerts WHERE created_at >= ? AND created_at < ? GROUP BY severity, status`, fromMs, toMs)
+	if err != nil {
+		return nil, 0, nil, nil, err
+	}
+	defer crow.Close()
+	for crow.Next() {
+		var sev int
+		var st string
+		var n int64
+		if err := crow.Scan(&sev, &st, &n); err != nil {
+			return nil, 0, nil, nil, err
+		}
+		bySeverity[sev] += n
+		byStatus[st] += n
+		total += n
+	}
+	return list, total, bySeverity, byStatus, crow.Err()
+}

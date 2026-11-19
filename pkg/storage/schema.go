@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 22
+const schemaVersion = 23
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -358,6 +358,38 @@ var upgrades = map[int][]string{
 			created_at INTEGER NOT NULL,
 			PRIMARY KEY (list_id, value)
 		) WITHOUT ROWID`,
+	},
+	// v23: scheduled security reports, and the reports made (the PDF is kept so it can be downloaded again).
+	22: {
+		`CREATE TABLE IF NOT EXISTS report_schedules (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT NOT NULL,
+			frequency    TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly')),
+			weekday      INTEGER NOT NULL DEFAULT 1,
+			day_of_month INTEGER NOT NULL DEFAULT 1,
+			hour         INTEGER NOT NULL DEFAULT 8,
+			covers_days  INTEGER NOT NULL DEFAULT 7,
+			recipients   TEXT NOT NULL DEFAULT '',
+			enabled      INTEGER NOT NULL DEFAULT 1,
+			next_run     INTEGER NOT NULL,
+			last_run     INTEGER,
+			last_status  TEXT NOT NULL DEFAULT '',
+			created_at   INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS report_runs (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			schedule_id  INTEGER,
+			name         TEXT NOT NULL,
+			trigger      TEXT NOT NULL,
+			created_at   INTEGER NOT NULL,
+			period_start INTEGER NOT NULL,
+			period_end   INTEGER NOT NULL,
+			size         INTEGER NOT NULL,
+			emailed      TEXT NOT NULL DEFAULT '',
+			note         TEXT NOT NULL DEFAULT '',
+			pdf          BLOB NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_report_runs_created ON report_runs(created_at DESC)`,
 	},
 	// v22: closing an alert remembers the arrival number it was closed at, so the
 	// events it already counted can't open the same alert again.

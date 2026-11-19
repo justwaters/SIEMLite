@@ -34,6 +34,7 @@ import (
 	"siemlite/pkg/mcp"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
+	"siemlite/pkg/report"
 	"siemlite/pkg/retention"
 	"siemlite/pkg/search"
 	"siemlite/pkg/secaudit"
@@ -68,6 +69,7 @@ type Deps struct {
 	Slack, Teams *chatnotify.Service
 	Notify       func(ctx context.Context, a chatnotify.Alert)
 	Agents       *agents.Service // AI agent access over MCP (optional)
+	Reports      *report.Service // the Reports page (optional)
 	// Backups, Started and Restart serve the System page (optional).
 	Backups *backup.Manager
 	Started time.Time
@@ -243,6 +245,16 @@ func (s *Server) Handler() http.Handler {
 	admin("GET /api/v1/integrations/teams", s.chatGet(teams))
 	admin("PUT /api/v1/integrations/teams", s.chatSave(teams))
 	admin("POST /api/v1/integrations/teams/test", s.chatTest(teams))
+	admin("GET /api/v1/reports/summary", s.handleReportSummary)
+	admin("POST /api/v1/reports/runs", s.handleMakeReport)
+	admin("GET /api/v1/reports/runs", s.handleListReportRuns)
+	admin("GET /api/v1/reports/runs/{id}/pdf", s.handleDownloadReport)
+	admin("DELETE /api/v1/reports/runs/{id}", s.handleDeleteReport)
+	admin("GET /api/v1/reports/schedules", s.handleListSchedules)
+	admin("POST /api/v1/reports/schedules", s.handleSaveSchedule(true))
+	admin("PUT /api/v1/reports/schedules/{id}", s.handleSaveSchedule(false))
+	admin("DELETE /api/v1/reports/schedules/{id}", s.handleDeleteSchedule)
+	admin("POST /api/v1/reports/schedules/{id}/run", s.handleRunSchedule)
 	admin("GET /api/v1/activity", s.handleActivity)
 	admin("GET /api/v1/intel/feeds", s.handleGetThreatFeeds)
 	admin("PUT /api/v1/intel/feeds", s.handleSaveThreatFeeds)

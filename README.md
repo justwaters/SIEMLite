@@ -194,6 +194,7 @@ usually within seconds, then who issued it and until when. Or set it from the st
 - **Users** (admins): add people, set their role, limit what they can see, change passwords, and keep the built-in admin account to the server itself.
 - **Sources** (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
 - **Parsers** (admins): build, upload, export and edit parsers.
+- **Reports** (admins): a summary of a period (events, threats, alerts) that you preview on the page, download as a PDF, or schedule to be emailed. See [Reports](#reports).
 - **Integrations** (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, Slack, Microsoft Teams, sign-in with Microsoft Entra ID, AI Parsers, AI Alerts and AI agents (MCP).
 - **System** (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 - **Security audit** (admins): checks SIEMLite's setup and the server it runs on, and tracks each finding until it is fixed. See [Security audit](#security-audit).
@@ -826,6 +827,28 @@ Enter them on the card, choose **Test connection** (it shows the group names and
 - Sign-ins, refusals, and changes to these settings are in the [audit log](#audit-log) (`signin.sso`, `signin.sso.failed`,
   `system.entra.save`, `system.entra.test`, `system.entra.sync`).
 - This is for the Microsoft public cloud. Government and other sovereign clouds use different addresses and aren't supported yet.
+
+## Reports
+
+The **Reports** page (admins) makes a security summary of a period: the number of events, high-severity events, threat intel
+matches and alerts opened; events over time; events by severity; the busiest sources, countries and threat-listed
+addresses; the alerts opened (the most serious 40, with the rest counted); and the threat feeds in use.
+
+- **Make a report**: choose the last 24 hours, 7 days or 30 days, or a date range (up to 366 days). **Preview** shows it on
+  the page; **Download PDF** makes the PDF, downloads it and keeps a copy under **Past reports** (the newest 100 are kept,
+  and are included in backups).
+- **Scheduled reports**: daily, weekly (a day of the week) or monthly (a day from 1 to 28) at an hour, covering the last
+  24 hours, 7 days or 30 days, emailed to up to 10 addresses with the PDF attached. It uses the [Email](#email)
+  integration; without it the report is still made and kept, and the schedule says it wasn't sent. **Run now** makes one at
+  once without moving the next run. Times are the server's; a schedule that came due while SIEMLite was off runs once when
+  it starts. Making and scheduling reports is recorded in the [audit log](#audit-log).
+
+The PDF is drawn by SIEMLite itself (no extra software): A4, standard fonts, no external requests.
+
+API (admin): `GET /api/v1/reports/summary?days=7` (or `from=` and `to=` in milliseconds), `POST /api/v1/reports/runs`
+(`{"days": 7}` or `{"from", "to"}`) makes and keeps a PDF, `GET /api/v1/reports/runs`, `GET`/`DELETE
+/api/v1/reports/runs/{id}` (`/pdf` to download), `GET`/`POST /api/v1/reports/schedules`, `PUT`/`DELETE
+/api/v1/reports/schedules/{id}`, and `POST .../schedules/{id}/run`.
 
 ## Slack and Microsoft Teams
 

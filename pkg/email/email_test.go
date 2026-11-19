@@ -2,6 +2,7 @@ package email
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -11,8 +12,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"errors"
+	"io"
 	"math/big"
+	"mime"
+	"mime/multipart"
 	"net"
+	netmail "net/mail"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -529,5 +534,61 @@ func TestEnabledSwitchKeepsTheSettings(t *testing.T) {
 	st.m[settingKey] = `{"host":"` + host + `","port":` + strconv.Itoa(port) + `,"security":"none","from_address":"siem@example.com"}`
 	if v, _ := svc.Get(ctx); !v.Enabled {
 		t.Error("an older saved configuration should be on")
+	}
+}
+
+// A message can carry a file; the file name can't add headers, and the file comes back intact.
+func TestAttachments(t *testing.T) {
+	cfg := Config{Host: "smtp.example", Port: 587, FromAddress: "siem@example.com", Security: SecuritySTARTTLS}
+	data := make([]byte, 5000)
+	for i := range data {
+		data[i] = byte(i * 7)
+	}
+	raw, _, err := build(cfg, Message{To: []string{"a@example.com"}, Subject: "Report", Body: "See attached.\n",
+		Attachments: []Attachment{{Name: "week\r\nBcc: evil@example.com \"x\"/..\\report.pdf", ContentType: "application/pdf", Data: data}}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := netmail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Header.Get("Bcc") != "" {
+		t.Error("a file name added a header")
+	}
+	mt, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if err != nil || mt != "multipart/mixed" {
+		t.Fatalf("content type %q: %v", mt, err)
+	}
+	mr := multipart.NewReader(msg.Body, params["boundary"])
+	var gotText string
+	var gotFile []byte
+	var fileName string
+	for {
+		p, err := mr.NextPart()
+		if err != nil {
+			break
+		}
+		b, _ := io.ReadAll(p)
+		if strings.HasPrefix(p.Header.Get("Content-Type"), "text/plain") {
+			gotText = string(b)
+			continue
+		}
+		fileName = p.FileName()
+		if dec, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(string(b), "\r\n", "")); err == nil {
+			gotFile = dec
+		}
+	}
+	if !strings.Contains(gotText, "See attached") {
+		t.Errorf("text part = %q", gotText)
+	}
+	if !bytes.Equal(gotFile, data) {
+		t.Errorf("the attachment came back different (%d bytes)", len(gotFile))
+	}
+	if strings.ContainsAny(fileName, "\r\n/\\\"") {
+		t.Errorf("file name = %q", fileName)
+	}
+	if _, _, err := build(cfg, Message{To: []string{"a@example.com"}, Attachments: []Attachment{{Name: "big", Data: make([]byte, MaxAttachmentBytes+1)}}}, time.Now()); err == nil {
+		t.Error("an oversized attachment was accepted")
 	}
 }

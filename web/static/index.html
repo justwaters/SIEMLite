@@ -539,6 +539,23 @@
   .soon-art { width: 96px; height: 96px; color: var(--ink-2); margin-bottom: 10px; }
   .soon h2 { margin: 0; }
   .soon .hint { max-width: 46ch; margin: 0; }
+  .rep-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin: 12px 0; }
+  .rep-preview { margin-top: 16px; display: grid; gap: 18px; }
+  .rep-figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .rep-figs .figure { border: 1px solid var(--rule); border-radius: 10px; }
+  .rep-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+  .rep-preview h3 { font-size: 14px; margin: 0 0 8px; }
+  .rep-bars { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--rule); }
+  .rep-bars i { flex: 1; min-width: 2px; background: var(--chart-other, var(--ink-2)); border-radius: 2px 2px 0 0; position: relative; }
+  .rep-bars i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--sev-5); border-radius: 2px 2px 0 0; }
+  .rep-axis { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 12px; margin-top: 4px; }
+  .rep-rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13.5px; }
+  .rep-rank li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
+  .rep-rank .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--chart-other, var(--ink-2)); min-width: 2px; }
+  .rep-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 16px; margin: 12px 0 18px; padding: 14px; border: 1px solid var(--rule); border-radius: 10px; }
+  .rep-form .rs-wide { grid-column: 1 / -1; }
+  .rep-form .check { display: flex; gap: 8px; align-items: center; }
+  @media (max-width: 720px) { .rep-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .fr-new { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(200px, 2fr) auto; gap: 12px; align-items: end; margin: 14px 0 4px; }
   .fr-lists { display: grid; gap: 14px; margin-top: 14px; }
   .fr-list { border: 1px solid var(--rule); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
@@ -707,6 +724,7 @@
   <symbol id="i-parsers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-4.5 5L8 17m8-10 4.5 5L16 17M13.5 5l-3 14"/></symbol>
   <symbol id="i-alerts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
   <symbol id="i-intel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3"/></symbol>
+  <symbol id="i-report" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4M10 12h5M10 15.5h5M10 18.5h3"/></symbol>
   <symbol id="i-integrations" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5v4m6-4v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l7 2.5v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
   <symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
@@ -757,6 +775,7 @@
       <a class="nav-item admin-only" href="#/parsers" data-nav="parsers"><svg class="icon"><use href="#i-parsers"/></svg>Parsers</a>
       <div class="admin-only nav-sep" role="separator"></div>
       <a class="nav-item admin-only" href="#/users" data-nav="users"><svg class="icon"><use href="#i-users"/></svg>Users</a>
+      <a class="nav-item admin-only" href="#/reports" data-nav="reports"><svg class="icon"><use href="#i-report"/></svg>Reports</a>
       <a class="nav-item admin-only" href="#/integrations" data-nav="integrations"><svg class="icon"><use href="#i-integrations"/></svg>Integrations</a>
       <a class="nav-item admin-only" href="#/system" data-nav="system"><svg class="icon"><use href="#i-system"/></svg>System</a>
       <a class="nav-item admin-only" href="#/security" data-nav="security"><svg class="icon"><use href="#i-shield"/></svg>Security audit</a>
@@ -1099,6 +1118,71 @@
           <div class="preview" id="pe-preview"></div>
         </div>
       </div>
+    </section>
+
+    <!-- Reports -->
+    <section id="view-reports" class="page" aria-labelledby="reports-title" hidden>
+      <div class="page-head">
+        <div><h1 id="reports-title">Reports</h1><p>A summary of what SIEMLite saw over a period: events, threats and alerts. Make a PDF now, or schedule reports to be emailed.</p></div>
+      </div>
+      <p class="notice" id="rep-msg" role="status" hidden></p>
+      <section class="panel" aria-labelledby="rep-make-title">
+        <h2 id="rep-make-title">Make a report</h2>
+        <div class="rep-controls">
+          <label class="field-label">Period
+            <select class="select" id="rep-period">
+              <option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="custom">Choose dates…</option>
+            </select>
+          </label>
+          <label class="field-label" id="rep-from-wrap" hidden>From <input class="input" type="date" id="rep-from"></label>
+          <label class="field-label" id="rep-to-wrap" hidden>To (included) <input class="input" type="date" id="rep-to"></label>
+          <div class="row-actions">
+            <button class="btn" type="button" id="rep-preview-btn">Preview</button>
+            <button class="btn btn-primary" type="button" id="rep-pdf-btn">Download PDF</button>
+          </div>
+        </div>
+        <div id="rep-preview" class="rep-preview" hidden></div>
+      </section>
+      <section class="panel" aria-labelledby="rep-sched-title">
+        <div class="panel-head"><h2 id="rep-sched-title">Scheduled reports</h2><button class="btn" type="button" id="rep-new">New schedule</button></div>
+        <p class="hint" id="rep-email-hint"></p>
+        <form class="rep-form" id="rep-form" hidden>
+          <input type="hidden" id="rs-id">
+          <label class="field-label">Name <input class="input" id="rs-name" maxlength="80" required placeholder="Weekly summary"></label>
+          <label class="field-label">How often
+            <select class="select" id="rs-freq"><option value="daily">Every day</option><option value="weekly" selected>Every week</option><option value="monthly">Every month</option></select>
+          </label>
+          <label class="field-label" id="rs-wd-wrap">On
+            <select class="select" id="rs-weekday"></select>
+          </label>
+          <label class="field-label" id="rs-dom-wrap" hidden>On day
+            <select class="select" id="rs-dom"></select>
+          </label>
+          <label class="field-label">At
+            <select class="select" id="rs-hour"></select>
+          </label>
+          <label class="field-label">Covering the last
+            <select class="select" id="rs-covers"></select>
+          </label>
+          <label class="field-label rs-wide">Email it to (separate addresses with commas)
+            <input class="input" id="rs-rcpts" placeholder="soc@example.com, boss@example.com" autocomplete="off">
+          </label>
+          <label class="check rs-wide"><input type="checkbox" id="rs-enabled" checked> Turned on</label>
+          <div class="row-actions rs-wide">
+            <button class="btn btn-primary" type="submit">Save</button>
+            <button class="btn" type="button" id="rs-cancel">Cancel</button>
+          </div>
+        </form>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Name</th><th>When</th><th>Sends to</th><th>Last run</th><th>Next run</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="rep-sched-body"></tbody></table></div>
+        <p class="hint">Times are the server&rsquo;s. A schedule that comes due while SIEMLite is off runs once when it starts again.</p>
+      </section>
+      <section class="panel" aria-labelledby="rep-past-title">
+        <h2 id="rep-past-title">Past reports</h2>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Made</th><th>Covers</th><th>By</th><th>Emailed to</th><th>Size</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody id="rep-past-body"></tbody></table></div>
+        <p class="hint">The newest 100 are kept.</p>
+      </section>
     </section>
 
     <!-- Integrations -->
@@ -2189,7 +2273,7 @@ async function withBusy(form, fn) {
   finally { delete form.dataset.busy; for (const b of btns) b.disabled = false; }
 }
 let routeSeq = 0;
-const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "intel", "parsers", "parser", "integrations", "system", "security", "account"];
+const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "intel", "parsers", "parser", "reports", "integrations", "system", "security", "account"];
 function route() {
   ++routeSeq;
   // Page-scoped timers stop when the page changes (the health and alert-count timers in start() keep going).
@@ -2198,7 +2282,7 @@ function route() {
   let [view, arg] = path.split("/");
   if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
   if (view === "parsers" && arg) view = "parser";
-  if (!isAdmin && ["users", "sources", "intel", "parsers", "parser", "integrations", "system", "security"].includes(view)) view = "dashboard";
+  if (!isAdmin && ["users", "sources", "intel", "parsers", "parser", "reports", "integrations", "system", "security"].includes(view)) view = "dashboard";
   if (view === "alerts" && me.limited) view = "dashboard";
   for (const v of VIEWS) $("view-" + v).hidden = v !== view;
   const navKey = view === "parser" ? "parsers" : view;
@@ -2208,8 +2292,8 @@ function route() {
   setMenu(false);
   const params = new URLSearchParams(query || "");
   ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources, intel: () => openIntel(arg),
-     parsers: openParsers, parser: () => openParserEditor(arg), integrations: openIntegrations, system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
-  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", intel: "Intel", parsers: "Parsers", parser: "Parser", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
+     parsers: openParsers, parser: () => openParserEditor(arg), reports: openReports, integrations: openIntegrations, system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
+  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", intel: "Intel", parsers: "Parsers", parser: "Parser", reports: "Reports", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
 function setMenu(open) {
@@ -4029,6 +4113,176 @@ for (const sw of document.querySelectorAll(".integ-switch input")) {
     sw.disabled = false;
     await refreshIntegrationCards();
   };
+}
+
+// --- Reports ---
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const hourText = (h) => (h % 12 === 0 ? 12 : h % 12) + ":00 " + (h < 12 ? "AM" : "PM");
+const COVER_TEXT = { 1: "24 hours", 7: "7 days", 30: "30 days" };
+let repEmailReady = false, repSchedules = [];
+function repWhen(sc) {
+  const at = hourText(sc.hour);
+  return sc.frequency === "daily" ? `Every day at ${at}` : sc.frequency === "weekly" ? `${WEEKDAYS[sc.weekday]}s at ${at}` : `Day ${sc.day_of_month} of each month at ${at}`;
+}
+async function openReports() {
+  notice($("rep-msg"), "");
+  fillScheduleOptions();
+  await Promise.all([loadSchedules(), loadPast()]);
+}
+function fillScheduleOptions() {
+  if ($("rs-weekday").options.length) return;
+  $("rs-weekday").replaceChildren(...WEEKDAYS.map((d, i) => el("option", { value: String(i), textContent: d, selected: i === 1 })));
+  $("rs-dom").replaceChildren(...Array.from({ length: 28 }, (_, i) => el("option", { value: String(i + 1), textContent: String(i + 1) })));
+  $("rs-hour").replaceChildren(...Array.from({ length: 24 }, (_, h) => el("option", { value: String(h), textContent: hourText(h), selected: h === 8 })));
+  $("rs-covers").replaceChildren(...[1, 7, 30].map((d) => el("option", { value: String(d), textContent: COVER_TEXT[d], selected: d === 7 })));
+}
+function repPeriod() {
+  const v = $("rep-period").value;
+  if (v !== "custom") return { days: Number(v) };
+  const f = $("rep-from").value, t = $("rep-to").value;
+  if (!f || !t) throw new Error("Choose both dates.");
+  const from = new Date(f + "T00:00:00").getTime(), to = new Date(t + "T00:00:00").getTime() + 86400000;
+  if (!(to > from)) throw new Error("The end date can't be before the start date.");
+  return { from, to };
+}
+$("rep-period").onchange = () => { const c = $("rep-period").value === "custom"; $("rep-from-wrap").hidden = $("rep-to-wrap").hidden = !c; };
+function repQuery(p) { return p.days ? "days=" + p.days : `from=${p.from}&to=${p.to}`; }
+$("rep-preview-btn").onclick = async () => {
+  notice($("rep-msg"), "");
+  const btn = $("rep-preview-btn"); btn.disabled = true;
+  try { renderSummary(await apiJSON("/api/v1/reports/summary?" + repQuery(repPeriod()))); }
+  catch (err) { notice($("rep-msg"), err.message); }
+  btn.disabled = false;
+};
+$("rep-pdf-btn").onclick = async () => {
+  notice($("rep-msg"), "");
+  const btn = $("rep-pdf-btn"); btn.disabled = true;
+  btn.replaceChildren(el("span", { className: "spinner" }), " Making the PDF…");
+  try {
+    const run = await apiJSON("/api/v1/reports/runs", { method: "POST", json: repPeriod() });
+    notice($("rep-msg"), "The PDF is ready; your browser is downloading it.", true);
+    downloadRun(run.id);
+    await loadPast();
+  } catch (err) { notice($("rep-msg"), err.message); }
+  btn.disabled = false; btn.textContent = "Download PDF";
+};
+function downloadRun(id) { const a = el("a", { href: `/api/v1/reports/runs/${id}/pdf` }); document.body.append(a); a.click(); a.remove(); }
+const spanText = (a, b) => new Date(a).toLocaleDateString([], { month: "short", day: "numeric" }) + " to " + new Date(b - 1).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+function rankList(items, label) {
+  if (!items || !items.length) return el("p", { className: "hint", textContent: "None in this period." });
+  return el("ul", { className: "rep-rank" }, ...items.slice(0, 8).map((i) => el("li", {},
+    el("span", { textContent: label(i) }), el("span", { className: "muted", textContent: i.count.toLocaleString() }),
+    el("div", { className: "bar" }))));
+}
+function renderSummary(d) {
+  const high = (d.by_severity[4] || 0) + (d.by_severity[5] || 0) + (d.by_severity[6] || 0);
+  const fig = (label, v) => el("div", { className: "figure" }, el("div", { className: "label", textContent: label }), el("div", { className: "value", textContent: v.toLocaleString() }));
+  const max = Math.max(1, ...d.buckets.map((b) => b.count));
+  const bars = el("div", { className: "rep-bars", role: "img", "aria-label": "Events over time" }, ...d.buckets.map((b) => {
+    const i = el("i", { title: `${new Date(b.start).toLocaleString()}: ${b.count.toLocaleString()} events` });
+    i.style.height = Math.max(1, Math.round(b.count * 100 / max)) + "%";
+    if (b.threats) { const t = el("b"); t.style.height = Math.round(b.threats * 100 / Math.max(1, b.count)) + "%"; i.append(t); }
+    return i;
+  }));
+  const sevRows = [6, 5, 4, 3, 2, 1].filter((n) => d.by_severity[n]).map((n) => ({ name: SEV[n], count: d.by_severity[n] }));
+  const ranks = (title, items, label) => el("div", {}, el("h3", { textContent: title }), rankList(items, label));
+  const alerts = d.alerts;
+  const alertTable = alerts.list.length ? el("div", { className: "table-wrap" }, el("table", { className: "data" },
+    el("thead", {}, el("tr", {}, ...["Severity", "Rule", "For", "Events", "Status", "Opened"].map((h) => el("th", { textContent: h })))),
+    el("tbody", {}, ...alerts.list.map((a) => el("tr", {},
+      el("td", { textContent: SEV[a.severity] || a.severity }), el("td", { textContent: a.rule_name }),
+      el("td", { className: "mono", textContent: a.group_value || "" }), el("td", { textContent: a.count.toLocaleString() }),
+      el("td", { textContent: a.status }), el("td", { textContent: new Date(a.created_at).toLocaleString() })))))) : el("p", { className: "hint", textContent: "No alerts opened in this period." });
+  $("rep-preview").replaceChildren(
+    el("p", { className: "hint", textContent: `${spanText(d.start, d.end)}. This is a preview; Download PDF makes the full report.` }),
+    el("div", { className: "rep-figs" }, fig("Events", d.total), fig("High or worse", high), fig("Threat intel matches", d.threats), fig("Alerts opened", alerts.opened)),
+    el("div", {}, el("h3", { textContent: "Events over time" }), bars,
+      el("div", { className: "rep-axis" }, el("span", { textContent: new Date(d.start).toLocaleDateString([], { month: "short", day: "numeric" }) }), el("span", { textContent: new Date(d.end - 1).toLocaleDateString([], { month: "short", day: "numeric" }) }))),
+    el("div", { className: "rep-cols" },
+      ranks("By severity", sevRows, (i) => i.name), ranks("Top sources", d.top_sources, (i) => i.name),
+      ranks("Top countries", d.top_countries, (i) => i.name), ranks("Threat-listed addresses", (d.top_threat_ips || []).map((t) => ({ name: t.ip + (t.country ? " " + t.country : ""), count: t.count })), (i) => i.name)),
+    el("div", {}, el("h3", { textContent: `Alerts opened (${alerts.opened.toLocaleString()})` }), alertTable,
+      alerts.more ? el("p", { className: "hint", textContent: `… and ${alerts.more} more not listed.` }) : ""),
+    el("p", { className: "hint", textContent: "Threat feeds in use: " + (d.feeds && d.feeds.length ? d.feeds.join(", ") : "none") + "." }));
+  // Bar widths are set from the numbers (a style attribute would be blocked).
+  for (const ul of $("rep-preview").querySelectorAll(".rep-rank")) {
+    const counts = [...ul.querySelectorAll("li")].map((li) => Number(li.children[1].textContent.replace(/,/g, "")));
+    const m = Math.max(1, ...counts);
+    ul.querySelectorAll("li").forEach((li, i) => { li.querySelector(".bar").style.width = Math.max(2, Math.round(counts[i] * 100 / m)) + "%"; });
+  }
+  $("rep-preview").hidden = false;
+}
+async function loadSchedules() {
+  let v;
+  try { v = await apiJSON("/api/v1/reports/schedules"); } catch (err) { notice($("rep-msg"), err.message); return; }
+  repEmailReady = v.email_ready; repSchedules = v.schedules;
+  $("rep-email-hint").textContent = repEmailReady ? "Scheduled reports are emailed with the PDF attached, using the Email integration."
+    : "Email isn't set up (or is turned off), so scheduled reports are made and kept below but not sent. Set it up under Integrations.";
+  $("rep-sched-body").replaceChildren(...(v.schedules.length ? v.schedules.map(scheduleRow)
+    : [el("tr", { className: "empty" }, el("td", { colSpan: 6, textContent: "No schedules yet. Choose New schedule to have a report made and emailed regularly." }))]));
+}
+function scheduleRow(sc) {
+  return el("tr", {},
+    el("td", {}, sc.name, sc.enabled ? "" : el("span", { className: "tag tag-plain", textContent: " Off" })),
+    el("td", { textContent: `${repWhen(sc)}, covering ${COVER_TEXT[sc.covers_days]}` }),
+    el("td", { className: sc.recipients ? "" : "muted", textContent: sc.recipients || "Nobody (kept here only)" }),
+    el("td", { className: "muted", textContent: sc.last_run ? `${ago(sc.last_run)}: ${sc.last_status}` : "Not yet" }),
+    el("td", { className: "muted", textContent: sc.enabled ? new Date(sc.next_run).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "–" }),
+    el("td", { className: "actions" }, el("div", { className: "row-actions" },
+      el("button", { className: "btn btn-small", textContent: "Run now", onclick: (e) => runScheduleNow(sc, e.target) }),
+      el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => editSchedule(sc) }),
+      el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: () => deleteSchedule(sc) }))));
+}
+async function runScheduleNow(sc, btn) {
+  btn.disabled = true; btn.textContent = "Making…";
+  try {
+    const r = await apiJSON(`/api/v1/reports/schedules/${sc.id}/run`, { method: "POST" });
+    notice($("rep-msg"), r.emailed ? `Made and sent to ${r.emailed}.` : `Made and kept below.${r.note ? " " + r.note + "." : ""}`, true);
+  } catch (err) { notice($("rep-msg"), err.message); }
+  await Promise.all([loadSchedules(), loadPast()]);
+}
+function showScheduleForm(sc) {
+  $("rs-id").value = sc.id || ""; $("rs-name").value = sc.name || ""; $("rs-freq").value = sc.frequency || "weekly";
+  $("rs-weekday").value = String(sc.weekday ?? 1); $("rs-dom").value = String(sc.day_of_month || 1); $("rs-hour").value = String(sc.hour ?? 8);
+  $("rs-covers").value = String(sc.covers_days || 7); $("rs-rcpts").value = sc.recipients || ""; $("rs-enabled").checked = sc.enabled !== false;
+  syncScheduleForm(); $("rep-form").hidden = false; $("rs-name").focus();
+}
+function syncScheduleForm() { const f = $("rs-freq").value; $("rs-wd-wrap").hidden = f !== "weekly"; $("rs-dom-wrap").hidden = f !== "monthly"; }
+$("rs-freq").onchange = syncScheduleForm;
+$("rep-new").onclick = () => showScheduleForm({});
+const editSchedule = (sc) => showScheduleForm(sc);
+$("rs-cancel").onclick = () => { $("rep-form").hidden = true; };
+$("rep-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const id = $("rs-id").value;
+  const body = { name: $("rs-name").value, frequency: $("rs-freq").value, weekday: Number($("rs-weekday").value), day_of_month: Number($("rs-dom").value),
+    hour: Number($("rs-hour").value), covers_days: Number($("rs-covers").value), recipients: $("rs-rcpts").value, enabled: $("rs-enabled").checked };
+  try {
+    await apiJSON(id ? `/api/v1/reports/schedules/${id}` : "/api/v1/reports/schedules", { method: id ? "PUT" : "POST", json: body });
+    $("rep-form").hidden = true; notice($("rep-msg"), "Saved.", true); await loadSchedules();
+  } catch (err) { notice($("rep-msg"), err.message); }
+};
+async function deleteSchedule(sc) {
+  if (!await confirmAction(`Delete ${sc.name}?`, "No more reports will be made from it. The reports it already made are kept.", "Delete schedule")) return;
+  try { await apiJSON(`/api/v1/reports/schedules/${sc.id}`, { method: "DELETE" }); notice($("rep-msg"), `Deleted ${sc.name}.`, true); }
+  catch (err) { notice($("rep-msg"), err.message); }
+  await Promise.all([loadSchedules(), loadPast()]);
+}
+async function loadPast() {
+  let runs;
+  try { runs = await apiJSON("/api/v1/reports/runs"); } catch (err) { notice($("rep-msg"), err.message); return; }
+  $("rep-past-body").replaceChildren(...(runs.length ? runs.map((r) => el("tr", {},
+    el("td", { textContent: new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) }),
+    el("td", { textContent: spanText(r.period_start, r.period_end) }),
+    el("td", { textContent: r.trigger === "schedule" ? r.name : r.name === "Report" ? "You" : r.name + " (run now)" }),
+    el("td", { className: r.emailed ? "" : "muted", textContent: r.emailed || r.note || "–" }),
+    el("td", { className: "muted", textContent: bytes(r.size) }),
+    el("td", { className: "actions" }, el("div", { className: "row-actions" },
+      el("button", { className: "btn btn-small", textContent: "Download", onclick: () => downloadRun(r.id) }),
+      el("button", { className: "btn btn-small btn-danger", textContent: "Delete", onclick: async () => {
+        try { await apiJSON(`/api/v1/reports/runs/${r.id}`, { method: "DELETE" }); await loadPast(); } catch (err) { notice($("rep-msg"), err.message); }
+      } })))))
+    : [el("tr", { className: "empty" }, el("td", { colSpan: 6, textContent: "No reports yet." }))]));
 }
 
 // --- Slack and Teams ---

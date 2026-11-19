@@ -45,6 +45,7 @@ import (
 	"siemlite/pkg/intel"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
+	"siemlite/pkg/report"
 	"siemlite/pkg/retention"
 	"siemlite/pkg/search"
 	"siemlite/pkg/secaudit"
@@ -440,6 +441,25 @@ func run() error {
 	}
 
 	emailSvc := email.NewService(repo, email.KeyPath(*dbPath))
+	reportSvc := report.New(repo, emailSvc, auditLog, version(), slog.Default())
+	reportSvc.Feeds = func(ctx context.Context) []string {
+		v, err := intelSvc.Feeds(ctx)
+		if err != nil {
+			return nil
+		}
+		var names []string
+		for _, f := range v.Feeds {
+			if f.Selected {
+				names = append(names, f.Name)
+			}
+		}
+		return names
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		reportSvc.Run(bgCtx)
+	}()
 	entraSvc := entra.NewService(repo, repo, secret.NewBox(secret.KeyPath(*dbPath)), slog.Default())
 	wg.Add(1)
 	go func() {
@@ -453,7 +473,7 @@ func run() error {
 	}
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine, Retention: cleaner,
-		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc, AIAlerts: aiAlertsSvc, Slack: slackSvc, Teams: teamsSvc, Notify: notifyChat,
+		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc, AIAlerts: aiAlertsSvc, Reports: reportSvc, Slack: slackSvc, Teams: teamsSvc, Notify: notifyChat,
 		Backups: backups, Started: started, Version: version(), Updates: updates, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, slackSvc, teamsSvc, entraSvc, aiSvc, aiAlertsSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
 		SecAudit: secaudit.New(repo, hostname()), SecConfig: secaudit.Config{
 			DBPath: *dbPath, SecretKeyPath: secret.KeyPath(*dbPath), TLSKeyPath: *keyFile, ACMEDir: filepath.Join(filepath.Dir(*dbPath), "acme"),

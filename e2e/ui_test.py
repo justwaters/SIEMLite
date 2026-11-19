@@ -18,7 +18,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-PAGES = ["dashboard", "database", "alerts", "users", "sources", "intel", "parsers", "system"]
+PAGES = ["dashboard", "database", "alerts", "users", "sources", "intel", "parsers", "reports", "system"]
 failures = []
 
 

@@ -21,6 +21,7 @@ import (
 // So v = 0, 1, 2 and 3 all start from the same base schema, which is the
 // oldest shape this code can reproduce.
 var downgrades = map[int][]string{
+	22: {`DROP TABLE report_runs`, `DROP TABLE report_schedules`},
 	21: {`ALTER TABLE alerts DROP COLUMN closed_seq`},
 	20: {`DROP TABLE friendly_entries`, `DROP TABLE friendly_lists`},
 	19: {`DROP TABLE rule_proposals`},
