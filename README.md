@@ -194,7 +194,7 @@ usually within seconds, then who issued it and until when. Or set it from the st
 - **Users** (admins): add people, set their role, limit what they can see, change passwords, and keep the built-in admin account to the server itself.
 - **Sources** (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
 - **Parsers** (admins): build, upload, export and edit parsers.
-- **Integrations** (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, sign-in with Microsoft Entra ID, AI Parsers, AI Alerts and AI agents (MCP).
+- **Integrations** (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, Slack, Microsoft Teams, sign-in with Microsoft Entra ID, AI Parsers, AI Alerts and AI agents (MCP).
 - **System** (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 - **Security audit** (admins): checks SIEMLite's setup and the server it runs on, and tracks each finding until it is fixed. See [Security audit](#security-audit).
 - **Account** (everyone; select your name at the bottom of the sidebar): your role and what it lets you see, the theme (System, Light
@@ -826,6 +826,25 @@ Enter them on the card, choose **Test connection** (it shows the group names and
 - Sign-ins, refusals, and changes to these settings are in the [audit log](#audit-log) (`signin.sso`, `signin.sso.failed`,
   `system.entra.save`, `system.entra.test`, `system.entra.sync`).
 - This is for the Microsoft public cloud. Government and other sovereign clouds use different addresses and aren't supported yet.
+
+## Slack and Microsoft Teams
+
+Two integrations post a message to a chat channel whenever SIEMLite **opens** an alert (an alert that gains more events
+is not posted again), including alerts an AI agent raises with `create_alert`. Each has its own card on the Integrations
+page, a **Post alerts of** choice (Low, Medium, High or Critical and above; High is the default) and a **Send a test message** button.
+
+- **Slack**: create an app with an [incoming webhook](https://api.slack.com/messaging/webhooks), choose the channel and
+  paste the address (`https://hooks.slack.com/services/...`).
+- **Microsoft Teams**: add a workflow to the channel with the trigger *When a Teams webhook request is received* and the
+  action *Post card in a chat or channel*, and paste its address (`...logic.azure.com`, `...webhook.office.com` or
+  `...powerplatform.com`). The message is an Adaptive Card.
+
+The webhook address works like a password, so it is saved sealed (like the email password), never shown again, and left
+out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute;
+if more alerts open, the next message says how many were held back. A failed post shows on the card. The messages name
+the rule, severity, who or what it was about, and how many events; they link nowhere, since SIEMLite doesn't know the
+address you reach it by. API: `GET`/`PUT /api/v1/integrations/slack` (or `teams`) with `{"webhook", "min_severity"}`
+(leave `webhook` out to keep the saved one; `""` removes it) and `POST .../test`.
 
 ## Email
 

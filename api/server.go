@@ -25,6 +25,7 @@ import (
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/certs"
+	"siemlite/pkg/chatnotify"
 	"siemlite/pkg/email"
 	"siemlite/pkg/entra"
 	"siemlite/pkg/ingest"
@@ -63,7 +64,10 @@ type Deps struct {
 	AI     *ai.Service     // the AI Parsers integration (optional)
 	// AIAlerts proposes alert rules with the AI Parsers model (optional).
 	AIAlerts *aialerts.Service
-	Agents   *agents.Service // AI agent access over MCP (optional)
+	// Slack and Teams post alerts to chat; Notify announces one in each (optional).
+	Slack, Teams *chatnotify.Service
+	Notify       func(ctx context.Context, a chatnotify.Alert)
+	Agents       *agents.Service // AI agent access over MCP (optional)
 	// Backups, Started and Restart serve the System page (optional).
 	Backups *backup.Manager
 	Started time.Time
@@ -232,6 +236,13 @@ func (s *Server) Handler() http.Handler {
 	admin("GET /api/v1/integrations/ai", s.handleGetAI)
 	admin("PUT /api/v1/integrations/ai", s.handleSaveAI)
 	admin("POST /api/v1/integrations/ai/test", s.handleTestAI)
+	slack, teams := func() *chatnotify.Service { return s.deps.Slack }, func() *chatnotify.Service { return s.deps.Teams }
+	admin("GET /api/v1/integrations/slack", s.chatGet(slack))
+	admin("PUT /api/v1/integrations/slack", s.chatSave(slack))
+	admin("POST /api/v1/integrations/slack/test", s.chatTest(slack))
+	admin("GET /api/v1/integrations/teams", s.chatGet(teams))
+	admin("PUT /api/v1/integrations/teams", s.chatSave(teams))
+	admin("POST /api/v1/integrations/teams/test", s.chatTest(teams))
 	admin("GET /api/v1/activity", s.handleActivity)
 	admin("GET /api/v1/intel/feeds", s.handleGetThreatFeeds)
 	admin("PUT /api/v1/intel/feeds", s.handleSaveThreatFeeds)

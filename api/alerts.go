@@ -9,6 +9,7 @@ import (
 
 	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
+	"siemlite/pkg/chatnotify"
 	"siemlite/pkg/storage"
 )
 
@@ -277,5 +278,8 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, audit.Entry{Action: action, Severity: 2, Message: fmt.Sprintf("%s %s the alert %s", by, verb, what),
 		Fields: map[string]string{"target": what, "alert_severity": fmt.Sprint(a.Severity)}})
+	if created {
+		s.notifyChat(chatnotify.Alert{Title: a.RuleName, Severity: a.Severity, GroupBy: a.GroupBy, GroupValue: a.GroupValue, Count: a.Count, Note: a.Note, At: time.Now()})
+	}
 	writeJSON(w, status, a)
 }

@@ -573,6 +573,15 @@ def main(binary, loggen):
             check("Coming soon" in page.inner_text("#ipane-cve"), "the CVE tab says it is coming soon")
             page.goto(url + "#/integrations")
             page.wait_for_selector("#int-mcp .integ-toggle")
+            # Slack and Teams: off until an address is saved; a wrong address is refused with a reason.
+            for kind, bad in (("slack", "https://example.com/hook"), ("teams", "https://hooks.slack.com/services/T/B/x")):
+                page.wait_for_selector(f"#int-{kind} .integ-toggle")
+                check(page.is_disabled(f"#int-{kind} .integ-switch input"), f"{kind} can't be switched on without an address")
+                page.click(f"#int-{kind} .integ-toggle")
+                page.fill(f"#chat-{kind}-hook", bad)
+                page.click(f'#chat-{kind}-form button[type="submit"]')
+                page.wait_for_selector(f"#chat-{kind}-msg:not([hidden])")
+                check("look like" in page.inner_text(f"#chat-{kind}-msg"), f"a wrong {kind} address is refused ({page.inner_text(f'#chat-{kind}-msg')[:60]})")
             page.click("#int-mcp .integ-toggle")
             page.fill("#mcp-name", "e2e agent")
             page.select_option("#mcp-level", "analyst")

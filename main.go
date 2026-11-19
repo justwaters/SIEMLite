@@ -36,6 +36,7 @@ import (
 	"siemlite/pkg/auth"
 	"siemlite/pkg/backup"
 	"siemlite/pkg/certs"
+	"siemlite/pkg/chatnotify"
 	"siemlite/pkg/email"
 	"siemlite/pkg/enrich"
 	"siemlite/pkg/entra"
@@ -323,6 +324,20 @@ func run() error {
 		aiSvc.Run(bgCtx)
 	}()
 	// AI Alerts: proposes alert rules with the AI Parsers model; switched on from the Integrations page.
+	slackSvc := chatnotify.New(chatnotify.Slack, repo, email.KeyPath(*dbPath))
+	teamsSvc := chatnotify.New(chatnotify.Teams, repo, email.KeyPath(*dbPath))
+	notifyChat := func(ctx context.Context, a chatnotify.Alert) {
+		slackSvc.Notify(ctx, a)
+		teamsSvc.Notify(ctx, a)
+	}
+	alertEngine.SetNotifier(func(_ context.Context, o alerts.Opened) {
+		a := chatnotify.Alert{Title: o.Rule.Name, Description: o.Rule.Description, Severity: o.Rule.Severity, GroupBy: o.Rule.GroupBy, GroupValue: o.Group, Count: o.Count, At: time.Now()}
+		go func() { // chat can be slow; the alert engine must not wait for it
+			cctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			notifyChat(cctx, a)
+		}()
+	})
 	aiAlertsSvc := aialerts.New(repo, engine, aiSvc, auditLog, slog.Default())
 	wg.Add(1)
 	go func() {
@@ -438,8 +453,8 @@ func run() error {
 	}
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine, Retention: cleaner,
-		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc, AIAlerts: aiAlertsSvc,
-		Backups: backups, Started: started, Version: version(), Updates: updates, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, entraSvc, aiSvc, aiAlertsSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
+		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc, AIAlerts: aiAlertsSvc, Slack: slackSvc, Teams: teamsSvc, Notify: notifyChat,
+		Backups: backups, Started: started, Version: version(), Updates: updates, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, slackSvc, teamsSvc, entraSvc, aiSvc, aiAlertsSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
 		SecAudit: secaudit.New(repo, hostname()), SecConfig: secaudit.Config{
 			DBPath: *dbPath, SecretKeyPath: secret.KeyPath(*dbPath), TLSKeyPath: *keyFile, ACMEDir: filepath.Join(filepath.Dir(*dbPath), "acme"),
 			Addr: *addr, LocalAddr: *localAddr, HTTPAddr: *httpAddr, SyslogUDP: *syslogUDP, SyslogTCP: *syslogTCP, SyslogTLS: *syslogTLS,

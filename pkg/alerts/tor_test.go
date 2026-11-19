@@ -39,6 +39,8 @@ func TestTorExitNodeRaisesAHighAlert(t *testing.T) {
 	w := ingest.New(repo, ingest.Config{FlushInterval: 10 * time.Millisecond, Enricher: svc.Matcher})
 	t.Cleanup(w.Close)
 	eng := New(repo, nil)
+	var told []Opened
+	eng.SetNotifier(func(_ context.Context, o Opened) { told = append(told, o) })
 	now := time.Now()
 	for _, ip := range []string{"171.25.193.25", "80.67.167.81", "192.0.2.50"} {
 		if err := w.Submit(ctx, event(now, "GET /login from "+ip, ip)); err != nil {
@@ -50,5 +52,13 @@ func TestTorExitNodeRaisesAHighAlert(t *testing.T) {
 	got := alertsByRule(t, repo)["Threat intel match"]
 	if len(got) != 1 || got[0].GroupValue != "171.25.193.25" || got[0].Severity != 4 {
 		t.Fatalf("alerts = %+v; want one High alert for the unlisted-friendly Tor exit only", got)
+	}
+	if len(told) != 1 || told[0].Group != "171.25.193.25" || told[0].Rule.Severity != 4 || told[0].Rule.Name != "Threat intel match" {
+		t.Errorf("the notifier was told %+v; want the one new alert", told)
+	}
+	// A second check with nothing new opens nothing, so nothing more is announced.
+	eng.Check(ctx)
+	if len(told) != 1 {
+		t.Errorf("announced again: %d", len(told))
 	}
 }
