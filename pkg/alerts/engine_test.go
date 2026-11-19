@@ -488,3 +488,73 @@ func TestFailedRaiseIsNotCountedTwice(t *testing.T) {
 		t.Errorf("critical event alerts after a failed raise: %+v", c)
 	}
 }
+
+// Closing an alert settles the events that counted toward it: one more event
+// afterwards must not combine with them to open the same alert again, though
+// a whole new burst still does (TestThresholdWindowAndDedupe).
+func TestClosedAlertDoesNotRefireFromOldEvents(t *testing.T) {
+	repo, w, eng := setup(t)
+	ctx := context.Background()
+	clock := time.Now().Add(-time.Hour)
+	send := func(n int) {
+		for i := 0; i < n; i++ {
+			clock = clock.Add(time.Second)
+			if err := w.Submit(ctx, event(clock, "Failed password for root from 192.0.2.1", "192.0.2.1")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w.Drain(ctx)
+	}
+	send(10)
+	eng.Check(ctx)
+	got := alertsByRule(t, repo)["SSH brute force"]
+	if len(got) != 1 {
+		t.Fatalf("burst: %+v", got)
+	}
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	// One straggler after the close: the ten before it are already dealt with.
+	send(1)
+	eng.Check(ctx)
+	if got := alertsByRule(t, repo)["SSH brute force"]; len(got) != 1 {
+		t.Fatalf("a closed alert fired again from old events: %+v", got)
+	}
+	// A new burst of ten after the close still opens a new alert.
+	send(10)
+	eng.Check(ctx)
+	if got := alertsByRule(t, repo)["SSH brute force"]; len(got) != 2 {
+		t.Fatalf("new burst after close: %+v", got)
+	}
+}
+
+// Events that arrived before the close but hadn't been checked yet were
+// already part of what the person closed.
+func TestClosedBeforeCheckDoesNotCountEarlierEvents(t *testing.T) {
+	repo, w, eng := setup(t)
+	ctx := context.Background()
+	clock := time.Now().Add(-time.Hour)
+	send := func(n int) {
+		for i := 0; i < n; i++ {
+			clock = clock.Add(time.Second)
+			if err := w.Submit(ctx, event(clock, "Failed password for root from 192.0.2.1", "192.0.2.1")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w.Drain(ctx)
+	}
+	send(10)
+	eng.Check(ctx)
+	got := alertsByRule(t, repo)["SSH brute force"]
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	send(9) // stored but not checked yet when the alert is closed
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	eng.Check(ctx)
+	if got := alertsByRule(t, repo)["SSH brute force"]; len(got) != 1 {
+		t.Fatalf("unchecked events before the close: %+v", got)
+	}
+}

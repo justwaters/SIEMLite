@@ -317,6 +317,12 @@ type days struct {
 	mu     sync.Mutex
 	shards map[int]*shard // every day file that exists
 
+	// Another process (the siemlite command) can create day files while this
+	// one runs; rescan looks for them, at most once per rescanEvery.
+	scanMu      sync.Mutex
+	scannedAt   time.Time
+	rescanEvery time.Duration
+
 	// writeMu serializes storing events in this process. Other processes
 	// store theirs meanwhile, so the alert engine goes by safeSeq.
 	writeMu sync.Mutex
@@ -335,7 +341,7 @@ type days struct {
 }
 
 func openDays(ctx context.Context, main *DB) (*days, error) {
-	d := &days{dir: EventsDir(main.path), main: main, shards: map[int]*shard{}}
+	d := &days{dir: EventsDir(main.path), main: main, shards: map[int]*shard{}, rescanEvery: time.Second}
 	if err := os.MkdirAll(d.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("events folder: %w", err)
 	}
@@ -351,6 +357,7 @@ func openDays(ctx context.Context, main *DB) (*days, error) {
 			d.shards[day] = d.newShard(day)
 		}
 	}
+	d.scannedAt = time.Now()
 	var seq, moved int64
 	if err := main.Read.QueryRowContext(ctx, `SELECT
 		COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'event_seq'), 0),
@@ -409,6 +416,7 @@ func (d *days) writable(ctx context.Context, day int) (*shard, error) {
 // unbounded), newest first, with the legacy shard (which spans every day)
 // first while it exists. Callers hold move.RLock.
 func (d *days) span(startMs, endMs int64) []*shard {
+	d.rescan(context.Background())
 	d.mu.Lock()
 	var out []*shard
 	for day, s := range d.shards {
@@ -423,6 +431,52 @@ func (d *days) span(startMs, endMs int64) []*shard {
 		out = append([]*shard{d.legacy}, out...)
 	}
 	return out
+}
+
+// rescan adds the day files other processes have created since this one last
+// looked, at most once per rescanEvery. A file counts once it is complete (the
+// schema's last statement sets its version); one still being made, or one that
+// can't be read yet, is left for the next scan.
+func (d *days) rescan(ctx context.Context) {
+	d.scanMu.Lock()
+	defer d.scanMu.Unlock()
+	if time.Since(d.scannedAt) < d.rescanEvery {
+		return
+	}
+	d.scannedAt = time.Now()
+	entries, err := os.ReadDir(d.dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		day, ok := parseDayFile(e.Name())
+		if !ok || e.IsDir() {
+			continue
+		}
+		if d.shard(day, false) != nil {
+			continue
+		}
+		path := filepath.Join(d.dir, e.Name())
+		if !dayFileComplete(ctx, path) {
+			continue
+		}
+		d.mu.Lock()
+		if _, have := d.shards[day]; !have {
+			d.shards[day] = d.newShard(day)
+		}
+		d.mu.Unlock()
+	}
+}
+
+// dayFileComplete reports whether a day file has its whole schema.
+func dayFileComplete(ctx context.Context, path string) bool {
+	db, err := sql.Open("sqlite", dayDSN(path, true))
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	var v int
+	return db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v) == nil && v >= dayVersion
 }
 
 // legacyWhere is the condition that leaves out legacy events already moved.

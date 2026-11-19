@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 21
+const schemaVersion = 22
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -358,6 +358,11 @@ var upgrades = map[int][]string{
 			created_at INTEGER NOT NULL,
 			PRIMARY KEY (list_id, value)
 		) WITHOUT ROWID`,
+	},
+	// v22: closing an alert remembers the arrival number it was closed at, so the
+	// events it already counted can't open the same alert again.
+	21: {
+		`ALTER TABLE alerts ADD COLUMN closed_seq INTEGER NOT NULL DEFAULT 0`,
 	},
 }
 

@@ -151,7 +151,7 @@ func TestUpgradeToV7(t *testing.T) {
 		`ALTER TABLE users DROP COLUMN disabled`,
 		`ALTER TABLE users DROP COLUMN display_name`,
 		`ALTER TABLE alert_rules DROP COLUMN kind`,
-		`ALTER TABLE alerts DROP COLUMN note`,
+		`ALTER TABLE alerts DROP COLUMN closed_seq`, `ALTER TABLE alerts DROP COLUMN note`,
 		`PRAGMA user_version = 6`,
 	} {
 		if _, err := db.Write.Exec(stmt); err != nil {
@@ -245,7 +245,7 @@ func TestUpgradeToV14(t *testing.T) {
 	}
 	repo := NewRepository(db)
 	id, _ := repo.CreateExternalUser(ctx, "entra", "oid-1", "justin@fisni.com", "admin", 1)
-	for _, stmt := range []string{`ALTER TABLE users DROP COLUMN display_name`, `ALTER TABLE alert_rules DROP COLUMN kind`, `ALTER TABLE alerts DROP COLUMN note`, `PRAGMA user_version = 13`} {
+	for _, stmt := range []string{`ALTER TABLE users DROP COLUMN display_name`, `ALTER TABLE alert_rules DROP COLUMN kind`, `ALTER TABLE alerts DROP COLUMN closed_seq`, `ALTER TABLE alerts DROP COLUMN note`, `PRAGMA user_version = 13`} {
 		if _, err := db.Write.Exec(stmt); err != nil {
 			t.Fatal(stmt, err)
 		}

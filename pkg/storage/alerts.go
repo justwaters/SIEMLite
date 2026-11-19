@@ -410,6 +410,10 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 	if len(groups) == 0 {
 		return out, nil
 	}
+	floors, err := r.closedFloors(ctx, ru.ID)
+	if err != nil {
+		return nil, err
+	}
 	newMax := make(map[string]int64, len(groups))
 	lo, hi := groups[0].NewMin, groups[0].NewMax
 	for _, g := range groups {
@@ -448,7 +452,7 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 				return nil, err
 			}
 			end, ok := newMax[v]
-			if !ok {
+			if !ok || seq <= floors[v] { // not a group with new events, or counted before its alert was closed
 				continue
 			}
 			if ts <= end && ts >= end-window { // the window ending at the group's newest new event
@@ -486,6 +490,28 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 		}
 	}
 	return out, nil
+}
+
+// closedFloors returns, for each group of a rule with a closed alert, the
+// arrival number it was closed at: events numbered up to it don't count
+// towards a new alert.
+func (r *Repository) closedFloors(ctx context.Context, ruleID int64) (map[string]int64, error) {
+	rows, err := r.db.Read.QueryContext(ctx, `SELECT group_value, MAX(closed_seq) FROM alerts
+		WHERE rule_id = ? AND status = 'closed' AND closed_seq > 0 GROUP BY group_value`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var v string
+		var n int64
+		if err := rows.Scan(&v, &n); err != nil {
+			return nil, err
+		}
+		out[v] = n
+	}
+	return out, rows.Err()
 }
 
 // busiestWindow takes event times (time*2, plus 1 when the event is new) and
@@ -796,8 +822,20 @@ func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) (
 }
 
 // SetAlertStatus changes an alert's status.
+//
+// Closing remembers the highest arrival number handed out so far: events
+// numbered up to it already counted (or were about to) and can't open a new
+// alert for the same rule and group, only events arriving afterwards can.
 func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by string, nowMs int64) (*Alert, error) {
-	res, err := r.db.Write.ExecContext(ctx, `UPDATE alerts SET status = ?, updated_by = ?, updated_at = ? WHERE id = ?`, status, by, nowMs, id)
+	var closedSeq int64
+	if status == AlertClosed {
+		var err error
+		if closedSeq, err = r.TopEventSeq(ctx); err != nil {
+			return nil, err
+		}
+	}
+	res, err := r.db.Write.ExecContext(ctx, `UPDATE alerts SET status = ?, updated_by = ?, updated_at = ?,
+		closed_seq = CASE WHEN ? = 'closed' THEN MAX(closed_seq, ?) ELSE closed_seq END WHERE id = ?`, status, by, nowMs, status, closedSeq, id)
 	if err != nil {
 		return nil, fmt.Errorf("set alert status: %w", err)
 	}

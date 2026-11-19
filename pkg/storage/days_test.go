@@ -652,3 +652,50 @@ func TestOldDayFilesAreUpgraded(t *testing.T) {
 		t.Errorf("fresh event not found: %v", recs)
 	}
 }
+
+// A day file made by another process (the CLI sending an event) while this one
+// runs is found by the next search, without a restart.
+func TestNewDayFromAnotherProcessIsSeen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "siemlite.db")
+	a, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	b, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	repoA := NewRepository(a)
+	ts := time.Now().Add(-90 * 24 * time.Hour).UnixMilli() // a day file nobody has yet
+	if err := NewRepository(b).InsertBatch(ctx, []Record{{Timestamp: ts, CategoryUID: 1, ClassUID: 1001, SeverityID: 1, RawData: "from-the-cli"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Days()) != 0 || len(b.Days()) != 1 {
+		t.Fatalf("before a looks again: a sees %v, b sees %v", a.Days(), b.Days())
+	}
+	a.days.rescanEvery = 0 // don't wait out the rate limit
+	got, err := repoA.Search(ctx, Filter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("search found %d events, want 1 (days: %v)", len(got), a.Days())
+	}
+}
+
+// Rescanning is rate limited: a burst of searches reads the folder once.
+func TestDayRescanIsRateLimited(t *testing.T) {
+	db, _ := openTemp(t)
+	db.days.rescanEvery = time.Hour
+	db.days.rescan(context.Background())
+	if err := os.WriteFile(filepath.Join(db.days.dir, "2020-01-01.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db.days.rescan(context.Background())
+	if len(db.Days()) != 0 {
+		t.Errorf("rescanned inside the interval: %v", db.Days())
+	}
+}

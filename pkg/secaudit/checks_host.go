@@ -132,6 +132,14 @@ func checkFirewall(ctx context.Context, e *Env) Outcome {
 			return Outcome{Status: Pass, Detail: unit + " is active."}
 		}
 	}
+	// Without systemd units (or when the firewall was started by hand), ask the
+	// tools themselves. A command that fails or is missing says nothing.
+	if out, err := e.Exec(ctx, "ufw", "status"); err == nil && strings.Contains(out, "Status: active") {
+		return Outcome{Status: Pass, Detail: "ufw is active."}
+	}
+	if out, err := e.Exec(ctx, "firewall-cmd", "--state"); err == nil && strings.TrimSpace(out) == "running" {
+		return Outcome{Status: Pass, Detail: "firewalld is running."}
+	}
 	nftUnit := false
 	if out, _ := e.Exec(ctx, "systemctl", "is-active", "nftables"); strings.TrimSpace(out) == "active" {
 		nftUnit = true
@@ -142,6 +150,9 @@ func checkFirewall(ctx context.Context, e *Env) Outcome {
 		// inbound traffic, ignoring what Docker manages.
 		var verdicts []fwVerdict
 		if out, err := e.Exec(ctx, "iptables", "-S"); err == nil {
+			verdicts = append(verdicts, judgeIptables(out))
+		}
+		if out, err := e.Exec(ctx, "ip6tables", "-S"); err == nil {
 			verdicts = append(verdicts, judgeIptables(out))
 		}
 		nftOut, nftErr := e.Exec(ctx, "nft", "list", "ruleset")
@@ -170,7 +181,7 @@ func checkFirewall(ctx context.Context, e *Env) Outcome {
 	} else if nftUnit {
 		return Outcome{Status: Skip, Detail: "The nftables service is active, but its rules can't be read without root, so whether it restricts inbound traffic is unknown."}
 	}
-	d := "No active firewall was found (ufw, firewalld or nftables)."
+	d := "No active firewall was found (ufw, firewalld, iptables, ip6tables or nftables)."
 	if e.Euid != 0 {
 		d += " Rules loaded by hand with iptables can't be seen without root, so this may be a false alarm."
 	}

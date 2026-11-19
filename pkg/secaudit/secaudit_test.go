@@ -2,6 +2,7 @@ package secaudit
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -625,5 +626,61 @@ func TestFirewallCantTell(t *testing.T) {
 	e = firewallEnv(t, map[string]string{"iptables -S": "-P INPUT ACCEPT\n-N mine\n-A INPUT -j mine\n-A mine -p tcp --dport 22 -j ACCEPT\n"})
 	if got := outcome(t, "host.firewall", e); got.Status != Skip {
 		t.Errorf("custom chain = %s %s, want skip", got.Status, got.Detail)
+	}
+}
+
+// fakeExec answers by the full command line; a command not listed is missing.
+func fakeExec(answers map[string]struct {
+	out string
+	err error
+}) func(context.Context, string, ...string) (string, error) {
+	return func(_ context.Context, name string, args ...string) (string, error) {
+		if a, ok := answers[strings.Join(append([]string{name}, args...), " ")]; ok {
+			return a.out, a.err
+		}
+		return "", os.ErrNotExist
+	}
+}
+
+func TestFirewallTools(t *testing.T) {
+	type ans = struct {
+		out string
+		err error
+	}
+	failed := errors.New("exit status 1")
+	const dropInput = "-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT ACCEPT\n"
+	const acceptInput = "-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n"
+	for _, tc := range []struct {
+		name    string
+		euid    int
+		answers map[string]ans
+		want    Status
+	}{
+		{"ufw active", 1000, map[string]ans{"ufw status": {"Status: active\n\nTo  Action  From\n", nil}}, Pass},
+		{"ufw inactive", 1000, map[string]ans{"ufw status": {"Status: inactive\n", nil}}, Warn},
+		{"ufw missing", 1000, nil, Warn},
+		{"ufw failing", 1000, map[string]ans{"ufw status": {"ERROR: You need to be root to run this script\n", failed}}, Warn},
+		{"ufw failing but printing active", 1000, map[string]ans{"ufw status": {"Status: active\n", failed}}, Warn},
+		{"firewalld running", 1000, map[string]ans{"firewall-cmd --state": {"running\n", nil}}, Pass},
+		{"firewalld not running", 1000, map[string]ans{"firewall-cmd --state": {"not running\n", failed}}, Warn},
+		{"firewalld missing", 1000, nil, Warn},
+		{"firewalld failing", 1000, map[string]ans{"firewall-cmd --state": {"", failed}}, Warn},
+		{"ip6tables restricts", 0, map[string]ans{"ip6tables -S": {dropInput, nil}}, Pass},
+		{"ip6tables accepts", 0, map[string]ans{"ip6tables -S": {acceptInput, nil}}, Warn},
+		{"ip6tables missing", 0, nil, Warn},
+		{"ip6tables failing", 0, map[string]ans{"ip6tables -S": {"", failed}}, Warn},
+		{"ip6tables restricts, iptables open", 0, map[string]ans{"iptables -S": {acceptInput, nil}, "ip6tables -S": {dropInput, nil}}, Pass},
+		{"iptables restricts", 0, map[string]ans{"iptables -S": {dropInput, nil}}, Pass},
+		{"iptables accepts", 0, map[string]ans{"iptables -S": {acceptInput, nil}}, Warn},
+		{"iptables failing", 0, map[string]ans{"iptables -S": {"", failed}}, Warn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := hostEnv(t, nil)
+			e.Euid = tc.euid
+			e.Exec = fakeExec(tc.answers)
+			if got := outcome(t, "host.firewall", e); got.Status != tc.want {
+				t.Errorf("status = %s (%s), want %s", got.Status, got.Detail, tc.want)
+			}
+		})
 	}
 }
