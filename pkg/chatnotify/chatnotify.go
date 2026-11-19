@@ -32,11 +32,12 @@ const (
 var MinSeverities = []int{2, 3, 4, 5}
 
 const (
-	defaultMin   = 4 // High
-	perMinute    = 10
-	sendTimeout  = 10 * time.Second
-	maxBody      = 1 << 20
-	maxNameBytes = 200
+	defaultMin      = 4 // High
+	perMinute       = 10
+	manualPerMinute = 3
+	sendTimeout     = 10 * time.Second
+	maxBody         = 1 << 20
+	maxNameBytes    = 200
 )
 
 // Store is where settings are kept (storage.Repository).
@@ -55,6 +56,9 @@ type Alert struct {
 	Count       int64
 	Note        string
 	At          time.Time
+	// Manual is an alert a person or an AI agent raised by hand. It has a small budget of its own, so a
+	// stream of them can't use up the messages meant for the alerts SIEMLite detects.
+	Manual bool
 }
 
 // SeverityName is the word for an OCSF severity.
@@ -72,16 +76,22 @@ type Service struct {
 	Client  *http.Client
 	AnyHost bool
 
-	mu      sync.Mutex // one change to the saved settings at a time
-	rateMu  sync.Mutex
-	winFrom time.Time
-	winSent int
+	mu     sync.Mutex // one change to the saved settings at a time
+	rateMu sync.Mutex
+	rate   [2]window // detected alerts, hand-raised alerts
+}
+
+type window struct {
+	from    time.Time
+	sent    int
 	dropped int
 }
 
 // New returns the Slack or Teams integration, keeping its webhook's key at keyPath.
 func New(kind Kind, store Store, keyPath string) *Service {
-	return &Service{kind: kind, store: store, box: secret.NewBox(keyPath), Client: &http.Client{Timeout: sendTimeout}}
+	// Redirects are not followed: the address was checked, wherever it might send us was not.
+	client := &http.Client{Timeout: sendTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &Service{kind: kind, store: store, box: secret.NewBox(keyPath), Client: client}
 }
 
 func (s *Service) key() string { return "chat_" + string(s.kind) }
@@ -217,7 +227,7 @@ func (s *Service) CheckWebhook(raw string) string {
 	case Slack:
 		ok = host == "hooks.slack.com" || host == "hooks.slack-gov.com"
 	case Teams:
-		for _, suffix := range []string{".logic.azure.com", ".webhook.office.com", ".powerplatform.com", ".api.powerplatform.com", ".azure.com"} {
+		for _, suffix := range []string{".logic.azure.com", ".webhook.office.com", ".powerplatform.com", ".api.powerplatform.com"} {
 			ok = ok || strings.HasSuffix(host, suffix)
 		}
 	}
@@ -299,19 +309,24 @@ func (s *Service) Notify(ctx context.Context, a Alert) {
 	if err != nil {
 		return
 	}
+	cls, limit := 0, perMinute
+	if a.Manual {
+		cls, limit = 1, manualPerMinute
+	}
 	s.rateMu.Lock()
 	now := time.Now()
-	if now.Sub(s.winFrom) >= time.Minute {
-		s.winFrom, s.winSent = now, 0
+	w := &s.rate[cls]
+	if now.Sub(w.from) >= time.Minute {
+		w.from, w.sent = now, 0
 	}
-	if s.winSent >= perMinute {
-		s.dropped++
+	if w.sent >= limit {
+		w.dropped++
 		s.rateMu.Unlock()
 		return
 	}
-	s.winSent++
-	held := s.dropped
-	s.dropped = 0
+	w.sent++
+	held := w.dropped
+	w.dropped = 0
 	s.rateMu.Unlock()
 	if held > 0 {
 		a.Note = strings.TrimSpace(a.Note + fmt.Sprintf(" %d more %s opened in the last minute and weren't posted.", held, map[bool]string{true: "alert", false: "alerts"}[held == 1]))
@@ -345,13 +360,10 @@ func (s *Service) post(ctx context.Context, hook string, body []byte) error {
 		return fmt.Errorf("couldn't reach %s: %s", s.Name(), trim(err))
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 2048))
 	if resp.StatusCode/100 != 2 {
-		msg := strings.TrimSpace(string(b))
-		if msg == "" {
-			msg = resp.Status
-		}
-		return errors.New(s.Name() + " refused it: " + strings.TrimSpace(strings.SplitN(msg, "\n", 2)[0]))
+		// Only the status is reported: what the far end says in the body isn't repeated back.
+		return fmt.Errorf("%s refused it (%s)", s.Name(), resp.Status)
 	}
 	return nil
 }
@@ -393,20 +405,23 @@ func who(a Alert) string {
 	return label + ": " + a.GroupValue
 }
 
+// esc makes text safe inside Slack's mrkdwn: & < > start links, mentions and channel pings.
+var esc = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
+
 func slackMessage(a Alert) any {
 	head := fmt.Sprintf("%s alert: %s", SeverityName(a.Severity), a.Title)
 	var lines []string
 	if w := who(a); w != "" {
-		lines = append(lines, "*"+strings.Replace(w, ": ", ":* ", 1))
+		lines = append(lines, "*"+strings.Replace(esc(w), ": ", ":* ", 1))
 	}
 	if a.Count > 0 {
 		lines = append(lines, fmt.Sprintf("*Events:* %d", a.Count))
 	}
 	if a.Description != "" {
-		lines = append(lines, a.Description)
+		lines = append(lines, esc(a.Description))
 	}
 	if a.Note != "" {
-		lines = append(lines, "_"+a.Note+"_")
+		lines = append(lines, "_"+esc(a.Note)+"_")
 	}
 	blocks := []any{map[string]any{"type": "header", "text": map[string]any{"type": "plain_text", "text": head}}}
 	if len(lines) > 0 {
