@@ -50,6 +50,29 @@ type Engine struct {
 	// started is when this engine began: a "fewer than" rule can't tell a
 	// quiet source from SIEMLite having been off, so it waits a whole window.
 	started time.Time
+	// onOpen is told about every alert that opens (see SetNotifier).
+	onOpen func(context.Context, Opened)
+}
+
+// Opened is an alert that has just opened, for whoever wants to announce it.
+type Opened struct {
+	Rule  storage.Rule
+	Group string
+	Count int64
+}
+
+// SetNotifier makes fn run for every alert that opens, after it is stored. It runs on the
+// engine's goroutine, so it must return quickly (hand slow work to another goroutine).
+func (e *Engine) SetNotifier(fn func(context.Context, Opened)) {
+	e.mu.Lock()
+	e.onOpen = fn
+	e.mu.Unlock()
+}
+
+func (e *Engine) opened(ctx context.Context, o Opened) {
+	if e.onOpen != nil {
+		e.onOpen(ctx, o)
+	}
 }
 
 // New returns an engine.
@@ -168,6 +191,7 @@ func (e *Engine) checkVolume(ctx context.Context, rules []storage.Rule, now int6
 		if opened {
 			res.Opened++
 			e.log.Info("alert opened", "rule", ru.Name, "events", n)
+			e.opened(ctx, Opened{Rule: ru, Count: n})
 		} else {
 			res.Updated++
 		}
@@ -215,6 +239,7 @@ func (e *Engine) checkRule(ctx context.Context, ru storage.Rule, from, maxID, no
 		if opened[i] {
 			res.Opened++
 			e.log.Info("alert opened", "rule", ru.Name, "group", a.Value, "events", a.WindowCount)
+			e.opened(ctx, Opened{Rule: ru, Group: a.Value, Count: a.WindowCount})
 		} else {
 			res.Updated++
 		}
