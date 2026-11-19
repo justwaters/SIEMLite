@@ -87,6 +87,7 @@ func TestWebhookAddressChecks(t *testing.T) {
 		{te, "https://contoso.webhook.office.com/webhookb2/abc", true},
 		{te, "https://hooks.slack.com/services/T0/B0/xyz", false},
 		{te, "https://169.254.169.254/latest", false},
+		{te, "https://management.azure.com/x", false},
 	} {
 		if got := tc.s.CheckWebhook(tc.url) == ""; got != tc.good {
 			t.Errorf("%s %q: accepted=%v, want %v", tc.s.ID(), tc.url, got, tc.good)
@@ -220,11 +221,59 @@ func TestAtMostTenAMinuteAndTheRestAreCounted(t *testing.T) {
 		t.Fatalf("%d posts in a minute, want %d", h.count(), perMinute)
 	}
 	s.rateMu.Lock()
-	s.winFrom = time.Now().Add(-2 * time.Minute)
+	s.rate[0].from = time.Now().Add(-2 * time.Minute)
 	s.rateMu.Unlock()
 	s.Notify(ctx, Alert{Title: "later", Severity: 4})
 	last, _ := json.Marshal(h.got[h.count()-1])
 	if !strings.Contains(string(last), "4 more alerts opened") {
 		t.Errorf("the held-back alerts weren't mentioned: %s", last)
+	}
+}
+
+// Hand-raised alerts have their own small budget, so they can't crowd out detected ones; and what
+// an attacker can put in a log can't make a link or a channel ping in Slack.
+func TestManualAlertsHaveTheirOwnBudgetAndTextIsEscaped(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newSvc(t, Slack)
+	h := newHook(t)
+	if err := s.Save(ctx, ptr(h.srv.URL+"/x"), 2); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		s.Notify(ctx, Alert{Title: "by hand", Severity: 5, Manual: true})
+	}
+	if h.count() != manualPerMinute {
+		t.Fatalf("%d hand-raised posts, want %d", h.count(), manualPerMinute)
+	}
+	s.Notify(ctx, Alert{Title: "detected", Severity: 4, GroupBy: "user", GroupValue: "<!channel> <https://evil.example|click>", Description: "a <!here> b & c"})
+	if h.count() != manualPerMinute+1 {
+		t.Fatal("a detected alert was held back by hand-raised ones")
+	}
+	b, _ := json.Marshal(h.got[h.count()-1])
+	for _, bad := range []string{`<!channel>`, `<https://evil.example`, `<!here>`} {
+		if strings.Contains(strings.ReplaceAll(string(b), `\u003c`, "<"), bad) {
+			t.Errorf("unescaped %q in %s", bad, b)
+		}
+	}
+}
+
+func TestRedirectsAreNotFollowedAndBodiesNotEchoed(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newSvc(t, Slack)
+	target := newHook(t)
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.srv.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	err := s.Test(ctx, redirect.URL+"/x", "root")
+	if err == nil || target.count() != 0 {
+		t.Errorf("a redirect was followed: err=%v, %d requests at the target", err, target.count())
+	}
+	body := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "INTERNAL-DETAIL-xyz", 500)
+	}))
+	defer body.Close()
+	if err := s.Test(ctx, body.URL+"/x", "root"); err == nil || strings.Contains(err.Error(), "INTERNAL-DETAIL") {
+		t.Errorf("the far end's words were echoed: %v", err)
 	}
 }

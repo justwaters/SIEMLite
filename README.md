@@ -818,8 +818,10 @@ page, a **Post alerts of** choice (Low, Medium, High or Critical and above; High
   `...powerplatform.com`). The message is an Adaptive Card.
 
 The webhook address works like a password, so it is saved sealed (like the email password), never shown again, and left
-out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute;
-if more alerts open, the next message says how many were held back. A failed post shows on the card. The messages name
+out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute (alerts raised by hand, such as an AI agent's `create_alert`, have their own
+budget of 3 a minute so they can't crowd out detected ones); if more alerts open, the next message says how many were
+held back. Redirects are not followed, text from logs is escaped so it can't make links or channel pings, and what
+the far end replies isn't repeated back. A failed post shows on the card. The messages name
 the rule, severity, who or what it was about, and how many events; they link nowhere, since SIEMLite doesn't know the
 address you reach it by. API: `GET`/`PUT /api/v1/integrations/slack` (or `teams`) with `{"webhook", "min_severity"}`
 (leave `webhook` out to keep the saved one; `""` removes it) and `POST .../test`.
