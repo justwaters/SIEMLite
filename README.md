@@ -1052,6 +1052,8 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 
 ## Performance
 
+A newer, smaller set of figures (ingest rate, search time and memory at 100,000 and 1,000,000 events, with the benchmarks that produce them) is in [docs/performance.md](docs/performance.md); the older load tests follow.
+
 Measured with the load tests in [`loadtest`](loadtest/doc.go) (`SIEMLITE_LOAD=hard`) on one small machine: an AMD Ryzen
 Embedded R2544 (4 cores, 8 threads), 14 GB of memory and an SSD, with the database on that SSD. Each figure is the 95th
 percentile with many clients working at once.
