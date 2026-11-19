@@ -75,6 +75,8 @@ type Alert struct {
 	CreatedAt  int64  `json:"created_at"`
 	UpdatedAt  int64  `json:"updated_at"`
 	UpdatedBy  string `json:"updated_by,omitempty"`
+	// Note says why a hand-raised alert (one with no rule) was raised.
+	Note string `json:"note,omitempty"`
 }
 
 const ruleCols = `id, name, description, enabled, severity, query, min_severity, threat_only, source_id, group_by,
@@ -747,7 +749,7 @@ func (r *Repository) ActiveAlertGroups(ctx context.Context, ruleID int64) (map[s
 // first, and the number in each status.
 func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) ([]Alert, map[string]int64, error) {
 	q := `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen, last_seen,
-		created_at, updated_at, updated_by FROM alerts`
+		created_at, updated_at, updated_by, note FROM alerts`
 	var args []any
 	if status != "" {
 		q += ` WHERE status = ?`
@@ -765,7 +767,7 @@ func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) (
 		var a Alert
 		var rid sql.NullInt64
 		if err := rows.Scan(&a.ID, &rid, &a.RuleName, &a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count,
-			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy); err != nil {
+			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note); err != nil {
 			return nil, nil, err
 		}
 		if rid.Valid {
@@ -805,8 +807,8 @@ func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by st
 	var a Alert
 	var rid sql.NullInt64
 	err = r.db.Write.QueryRowContext(ctx, `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen,
-		last_seen, created_at, updated_at, updated_by FROM alerts WHERE id = ?`, id).Scan(&a.ID, &rid, &a.RuleName,
-		&a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count, &a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy)
+		last_seen, created_at, updated_at, updated_by, note FROM alerts WHERE id = ?`, id).Scan(&a.ID, &rid, &a.RuleName,
+		&a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count, &a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note)
 	if rid.Valid {
 		a.RuleID = &rid.Int64
 	}
@@ -818,4 +820,47 @@ func (r *Repository) CountOpenAlerts(ctx context.Context) (int64, error) {
 	var n int64
 	err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'open'`).Scan(&n)
 	return n, err
+}
+
+// RaiseManualAlert opens an alert that no rule raised (an AI agent or a person
+// found something). One already open or acknowledged with the same title and
+// group is updated instead (its count goes up, and its severity and note are
+// replaced), so repeating a report doesn't pile up alerts. It reports whether
+// a new alert opened.
+func (r *Repository) RaiseManualAlert(ctx context.Context, a Alert, nowMs int64) (*Alert, bool, error) {
+	tx, err := r.db.Write.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+	var id int64
+	created := false
+	err = tx.QueryRowContext(ctx, `SELECT id FROM alerts WHERE rule_id IS NULL AND rule_name = ? AND group_by = ? AND group_value = ?
+		AND status <> 'closed' ORDER BY id DESC LIMIT 1`, a.RuleName, a.GroupBy, a.GroupValue).Scan(&id)
+	switch {
+	case err == nil:
+		_, err = tx.ExecContext(ctx, `UPDATE alerts SET count = count + ?, last_seen = ?, severity = ?, note = ?, updated_at = ?, updated_by = ?
+			WHERE id = ?`, a.Count, nowMs, a.Severity, a.Note, nowMs, a.UpdatedBy, id)
+	case errors.Is(err, sql.ErrNoRows):
+		created = true
+		var res sql.Result
+		res, err = tx.ExecContext(ctx, `INSERT INTO alerts (rule_id, rule_name, severity, group_by, group_value, status, count,
+			first_seen, last_seen, note, created_at, updated_at, updated_by) VALUES (NULL, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+			a.RuleName, a.Severity, a.GroupBy, a.GroupValue, a.Count, nowMs, nowMs, a.Note, nowMs, nowMs, a.UpdatedBy)
+		if err == nil {
+			id, err = res.LastInsertId()
+		}
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("raise manual alert: %w", err)
+	}
+	var out Alert
+	var rid sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen,
+		last_seen, created_at, updated_at, updated_by, note FROM alerts WHERE id = ?`, id).Scan(&out.ID, &rid, &out.RuleName,
+		&out.Severity, &out.GroupBy, &out.GroupValue, &out.Status, &out.Count, &out.FirstSeen, &out.LastSeen, &out.CreatedAt,
+		&out.UpdatedAt, &out.UpdatedBy, &out.Note); err != nil {
+		return nil, false, err
+	}
+	return &out, created, tx.Commit()
 }

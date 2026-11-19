@@ -194,11 +194,11 @@ usually within seconds, then who issued it and until when. Or set it from the st
 - **Users** (admins): add people, set their role, limit what they can see, change passwords, and keep the built-in admin account to the server itself.
 - **Sources** (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
 - **Parsers** (admins): build, upload, export and edit parsers.
-- **Integrations** (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, sign-in with Microsoft Entra ID, and AI Parsers.
+- **Integrations** (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, sign-in with Microsoft Entra ID, AI Parsers, AI Alerts and AI agents (MCP).
 - **System** (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, database size and uptime, and backups: create, schedule, download, upload, restore and delete.
 - **Security audit** (admins): checks SIEMLite's setup and the server it runs on, and tracks each finding until it is fixed. See [Security audit](#security-audit).
 - **Account** (everyone; select your name at the bottom of the sidebar): your role and what it lets you see, the theme (System, Light
-  or Dark) and an optional frosted Glass look that works with both, signing out, and how you sign in: a local password, which you can change here, or Microsoft Entra ID.
+  or Dark) and a Look (Original or an optional frosted Glass) that works with both, signing out, and how you sign in: a local password, which you can change here, or Microsoft Entra ID.
 
 ### Send logs from an app
 
@@ -326,6 +326,7 @@ structured data) is not kept: if you need it, give that source a custom parser.
 | `GET`/`POST /api/v1/users`, `PATCH`/`DELETE /api/v1/users/{id}`, `POST /api/v1/users/{id}/password` | admin | Manage users: `{"username", "password", "role", "limited", "sources"}`. A limited standard user sees only `sources`. Updates change only the fields sent. |
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates`, `GET /api/v1/parsers/severity-defaults` | admin | Manage parsers; the templates, and the default keyword rules for a parser's severity. |
 | `GET /api/v1/alerts?status=open` | any signed-in user not limited to some sources | Alerts (`open`, `acknowledged`, `closed` or `all`) and the count in each state. |
+| `POST /api/v1/alerts` | same | Open an alert no rule raised: `{"title", "severity" (1-6), "group_by" (`src_ip`, `dst_ip`, `user` or `host`, optional), "group_value", "count", "note"}`. An open alert with the same title and group is updated instead (`200`; a new one is `201`). It is audited. |
 | `PATCH /api/v1/alerts/{id}` | same | Acknowledge, close or reopen: `{"status": "acknowledged"}`. |
 | `GET /api/v1/rules`, `POST /api/v1/rules`, `PUT`/`DELETE /api/v1/rules/{id}` | any signed-in user (list), admin | Alert rules: `{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes", "kind"}`. `kind` is `match` (the default), or `volume_over` / `volume_under` to alert when the source in `source_id` (required) sends more than / fewer than `threshold` events in `window_minutes`; those ignore `query`, `min_severity`, `threat_only` and `group_by`. |
 | `GET /api/v1/system` | admin | Database size and version, uptime, backups folder and free space. |
@@ -338,6 +339,9 @@ structured data) is not kept: if you need it, give that source a custom parser.
 | `GET /api/v1/auth/providers`, `GET /api/v1/auth/entra/start`, `GET /api/v1/auth/entra/callback` | public | The sign-in page's "Continue with Microsoft": which buttons to show, where the browser is sent to sign in, and where Microsoft sends it back. Not for scripts. |
 | `GET`/`POST /api/v1/backups`, `PUT /api/v1/backups/settings`, `POST /api/v1/backups/upload` | admin | List backups and the job status, start a backup, set the schedule (`{"interval_hours": 0/6/24/168, "keep"}`), upload a backup file. |
 | `GET`/`DELETE /api/v1/backups/{name}`, `POST /api/v1/backups/{name}/restore` | admin | Download or delete a backup; restore it (SIEMLite restarts). |
+| `GET`/`PUT /api/v1/intel/feeds`, `POST .../intel/feeds/refresh` | admin | The [threat feeds](#threat-intel) on offer with their state, choosing them (`{"feeds": ["feodo", "ipsum3"]}`), and a download now (`202`). |
+| `GET`/`POST /api/v1/intel/friendly`, `PATCH`/`DELETE .../friendly/{id}`, `POST`/`DELETE .../friendly/{id}/entries` | admin | The friendly address lists: list them with their entries, create (`{"name", "description"}`), rename, delete, add addresses and ranges as text (`{"values": "203.0.113.7, 198.51.100.0/24", "note"}`; anything unreadable refuses the whole request) and remove one (`?value=`). |
+| `GET`/`PUT /api/v1/integrations/aialerts`, `POST .../aialerts/run`, `GET .../aialerts/proposals?status=pending`, `POST .../aialerts/proposals/{id}/accept` and `.../dismiss` | admin | The [AI Alerts](#ai-alerts) settings (`{"interval_hours": 1/6/24, "lookback_hours": 1/6/24/168}`; on and off is `POST /api/v1/integrations/aialerts/enabled`) with the last look's result, a look now (`202`, it runs in the background), the proposed rules, and accepting (makes the rule, switched on) or dismissing one. |
 | `GET`/`PUT /api/v1/integrations/ai`, `POST /api/v1/integrations/ai/test`, `GET /api/v1/integrations/ai/cloud-models` | admin | The [AI Parsers](#ai-parsers) settings (`{"provider": "local"/"openrouter"/"anthropic"/"google"/"openai"/"nvidia", "ollama_url", "local_model", "cloud_model", "send_addresses", "api_key", "key_for"}`; `api_key` is write-only and is for the service `key_for` (or `provider`): leaving it out keeps the saved one and `""` removes it; `openrouter_key` from v0.19 still works), with this server's hardware, the recommended model and the download's progress; a connection test (the same fields); and a service's models with the ones recommended (`GET ?provider=` uses the saved key, `POST {"provider", "api_key"}` the one given). |
 | `POST /api/v1/parsers/test`, `POST /api/v1/parsers/draft`, `POST /api/v1/parsers/suggest` | admin | Run a parser over `{"definition", "lines"}`; draft a parser with no AI model from `{"text"}` (pasted text; pretty-printed JSON is split into objects) or `{"lines"}`, answering the definition, how many samples it reads, and the samples as lines; ask the AI model for a parser for `{"lines"}`. |
 | `POST /api/v1/login`, `POST /api/v1/logout`, `GET /api/v1/me` | | Browser sign-in, sign-out and current session (`/me` includes `auth_provider`: `local` or `entra`, and `display_name` for a Microsoft account). A password sign-in refused by a [sign-in restriction](#sign-in-restrictions) gets `403`. |
@@ -448,6 +452,25 @@ Turning the integration off hides the button; its settings are kept. Asking for 
 [audit log](#audit-log) (`parser.suggest`), and so are changes to the settings (`system.ai.save`). Before v0.19 this was
 set with `SIEMLITE_AI_URL`; that still works, as the starting settings, until the page saves its own.
 
+### AI Alerts
+
+The **AI Alerts** integration suggests alert rules. Every so often (every hour, 6 hours or day, as you choose) it gives a model a
+summary of the logs from the last hour, 6 hours, day or week, together with the rules you already have, and asks what is worth
+catching that they don't. The summary is counts (by severity, program, host, user and address) and the commonest kinds of message
+with one example each; SIEMLite's own audit events are left out. The model's answers are kept only if they hold up: the search
+must run, find events in the logs it read, and not repeat an existing or earlier rule, and at most 5 are kept per look.
+
+Proposals wait on the card, with the rule in plain words, why the model suggested it and how many events its search matched.
+**Accept and turn on** makes an ordinary rule (checked like one made by hand, and editable on the Alerts page); **Dismiss** keeps
+it from being proposed again. **Nothing is raised, closed or changed by the model**: a proposal does nothing until a person
+accepts it. Past 25 waiting proposals it stops looking until some are decided.
+
+It uses the model chosen on the **AI Parsers** card, on this server or in the cloud, with the same masking of addresses and
+host names; set that up first, then switch AI Alerts on (it is off until you do). **Look now** runs a look at once. Every look is
+recorded in the audit log: which model, how many events, how many rules it proposed, and whether a summary left this server.
+Log lines are written by whatever sent them, so the prompt tells the model to treat the summary as data and never follow
+anything written in it; since a person reviews each proposal, the worst a planted line can do is suggest a rule.
+
 ## GeoIP and ASN
 
 Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,
@@ -474,7 +497,20 @@ subdomains) and MD5/SHA-1/SHA-256 hashes. It looks at the source and destination
 names and hashes anywhere in the raw log. A hit marks the event as a threat (red bar and **INTEL** badge in the UI,
 `threat=true` in search) and records which indicator, source and field matched.
 
-Download feeds automatically (refreshed every `-intel-refresh`, default 6h):
+The easy way: the **Intel** page (admins). Its **Threat feeds** section lists free IP blocklists that need no account
+(Feodo Tracker, C2IntelFeeds, IPsum, two from Blocklist.de, and the Tor exit nodes). Tick the ones you want and save: they download right
+away, refresh every 6 hours, and are removed again if you untick them. Each has a link to its provider's terms;
+whether you may use a list where you work is your call. Nothing is downloaded until you choose it. Events show the
+feed's name as the source of a match. Tor exit nodes aren't malicious in themselves, but they are flagged like any
+other listed address, so the built-in **Threat intel match** rule raises a High alert for each address that hits (traffic
+from or to a Tor exit; put your own exits on a friendly list to leave them alone).
+
+**Friendly addresses** (same page) are lists of addresses and ranges you trust, such as your office, a partner or a
+scanner you run. Make a list, then paste addresses (one per line, or separated by commas; `203.0.113.7` or
+`198.51.100.0/24`; `#` starts a comment). A friendly address is never marked as a threat, even when a feed lists it.
+It applies to events stored from then on; events already in the database keep their marks.
+
+Or download feeds from the command line (refreshed every `-intel-refresh`, default 6h; these show on the Intel page too, read-only):
 
 ```sh
 ./siemlite \
@@ -591,13 +627,15 @@ time (the agent using it is refused straight away). The switch on the card keeps
 | Level | Tools |
 |---|---|
 | **Read-only** | `search_events` (the Database search with its filters, newest first, 200 at most; the original line only with `include_raw`), `get_stats` (the dashboard's numbers for the last N hours), `list_alerts`, `list_rules`, `list_sources` |
-| **Analyst** | the above, and `set_alert_status` (acknowledge, close or reopen an alert) |
+| **Analyst** | the above, and `set_alert_status` (acknowledge, close or reopen an alert) and `create_alert` (open an alert for something found in the logs that no rule describes, with a severity, what it is about and a note saying why; raising it again adds to the open one) |
 | **Admin** | the above, and `list_parsers`, `get_parser`, `draft_parser`, `test_parser`, `save_parser`, `delete_parser`, `create_source`, `update_source`, `delete_source` |
 
 Agents can't reach users, passwords, sign-in settings, Microsoft sign-in, certificates, email, backups, retention or alert rules
 (they can read rules). A tool the token's level doesn't allow isn't listed, and calling it by name is refused. The tools run the
 same checks as the web pages, so a bad search, a missing name or a parser that doesn't compile comes back as a message the agent
-can act on. To connect Claude Code:
+can act on. Everything an agent does is audited: each tool call, searches and other reads included, is recorded in the audit log
+(the INTERNAL source) under the token's name (`agent:<name>`) with the tool, its arguments and whether it worked, and a call the token's
+level refuses is recorded as `mcp.denied` at medium severity. To connect Claude Code:
 
 ```
 claude mcp add --transport http siemlite https://siemlite.example.com/mcp --header "Authorization: Bearer slmcp_..."

@@ -117,6 +117,16 @@ type PullStatus struct {
 	Running   bool   `json:"running"`
 }
 
+// PullProgress returns the model download in progress, if there is one.
+func (s *Service) PullProgress() (PullStatus, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pull == nil || !s.pull.Running {
+		return PullStatus{}, false
+	}
+	return *s.pull, true
+}
+
 // Service is the AI Parsers integration.
 type Service struct {
 	// OpenRouterURL is OpenRouter's API, and CloudURLs the other services'
@@ -633,8 +643,10 @@ func (s *Service) check(ctx context.Context) {
 
 // --- Suggesting ---
 
-// Suggest proposes a parser for sample lines with the chosen model.
-func (s *Service) Suggest(ctx context.Context, lines []string) (*Suggestion, error) {
+// chatterFor opens the chosen model for a request, masked for the cloud
+// unless sending addresses is on. A nil Service is off, and so is one that
+// isn't set up; unless evenIfOff is true, so is one that's switched off.
+func (s *Service) chatterFor(ctx context.Context, evenIfOff bool) (chatter, error) {
 	if s == nil {
 		return nil, ErrOff
 	}
@@ -642,20 +654,20 @@ func (s *Service) Suggest(ctx context.Context, lines []string) (*Suggestion, err
 	if err != nil {
 		return nil, err
 	}
-	if !configured(st) || st.Disabled {
+	if !configured(st) || (st.Disabled && !evenIfOff) {
 		return nil, ErrOff
 	}
-	var ch chatter
 	switch svc, cloud := cloudService(st.Provider); {
 	case cloud:
 		key, err := s.box.Open(st.Keys[svc.ID])
 		if err != nil {
 			return nil, InputError("The saved " + svc.Name + " key can't be read on this server; enter it again on the Integrations page.")
 		}
-		ch = s.cloudChatter(svc, key, st.Models[svc.ID])
+		var ch chatter = s.cloudChatter(svc, key, st.Models[svc.ID])
 		if !st.SendAddresses {
 			ch = newMasker(ch)
 		}
+		return ch, nil
 	default:
 		s.mu.Lock()
 		ready := s.readyLocked(st)
@@ -663,9 +675,46 @@ func (s *Service) Suggest(ctx context.Context, lines []string) (*Suggestion, err
 		if !ready {
 			return nil, ErrNotReady
 		}
-		ch = newOllama(st.OllamaURL, st.LocalModel)
+		return newOllama(st.OllamaURL, st.LocalModel), nil
+	}
+}
+
+// Using describes the chosen model for an audit entry, and whether asking it
+// sends data off this server.
+func (s *Service) Using(ctx context.Context) (name string, cloud bool) {
+	if s == nil {
+		return "", false
+	}
+	st, err := s.current(ctx)
+	if err != nil || !configured(st) {
+		return "", false
+	}
+	if svc, isCloud := cloudService(st.Provider); isCloud {
+		return svc.Name + " " + st.Models[svc.ID], true
+	}
+	return "Ollama " + st.LocalModel, false
+}
+
+// Suggest proposes a parser for sample lines with the chosen model.
+func (s *Service) Suggest(ctx context.Context, lines []string) (*Suggestion, error) {
+	ch, err := s.chatterFor(ctx, false)
+	if err != nil {
+		return nil, err
 	}
 	return suggest(ctx, ch, s.log, lines)
+}
+
+// Ask puts one question to the model chosen on the AI Parsers card and returns
+// its JSON answer, in the shape the schema describes. Other integrations that
+// need a model (AI Alerts) use it, so the choice of model, its key and the
+// masking of addresses are made once. It doesn't need AI Parsers to be switched
+// on, only set up.
+func (s *Service) Ask(ctx context.Context, system, user string, schema any) (string, error) {
+	ch, err := s.chatterFor(ctx, true)
+	if err != nil {
+		return "", err
+	}
+	return ch.chat(ctx, []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}, schema)
 }
 
 // --- Testing ---

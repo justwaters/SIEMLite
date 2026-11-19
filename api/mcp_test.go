@@ -186,13 +186,13 @@ func TestMCPTokensAndLevels(t *testing.T) {
 		return true
 	}
 	rn, an, adm := e.toolNames(read), e.toolNames(analyst), e.toolNames(admin)
-	if len(rn) != 5 || !has(rn, "search_events", "get_stats", "list_alerts", "list_rules", "list_sources") || has(rn, "set_alert_status") {
+	if len(rn) != 5 || !has(rn, "search_events", "get_stats", "list_alerts", "list_rules", "list_sources") || has(rn, "set_alert_status") || has(rn, "create_alert") {
 		t.Errorf("read-only tools = %v", rn)
 	}
-	if len(an) != 6 || !has(an, "set_alert_status") || has(an, "create_source") {
+	if len(an) != 7 || !has(an, "set_alert_status", "create_alert") || has(an, "create_source") {
 		t.Errorf("analyst tools = %v", an)
 	}
-	if len(adm) != 15 || !has(adm, "create_source", "update_source", "delete_source", "save_parser", "draft_parser", "test_parser", "list_parsers", "get_parser", "delete_parser") {
+	if len(adm) != 16 || !has(adm, "create_source", "update_source", "delete_source", "save_parser", "draft_parser", "test_parser", "list_parsers", "get_parser", "delete_parser") {
 		t.Errorf("admin tools = %v", adm)
 	}
 	for _, forbidden := range []string{"user", "password", "tls", "backup", "retention", "email", "entra", "rule"} {
@@ -491,5 +491,87 @@ func TestMCPLineBatchIsCapped(t *testing.T) {
 	}
 	if _, isErr := e.tool(tok, "draft_parser", map[string]any{"lines": []string{"a=1 b=2", "a=3 b=4"}}); isErr {
 		t.Errorf("a small batch was refused")
+	}
+}
+
+// Every tool an agent calls is audited, reads included, under the token's
+// name, with the arguments and the outcome; a call the token's level refuses
+// is audited as denied.
+func TestMCPCallsAreAudited(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	read := e.mcpToken(root, "auditme", "read")
+
+	if msg, isErr := e.tool(read, "search_events", map[string]any{"q": `"needle-xyz"`}); isErr {
+		t.Fatalf("search_events failed: %s", msg)
+	}
+	if _, isErr := e.tool(read, "set_alert_status", map[string]any{"id": 1, "status": "closed"}); !isErr {
+		t.Fatal("a read-only token closed an alert")
+	}
+	e.worker.Drain(context.Background())
+
+	text, _ := e.tool(read, "search_events", map[string]any{"q": "auditme", "limit": 20})
+	for _, want := range []string{"agent:auditme called search_events", "needle-xyz", "agent:auditme tried"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the audit trail lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// An agent can raise an alert no rule describes; raising it again updates the open one.
+func TestMCPCreateAlert(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	read := e.mcpToken(root, "reader", "read")
+	analyst := e.mcpToken(root, "triage", "analyst")
+
+	args := map[string]any{"title": "Password spraying", "severity": 4, "group_by": "src_ip", "group_value": "10.1.2.3", "count": 7, "note": "7 users failed from one address"}
+	if msg, isErr := e.tool(read, "create_alert", args); !isErr || !strings.Contains(msg, "analyst") {
+		t.Errorf("a read-only token raised an alert: %q %v", msg, isErr)
+	}
+	text, isErr := e.tool(analyst, "create_alert", args)
+	var a struct {
+		ID         int64  `json:"id"`
+		RuleID     *int64 `json:"rule_id"`
+		Status     string `json:"status"`
+		Count      int64  `json:"count"`
+		UpdatedBy  string `json:"updated_by"`
+		Note       string `json:"note"`
+		GroupValue string `json:"group_value"`
+	}
+	if isErr || json.Unmarshal([]byte(text), &a) != nil || a.ID == 0 || a.RuleID != nil || a.Status != "open" || a.Count != 7 ||
+		a.UpdatedBy != "agent:triage" || a.Note == "" || a.GroupValue != "10.1.2.3" {
+		t.Fatalf("create_alert = %q %v", text, isErr)
+	}
+	// Again: the same alert, now with 8 events.
+	args["count"] = 1
+	text, _ = e.tool(analyst, "create_alert", args)
+	var again struct {
+		ID    int64 `json:"id"`
+		Count int64 `json:"count"`
+	}
+	if json.Unmarshal([]byte(text), &again) != nil || again.ID != a.ID || again.Count != 8 {
+		t.Errorf("a repeat = %q", text)
+	}
+	var list struct {
+		Alerts []map[string]any `json:"alerts"`
+	}
+	if got := e.call(root, "GET", "/api/v1/alerts?status=open", nil, &list, nil); got != 200 || len(list.Alerts) != 1 || list.Alerts[0]["note"] == "" {
+		t.Errorf("alerts = %d %+v", got, list)
+	}
+	// Mistakes come back as text.
+	for name, bad := range map[string]map[string]any{
+		"no title":      {"severity": 3},
+		"bad severity":  {"title": "x", "severity": 9},
+		"bad group":     {"title": "x", "severity": 3, "group_by": "port"},
+		"value no kind": {"title": "x", "severity": 3, "group_value": "a"},
+	} {
+		if msg, isErr := e.tool(analyst, "create_alert", bad); !isErr || msg == "" {
+			t.Errorf("%s: %q %v", name, msg, isErr)
+		}
 	}
 }

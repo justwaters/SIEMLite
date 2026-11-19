@@ -114,6 +114,7 @@ func TestUpgradeToV18RewordsTheBuiltInRules(t *testing.T) {
 		`UPDATE alert_rules SET query = '"mass ingestion"' WHERE name = 'Mass ingestion of late logs'`,
 		`UPDATE alert_rules SET query = '"sign-in failed"' WHERE name = 'Failed sign-ins to SIEMLite'`,
 		`INSERT INTO alert_rules (name, severity, query, threshold, window_minutes, builtin, created_at, updated_at) VALUES ('My own', 3, '"mass ingestion"', 1, 5, 0, 1, 1)`,
+		`ALTER TABLE alerts DROP COLUMN note`,
 		`PRAGMA user_version = 17`,
 	} {
 		if _, err := db.Write.Exec(stmt); err != nil {
@@ -137,8 +138,10 @@ func TestUpgradeToV18RewordsTheBuiltInRules(t *testing.T) {
 	if _, err := db.Write.Exec(`UPDATE alert_rules SET query = '"sign-in failed" AND admin' WHERE name = 'Failed sign-ins to SIEMLite'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Write.Exec(`PRAGMA user_version = 17`); err != nil {
-		t.Fatal(err)
+	for _, stmt := range []string{`ALTER TABLE alerts DROP COLUMN note`, `PRAGMA user_version = 17`} {
+		if _, err := db.Write.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
 	}
 	db.Close()
 	if db, err = Open(ctx, Options{Path: path}); err != nil {

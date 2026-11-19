@@ -209,3 +209,73 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		Fields: map[string]string{"target": ru.Name}})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
+// handleCreateAlert opens an alert by hand: something a person or an AI agent
+// found that no rule describes. Raising the same title and group again updates
+// the open alert instead of opening another.
+func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
+	if !s.canSeeAlerts(w, r) {
+		return
+	}
+	var req struct {
+		Title      string `json:"title"`
+		Severity   int    `json:"severity"`
+		GroupBy    string `json:"group_by"`
+		GroupValue string `json:"group_value"`
+		Count      int64  `json:"count"`
+		Note       string `json:"note"`
+	}
+	if !decodeJSON(w, r, &req, 8<<10) {
+		return
+	}
+	req.Title, req.GroupValue, req.Note = strings.TrimSpace(req.Title), strings.TrimSpace(req.GroupValue), strings.TrimSpace(req.Note)
+	if req.Count == 0 {
+		req.Count = 1
+	}
+	bad := func(msg string) { writeError(w, http.StatusBadRequest, msg) }
+	switch {
+	case req.Title == "" || len([]rune(req.Title)) > 80:
+		bad("title must be 1-80 characters")
+		return
+	case req.Severity < 1 || req.Severity > 6:
+		bad("severity must be 1-6")
+		return
+	case req.Count < 1 || req.Count > 1_000_000:
+		bad("count must be 1-1,000,000")
+		return
+	case len([]rune(req.GroupValue)) > 200:
+		bad("group_value must be at most 200 characters")
+		return
+	case len([]rune(req.Note)) > 1000:
+		bad("note must be at most 1000 characters")
+		return
+	}
+	switch req.GroupBy {
+	case "", "src_ip", "dst_ip", "user", "host":
+	default:
+		bad("group_by must be src_ip, dst_ip, user, host or nothing")
+		return
+	}
+	if req.GroupBy == "" && req.GroupValue != "" {
+		bad("group_value needs group_by")
+		return
+	}
+	by := auth.FromContext(r.Context()).Name
+	a, created, err := s.deps.Repo.RaiseManualAlert(r.Context(), storage.Alert{RuleName: req.Title, Severity: req.Severity,
+		GroupBy: req.GroupBy, GroupValue: req.GroupValue, Count: req.Count, Note: req.Note, UpdatedBy: by}, time.Now().UnixMilli())
+	if err != nil {
+		s.internal(w, "create alert", err)
+		return
+	}
+	what := a.RuleName
+	if a.GroupValue != "" {
+		what += " (" + a.GroupValue + ")"
+	}
+	verb, action, status := "raised", "alert.create", http.StatusCreated
+	if !created {
+		verb, action, status = "added to", "alert.update", http.StatusOK
+	}
+	s.audit(r, audit.Entry{Action: action, Severity: 2, Message: fmt.Sprintf("%s %s the alert %s", by, verb, what),
+		Fields: map[string]string{"target": what, "alert_severity": fmt.Sprint(a.Severity)}})
+	writeJSON(w, status, a)
+}

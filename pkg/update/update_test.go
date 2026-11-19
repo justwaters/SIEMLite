@@ -88,6 +88,9 @@ func TestCheckAndApply(t *testing.T) {
 	if b, _ := os.ReadFile(c.Exe); string(b) != "new program" {
 		t.Errorf("program is %q", b)
 	}
+	if active, done, _ := c.Progress(); active || done == 0 {
+		t.Errorf("after the download: active=%v, %d bytes counted", active, done)
+	}
 	if _, err := os.Stat(c.Exe + ".old"); err == nil && runtime.GOOS != "windows" {
 		t.Error("old program left behind")
 	}

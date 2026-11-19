@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 18
+const schemaVersion = 21
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -316,6 +316,48 @@ var upgrades = map[int][]string{
 	17: {
 		`UPDATE alert_rules SET query = 'action=ingest.late' WHERE builtin = 1 AND name = 'Mass ingestion of late logs' AND query = '"mass ingestion"'`,
 		`UPDATE alert_rules SET query = 'action=signin.failed' WHERE builtin = 1 AND name = 'Failed sign-ins to SIEMLite' AND query = '"sign-in failed"'`,
+	},
+	// v19: alerts an AI agent or person raises by hand have no rule, and carry a note saying why.
+	18: {
+		`ALTER TABLE alerts ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
+	},
+	// v20: alert rules the AI Alerts integration proposes, waiting for a person to accept or dismiss them.
+	19: {
+		`CREATE TABLE IF NOT EXISTS rule_proposals (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			name           TEXT NOT NULL,
+			description    TEXT NOT NULL DEFAULT '',
+			severity       INTEGER NOT NULL,
+			query          TEXT NOT NULL DEFAULT '',
+			min_severity   INTEGER,
+			group_by       TEXT NOT NULL DEFAULT '',
+			threshold      INTEGER NOT NULL,
+			window_minutes INTEGER NOT NULL,
+			reasoning      TEXT NOT NULL DEFAULT '',
+			matched        INTEGER NOT NULL DEFAULT 0,
+			model          TEXT NOT NULL DEFAULT '',
+			status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'dismissed')),
+			created_at     INTEGER NOT NULL,
+			decided_at     INTEGER,
+			decided_by     TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_rule_proposals_status ON rule_proposals(status, id DESC)`,
+	},
+	// v21: friendly address lists: addresses and ranges the threat intel check never flags.
+	20: {
+		`CREATE TABLE IF NOT EXISTS friendly_lists (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			name        TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			created_at  INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS friendly_entries (
+			list_id    INTEGER NOT NULL REFERENCES friendly_lists(id) ON DELETE CASCADE,
+			value      TEXT NOT NULL,
+			note       TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			PRIMARY KEY (list_id, value)
+		) WITHOUT ROWID`,
 	},
 }
 

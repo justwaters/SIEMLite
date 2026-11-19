@@ -19,6 +19,7 @@ import (
 
 	"siemlite/pkg/agents"
 	"siemlite/pkg/ai"
+	"siemlite/pkg/aialerts"
 	"siemlite/pkg/alerts"
 	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
@@ -60,7 +61,9 @@ type Deps struct {
 	Syslog *syslogd.Server // optional
 	Router *sources.Router // per-source parsers (required)
 	AI     *ai.Service     // the AI Parsers integration (optional)
-	Agents *agents.Service // AI agent access over MCP (optional)
+	// AIAlerts proposes alert rules with the AI Parsers model (optional).
+	AIAlerts *aialerts.Service
+	Agents   *agents.Service // AI agent access over MCP (optional)
 	// Backups, Started and Restart serve the System page (optional).
 	Backups *backup.Manager
 	Started time.Time
@@ -192,6 +195,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /mcp", s.handleMCP)
 	mux.HandleFunc("GET /mcp", s.handleMCP) // answers 405: agents POST (there is no event stream to open)
 	mux.Handle("GET /api/v1/alerts", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListAlerts)))
+	mux.Handle("POST /api/v1/alerts", a.Require(auth.PermSearch, http.HandlerFunc(s.handleCreateAlert)))
 	mux.Handle("PATCH /api/v1/alerts/{id}", a.Require(auth.PermSearch, http.HandlerFunc(s.handleSetAlertStatus)))
 	mux.Handle("GET /api/v1/rules", a.Require(auth.PermSearch, http.HandlerFunc(s.handleListRules)))
 	admin("POST /api/v1/rules", s.handleSaveRule)
@@ -228,6 +232,22 @@ func (s *Server) Handler() http.Handler {
 	admin("GET /api/v1/integrations/ai", s.handleGetAI)
 	admin("PUT /api/v1/integrations/ai", s.handleSaveAI)
 	admin("POST /api/v1/integrations/ai/test", s.handleTestAI)
+	admin("GET /api/v1/activity", s.handleActivity)
+	admin("GET /api/v1/intel/feeds", s.handleGetThreatFeeds)
+	admin("PUT /api/v1/intel/feeds", s.handleSaveThreatFeeds)
+	admin("POST /api/v1/intel/feeds/refresh", s.handleRefreshThreatFeeds)
+	admin("GET /api/v1/intel/friendly", s.handleListFriendly)
+	admin("POST /api/v1/intel/friendly", s.handleCreateFriendly)
+	admin("PATCH /api/v1/intel/friendly/{id}", s.handleUpdateFriendly)
+	admin("DELETE /api/v1/intel/friendly/{id}", s.handleDeleteFriendly)
+	admin("POST /api/v1/intel/friendly/{id}/entries", s.handleAddFriendlyEntries)
+	admin("DELETE /api/v1/intel/friendly/{id}/entries", s.handleDeleteFriendlyEntry)
+	admin("GET /api/v1/integrations/aialerts", s.handleGetAIAlerts)
+	admin("PUT /api/v1/integrations/aialerts", s.handleSaveAIAlerts)
+	admin("POST /api/v1/integrations/aialerts/run", s.handleRunAIAlerts)
+	admin("GET /api/v1/integrations/aialerts/proposals", s.handleListProposals)
+	admin("POST /api/v1/integrations/aialerts/proposals/{id}/accept", s.handleAcceptProposal)
+	admin("POST /api/v1/integrations/aialerts/proposals/{id}/dismiss", s.handleDismissProposal)
 	admin("GET /api/v1/integrations/ai/cloud-models", s.handleCloudModels)
 	admin("POST /api/v1/integrations/ai/cloud-models", s.handleCloudModels)
 	// Where email's settings were before the Integrations page (v0.10).

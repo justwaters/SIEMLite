@@ -32,14 +32,46 @@ type set struct {
 	domains  map[string][]entry
 	hashes   map[string][]entry
 	size     int
+	friendly friendlySet
 }
 
-func newSet(inds []storage.Indicator) *set {
+// friendlySet is the addresses and ranges that are never flagged.
+type friendlySet struct {
+	ips      map[netip.Addr]bool
+	prefixes []netip.Prefix
+}
+
+func newFriendly(values []string) friendlySet {
+	f := friendlySet{ips: map[netip.Addr]bool{}}
+	for _, v := range values {
+		if p, err := netip.ParsePrefix(v); err == nil {
+			f.prefixes = append(f.prefixes, p.Masked())
+		} else if a, err := netip.ParseAddr(v); err == nil {
+			f.ips[a.Unmap()] = true
+		}
+	}
+	return f
+}
+
+func (f friendlySet) has(a netip.Addr) bool {
+	if f.ips[a] {
+		return true
+	}
+	for _, p := range f.prefixes {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
+func newSet(inds []storage.Indicator, friendly []string) *set {
 	s := &set{
 		ips:      map[netip.Addr][]entry{},
 		prefixes: map[int]map[netip.Prefix][]entry{},
 		domains:  map[string][]entry{},
 		hashes:   map[string][]entry{},
+		friendly: newFriendly(friendly),
 	}
 	for _, in := range inds {
 		e := entry{in.Type, in.Value, in.Source, in.Description}
@@ -81,12 +113,14 @@ type Matcher struct {
 // NewMatcher returns a matcher with no indicators.
 func NewMatcher() *Matcher {
 	m := &Matcher{}
-	m.cur.Store(newSet(nil))
+	m.cur.Store(newSet(nil, nil))
 	return m
 }
 
-// Load replaces the indicators.
-func (m *Matcher) Load(inds []storage.Indicator) { m.cur.Store(newSet(inds)) }
+// Load replaces the indicators and the friendly addresses (never flagged).
+func (m *Matcher) Load(inds []storage.Indicator, friendly []string) {
+	m.cur.Store(newSet(inds, friendly))
+}
 
 // Size returns the number of loaded indicators.
 func (m *Matcher) Size() int { return m.cur.Load().size }
@@ -120,6 +154,9 @@ func (m *Matcher) Enrich(ev *ocsf.Event, d *enrich.Data) {
 			return
 		}
 		a = a.Unmap()
+		if s.friendly.has(a) {
+			return
+		}
 		add(field, a.String(), s.ips[a])
 		for _, bits := range s.bits {
 			if bits > a.BitLen() {

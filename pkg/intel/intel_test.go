@@ -70,7 +70,7 @@ func TestMatcher(t *testing.T) {
 		{Type: TypeCIDR, Value: "2001:db8::/32", Source: "drop"},
 		{Type: TypeDomain, Value: "evil.example", Source: "urlhaus"},
 		{Type: TypeHash, Value: strings.Repeat("ab", 32), Source: "mb"},
-	})
+	}, nil)
 	if m.Size() != 5 {
 		t.Fatalf("size = %d", m.Size())
 	}

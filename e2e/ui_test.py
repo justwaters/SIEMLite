@@ -18,7 +18,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-PAGES = ["dashboard", "database", "alerts", "users", "sources", "parsers", "system"]
+PAGES = ["dashboard", "database", "alerts", "users", "sources", "intel", "parsers", "system"]
 failures = []
 
 
@@ -181,8 +181,8 @@ def main(binary, loggen):
                 ctx = browser.new_context(ignore_https_errors=True, viewport={"width": width, "height": height})
                 page = ctx.new_page()
                 page.on("pageerror", lambda e: errors.append(str(e)))
-                # 401s are expected: the page asks who is signed in before anyone is.
-                page.on("console", lambda m: m.type == "error" and "status of 401" not in m.text and errors.append(m.text))
+                # 401s are expected: the page asks who is signed in before anyone is. So are the 400s of checks that enter something wrong on purpose.
+                page.on("console", lambda m: m.type == "error" and "status of 401" not in m.text and "status of 400" not in m.text and errors.append(m.text))
                 page.goto(url)
                 page.fill("#username", user)
                 page.fill("#password", pw)
@@ -205,18 +205,20 @@ def main(binary, loggen):
                 page.wait_for_timeout(400)
                 check(page.is_visible(f"#view-{name}"), f"{name} page opens")
 
-            # The glass look is off until chosen, then stays on after a reload, and turns off again.
+            # The Look selector is on Original until Glass is chosen, then stays on after a reload, and turns off again.
             page.goto(url + "#/account")
             page.wait_for_selector("#view-account:not([hidden])")
             look = lambda: page.evaluate("document.documentElement.dataset.look || ''")
             check(look() == "", "the glass look is off by default")
-            page.click(".glass-switch")
-            check(look() == "glass", "the Glass look switch turns it on")
+            pressed = lambda name: page.get_attribute(f'[data-look-choice="{name}"]', "aria-pressed")
+            check(pressed("original") == "true" and pressed("glass") == "false", "the Look selector starts on Original")
+            page.click('[data-look-choice="glass"]')
+            check(look() == "glass" and pressed("glass") == "true", "choosing Glass turns it on")
             page.reload()
             page.wait_for_selector("#view-account:not([hidden])")
-            check(look() == "glass" and page.is_checked("#glass-toggle"), "the glass look is still on after a reload")
-            page.click(".glass-switch")
-            check(look() == "", "the Glass look switch turns it off again")
+            check(look() == "glass" and pressed("glass") == "true", "the glass look is still on after a reload")
+            page.click('[data-look-choice="original"]')
+            check(look() == "" and pressed("original") == "true", "choosing Original turns it off again")
 
             # The generator's attacks raise alerts (the engine checks every 10s),
             # and an alert links to its events.
@@ -450,6 +452,19 @@ def main(binary, loggen):
             page.locator("tr.ev").nth(199).wait_for()
             ids = page.locator("tr.ev").count()
             check(ids >= 200, f"Show more events adds the next 100 ({ids} shown)")
+            # A public IP is a link: hovering shows its details, clicking goes to Talos without opening the row.
+            link = page.locator("tr.ev a.ip-link").first
+            if link.count():
+                ip = link.inner_text()
+                check((link.get_attribute("href") or "").endswith("search=" + ip) and "talosintelligence.com" in link.get_attribute("href"),
+                      f"a public IP links to its Talos lookup ({ip})")
+                link.hover()
+                page.wait_for_selector(".ip-tip:not([hidden])")
+                check("Talos" in page.inner_text(".ip-tip"), "hovering an IP shows its card")
+                check(page.locator("tr.detail").count() == 0 or page.locator("tr.ev.open").count() == 0, "hovering an IP doesn't open the row")
+                page.mouse.move(5, 5)
+            else:
+                check(False, "the Database shows a public IP as a link")
             # Field terms beside the words, the format the search box is meant to take.
             page.fill("#q", "source=INTERNAL")
             page.press("#q", "Enter")
@@ -512,6 +527,52 @@ def main(binary, loggen):
             # connect to /mcp with it as an analyst.
             page.goto(url + "#/integrations")
             page.wait_for_selector("#int-mcp .integ-toggle")
+            # AI Alerts has no model of its own: it can't be switched on until AI Parsers has one.
+            page.wait_for_selector("#int-aialerts .integ-toggle")
+            check(page.is_disabled("#int-aialerts .integ-switch input"), "AI Alerts can't be switched on without a model")
+            page.click("#int-aialerts .integ-toggle")
+            check("No model yet" in page.inner_text("#aia-model") and page.is_disabled("#aia-run"), "AI Alerts says it needs a model, and can't look")
+            check(page.locator("#int-threatfeeds").count() == 0, "Threat feeds is no longer an integration")
+            # The Intel page: pick threat feeds, and keep lists of friendly addresses.
+            page.click('a[data-nav="intel"]')
+            page.wait_for_selector("#tf-list input")
+            check(page.locator("#tf-list input").count() >= 4 and page.locator("#tf-list input:checked").count() == 0, "Intel lists the threat feeds on offer, none chosen")
+            page.check("#tf-feodo")
+            page.click("#tf-save")
+            page.wait_for_selector("#tf-msg:not([hidden])")
+            check("Saved" in page.inner_text("#tf-msg") and page.is_checked("#tf-feodo"), "choosing a threat feed saves it")
+            time.sleep(3.5)  # the list is drawn again while a download is pending; an unsaved tick must survive that
+            page.uncheck("#tf-feodo")
+            page.click("#tf-save")
+            page.wait_for_selector('#tf-msg:has-text("No feeds")')
+            check(page.is_hidden("#fr-name") and page.get_attribute("#itab-feeds", "aria-selected") == "true", "Intel opens on Threat Feeds")
+            page.click("#itab-friendlies")
+            page.wait_for_selector("#fr-name")
+            check(page.is_hidden("#tf-list") and "/intel/friendlies" in page.url, "the Friendlies tab shows its own page")
+            page.fill("#fr-name", "Office")
+            page.fill("#fr-desc", "HQ")
+            page.click('#fr-new button[type="submit"]')
+            page.wait_for_selector(".fr-list")
+            page.fill('.fr-list textarea', "203.0.113.7, 198.51.100.9/24 nonsense")
+            page.click(".fr-list .fr-add button")
+            page.wait_for_selector(".fr-list .notice:not([hidden])")
+            check("aren't IP addresses" in page.inner_text(".fr-list .notice") and page.locator(".fr-entries li").count() == 0, "a bad entry is refused and nothing is added")
+            page.fill('.fr-list textarea', "203.0.113.7, 198.51.100.9/24")
+            page.click(".fr-list .fr-add button")
+            page.wait_for_selector(".fr-entries li")
+            texts = page.locator(".fr-entries li .mono").all_inner_texts()
+            check(sorted(texts) == ["198.51.100.0/24", "203.0.113.7"], f"addresses and ranges are listed as entered, normalized ({texts})")
+            page.click('.fr-entries li button[aria-label="Remove 203.0.113.7"]')
+            page.wait_for_selector(".fr-entries li:nth-child(1):last-child")
+            page.click(".fr-list .btn-danger")
+            page.click("#c-ok")
+            page.wait_for_selector(".fr-list", state="detached")
+            check(True, "a friendly list can be deleted")
+            page.click("#itab-cve")
+            page.wait_for_selector("#ipane-cve:not([hidden])")
+            check("Coming soon" in page.inner_text("#ipane-cve"), "the CVE tab says it is coming soon")
+            page.goto(url + "#/integrations")
+            page.wait_for_selector("#int-mcp .integ-toggle")
             page.click("#int-mcp .integ-toggle")
             page.fill("#mcp-name", "e2e agent")
             page.select_option("#mcp-level", "analyst")
@@ -542,6 +603,9 @@ def main(binary, loggen):
                   "an analyst token lists the analyst tools and not the admin ones")
             found = mcp_call("tools/call", {"name": "search_events", "arguments": {"q": "failed", "limit": 3}})["result"]
             check(not found["isError"] and "events" in found["content"][0]["text"], "an agent can search events through /mcp")
+            raised = mcp_call("tools/call", {"name": "create_alert", "arguments": {"title": "E2E agent finding", "severity": 4, "group_by": "src_ip",
+                                                                                  "group_value": "10.2.3.4", "note": "found by the e2e agent"}})["result"]
+            check("create_alert" in tool_names and not raised["isError"], "an analyst token can raise an alert through /mcp")
             page.locator("#mcp-body tr", has_text="e2e agent").get_by_role("button", name="Remove").click()
             page.click("#c-ok")
             page.locator("#mcp-body tr", has_text="e2e agent").wait_for(state="detached")
@@ -555,6 +619,9 @@ def main(binary, loggen):
             # Acknowledge and close an alert.
             page.goto(url + "#/alerts")
             page.wait_for_selector("#alerts-body tr")
+            agent_row = page.locator("#alerts-body tr", has_text="E2E agent finding")
+            check(agent_row.count() == 1 and "found by the e2e agent" in agent_row.inner_text() and "10.2.3.4" in agent_row.inner_text(),
+                  "an alert an agent raised is listed with its note")
             before = page.locator("#alerts-body tr").count()
             page.locator("#alerts-body tr").first.get_by_role("button", name="Acknowledge").click()
             # (Not wait_for_function: its predicate is eval'd in the page, which

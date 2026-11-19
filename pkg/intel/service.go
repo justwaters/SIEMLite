@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,13 +23,18 @@ type Store interface {
 	AllIndicators(ctx context.Context) ([]storage.Indicator, error)
 	ReplaceIndicators(ctx context.Context, source string, inds []storage.Indicator, nowMs int64) (int, error)
 	ListIntelSources(ctx context.Context) ([]storage.IntelSource, error)
+	DeleteIndicatorSource(ctx context.Context, source string) (int64, error)
+	FriendlyValues(ctx context.Context) ([]string, error)
+	Setting(ctx context.Context, key, def string) (string, error)
+	SetSetting(ctx context.Context, key, value string) error
 }
 
 // Feed is a blocklist downloaded on a schedule. Its indicators are stored
 // under Name and replaced on every refresh.
 type Feed struct {
-	Name string
-	URL  string
+	Name        string
+	URL         string
+	Description string // what a match says about the address; kept with each indicator
 }
 
 // Config tunes a Service. Zero values select defaults.
@@ -57,6 +63,30 @@ type Service struct {
 	version    atomic.Int64
 	feedErrors atomic.Uint64
 	lastFetch  atomic.Int64
+
+	feedMu     sync.Mutex        // guards the saved feed choices (read, change, write)
+	statusMu   sync.Mutex        // guards errs
+	errs       map[string]string // the last error of each feed that failed, by id
+	refreshing atomic.Bool
+
+	actMu    sync.Mutex
+	actNow   string // the feed being downloaded
+	actDone  int    // feeds finished in this round
+	actTotal int    // feeds in this round (0 when none is running)
+}
+
+// Activity reports a round of downloads in progress: which feed is being fetched now, how many
+// are done, and how many there are in all (total is 0 when nothing is downloading).
+func (s *Service) Activity() (now string, done, total int) {
+	s.actMu.Lock()
+	defer s.actMu.Unlock()
+	return s.actNow, s.actDone, s.actTotal
+}
+
+func (s *Service) setActivity(now string, done, total int) {
+	s.actMu.Lock()
+	s.actNow, s.actDone, s.actTotal = now, done, total
+	s.actMu.Unlock()
 }
 
 // NewService returns a service; call Load before ingesting, then Run.
@@ -73,7 +103,7 @@ func NewService(store Store, cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	s := &Service{cfg: cfg, store: store, Matcher: NewMatcher()}
+	s := &Service{cfg: cfg, store: store, Matcher: NewMatcher(), errs: map[string]string{}}
 	s.version.Store(-1)
 	return s
 }
@@ -91,7 +121,11 @@ func (s *Service) Load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.Matcher.Load(inds)
+	friendly, err := s.store.FriendlyValues(ctx)
+	if err != nil {
+		return err
+	}
+	s.Matcher.Load(inds, friendly)
 	s.version.Store(v)
 	s.cfg.Logger.Info("threat intel loaded", "indicators", s.Matcher.Size())
 	return nil
@@ -123,7 +157,8 @@ func (s *Service) Run(ctx context.Context) {
 // refreshFeeds downloads every feed. At startup, feeds refreshed less than
 // FeedInterval ago are skipped so frequent restarts do not hammer providers.
 func (s *Service) refreshFeeds(ctx context.Context, startup bool) {
-	if len(s.cfg.Feeds) == 0 {
+	feeds := s.activeFeeds(ctx)
+	if len(feeds) == 0 {
 		return
 	}
 	fresh := map[string]bool{}
@@ -135,24 +170,60 @@ func (s *Service) refreshFeeds(ctx context.Context, startup bool) {
 			}
 		}
 	}
-	for _, f := range s.cfg.Feeds {
+	todo := 0
+	for _, f := range feeds {
+		if !fresh[f.Name] {
+			todo++
+		}
+	}
+	if todo == 0 {
+		return
+	}
+	done := 0
+	defer s.setActivity("", 0, 0)
+	for _, f := range feeds {
 		if fresh[f.Name] {
 			continue
 		}
+		s.setActivity(f.Name, done, todo)
+		done++
+		id := s.feedID(f)
 		n, skipped, err := FetchFeed(ctx, s.cfg.HTTPClient, s.store, f)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
 			s.feedErrors.Add(1)
+			s.setErr(id, err.Error())
 			s.cfg.Logger.Warn("threat intel feed failed; keeping the previous indicators", "feed", f.Name, "err", err)
 			continue
 		}
+		s.setErr(id, "")
 		s.cfg.Logger.Info("threat intel feed refreshed", "feed", f.Name, "indicators", n, "skipped_lines", skipped)
 	}
 	s.lastFetch.Store(time.Now().UnixMilli())
 	if err := s.Load(ctx); err != nil && ctx.Err() == nil {
 		s.cfg.Logger.Warn("threat intel reload failed", "err", err)
+	}
+}
+
+// feedID is the id the card knows a feed by.
+func (s *Service) feedID(f Feed) string {
+	for _, p := range Presets {
+		if p.Name == f.Name {
+			return p.ID
+		}
+	}
+	return "custom:" + f.Name
+}
+
+func (s *Service) setErr(id, msg string) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	if msg == "" {
+		delete(s.errs, id)
+	} else {
+		s.errs[id] = msg
 	}
 }
 
@@ -182,7 +253,7 @@ func FetchFeed(ctx context.Context, client *http.Client, store Store, f Feed) (n
 		return 0, 0, fmt.Errorf("GET %s: %s", f.URL, resp.Status)
 	}
 	body := &io.LimitedReader{R: resp.Body, N: maxFeedBytes + 1}
-	inds, skipped, err := ParseFeed(body, "", f.Name, "")
+	inds, skipped, err := ParseFeed(body, "", f.Name, f.Description)
 	if err != nil {
 		return 0, skipped, err
 	}

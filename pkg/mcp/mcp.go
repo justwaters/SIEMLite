@@ -54,6 +54,10 @@ type Server struct {
 	Version      string
 	Instructions string
 	Tools        []Tool
+	// OnCall, if set, is told about every tool call: the tool, the arguments,
+	// and the result. A call the token's level refuses is reported too, with
+	// denied set.
+	OnCall func(ctx context.Context, t Tool, args json.RawMessage, res Result, denied bool)
 }
 
 type request struct {
@@ -194,13 +198,20 @@ func (s *Server) handleOne(ctx context.Context, level int, raw []byte) (response
 				continue
 			}
 			if t.Min > level {
+				if s.OnCall != nil {
+					s.OnCall(ctx, t, p.Arguments, Result{IsError: true}, true)
+				}
 				return ok(textResult(Result{IsError: true, Text: fmt.Sprintf("This token is %s and can't use %s. It needs a token with the %s level; an admin can make one on the Integrations page.",
 					levelNames[level], t.Name, levelNames[t.Min])}))
 			}
 			if len(bytes.TrimSpace(p.Arguments)) == 0 {
 				p.Arguments = json.RawMessage("{}")
 			}
-			return ok(textResult(s.run(ctx, t, p.Arguments)))
+			res := s.run(ctx, t, p.Arguments)
+			if s.OnCall != nil {
+				s.OnCall(ctx, t, p.Arguments, res, false)
+			}
+			return ok(textResult(res))
 		}
 		return errorResponse(req.ID, -32602, "unknown tool: "+p.Name), true
 	}

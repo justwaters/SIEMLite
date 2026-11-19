@@ -7,6 +7,8 @@
 <script>
   // Apply a saved theme before first paint so the page never flashes.
   try { const t = localStorage.getItem("siemlite-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; if (localStorage.getItem("siemlite-look") === "glass") document.documentElement.dataset.look = "glass"; } catch {}
+  // Real refraction needs an SVG filter on the backdrop, which only Chromium-based browsers apply; the others keep the plain blur.
+  if (navigator.userAgentData) document.documentElement.dataset.refract = "";
 </script>
 <style>
   @font-face { font-family: "Instrument Sans"; src: url(fonts/instrument-sans.woff2) format("woff2");
@@ -53,6 +55,12 @@
     --g-bar: rgba(244, 247, 251, .55);
     --g-line: rgba(30, 45, 70, .13); --g-edge: rgba(255, 255, 255, .85); --g-shine: rgba(255, 255, 255, .55);
     --g-shadow: 0 10px 34px -14px rgba(30, 50, 90, .30), 0 1px 3px rgba(30, 50, 90, .08);
+    /* Liquid glass edges: a thin rim, a specular glint at the top left and a fainter one at the bottom right, light that gathers toward the
+       edge (the Fresnel effect), and a hint of colour fringing where the glass bends the light. */
+    --g-shine-2: rgba(255, 255, 255, .28);
+    --g-rim: inset 0 0 0 1px rgba(255, 255, 255, .55), inset 2px 2px 1px -2px #fff, inset -2px -2px 1px -2px rgba(255, 255, 255, .8),
+             inset 0 0 26px -10px rgba(255, 255, 255, .95), inset 1px 0 0 rgba(120, 190, 255, .14), inset -1px 0 0 rgba(255, 150, 210, .14);
+    --g-rim-sm: inset 0 0 0 1px rgba(255, 255, 255, .5), inset 1px 1px 1px -1px #fff, inset 0 0 12px -5px rgba(255, 255, 255, .9);
     --surface: var(--g-fill); --raised: var(--g-hover); --rule: var(--g-line);
   }
   @media (prefers-color-scheme: dark) {
@@ -65,6 +73,10 @@
       --g-bar: rgba(20, 25, 31, .55);
       --g-line: rgba(255, 255, 255, .12); --g-edge: rgba(255, 255, 255, .20); --g-shine: rgba(255, 255, 255, .10);
       --g-shadow: 0 14px 40px -16px rgba(0, 0, 0, .65), 0 1px 3px rgba(0, 0, 0, .3);
+    --g-shine-2: rgba(255, 255, 255, .05);
+    --g-rim: inset 0 0 0 1px rgba(255, 255, 255, .10), inset 2px 2px 1px -2px rgba(255, 255, 255, .55), inset -2px -2px 1px -2px rgba(255, 255, 255, .28),
+             inset 0 0 28px -12px rgba(190, 215, 255, .30), inset 1px 0 0 rgba(120, 190, 255, .10), inset -1px 0 0 rgba(255, 150, 210, .10);
+    --g-rim-sm: inset 0 0 0 1px rgba(255, 255, 255, .10), inset 1px 1px 1px -1px rgba(255, 255, 255, .5), inset 0 0 12px -5px rgba(190, 215, 255, .28);
     }
   }
   :root[data-look="glass"][data-theme="dark"] {
@@ -76,6 +88,10 @@
     --g-bar: rgba(20, 25, 31, .55);
     --g-line: rgba(255, 255, 255, .12); --g-edge: rgba(255, 255, 255, .20); --g-shine: rgba(255, 255, 255, .10);
     --g-shadow: 0 14px 40px -16px rgba(0, 0, 0, .65), 0 1px 3px rgba(0, 0, 0, .3);
+    --g-shine-2: rgba(255, 255, 255, .05);
+    --g-rim: inset 0 0 0 1px rgba(255, 255, 255, .10), inset 2px 2px 1px -2px rgba(255, 255, 255, .55), inset -2px -2px 1px -2px rgba(255, 255, 255, .28),
+             inset 0 0 28px -12px rgba(190, 215, 255, .30), inset 1px 0 0 rgba(120, 190, 255, .10), inset -1px 0 0 rgba(255, 150, 210, .10);
+    --g-rim-sm: inset 0 0 0 1px rgba(255, 255, 255, .10), inset 1px 1px 1px -1px rgba(255, 255, 255, .5), inset 0 0 12px -5px rgba(190, 215, 255, .28);
   }
   /* The backdrop is its own fixed layer, so it stays still while the page scrolls and never repeats or shows a seam. */
   :root[data-look="glass"] { background: var(--paper); }
@@ -84,8 +100,8 @@
   /* Panes: frosted fill, a bright top edge, a faint diagonal sheen, a soft shadow. */
   :root[data-look="glass"] :is(.panel, .table-wrap, .range, .field, .figure, .matches, .preview-line, .error, .mail-warn, .tooltip) {
     -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%);
-    background-image: linear-gradient(135deg, var(--g-shine), transparent 42%);
-    box-shadow: inset 0 1px 0 var(--g-edge), var(--g-shadow);
+    background-image: radial-gradient(130% 100% at 0% 0%, var(--g-shine), transparent 60%), radial-gradient(90% 70% at 100% 100%, var(--g-shine-2), transparent 60%);
+    box-shadow: var(--g-rim), var(--g-shadow);
   }
   :root[data-look="glass"] :is(.panel, .table-wrap, .range) { border-radius: 16px; }
   /* A row of figures becomes separate cards with space between them, not one box cut into cells. */
@@ -93,50 +109,54 @@
   :root[data-look="glass"] :is(.figure, .audit-figures button.figure) { border: 1px solid var(--g-line); border-radius: 16px; }
   :root[data-look="glass"] :is(.figure-link:hover, .audit-figures button.figure:hover, .audit-figures button.figure[aria-pressed="true"]) { background-color: var(--g-hover); }
   :root[data-look="glass"] .error { background-color: var(--g-fill); }
-  :root[data-look="glass"] .mail-warn { box-shadow: inset 3px 0 0 var(--sev-4), inset 0 1px 0 var(--g-edge), var(--g-shadow); }
-  :root[data-look="glass"] .matches { box-shadow: inset 3px 0 0 var(--sev-5), inset 0 1px 0 var(--g-edge), var(--g-shadow); }
+  :root[data-look="glass"] .mail-warn { box-shadow: inset 3px 0 0 var(--sev-4), var(--g-rim), var(--g-shadow); }
+  :root[data-look="glass"] .matches { box-shadow: inset 3px 0 0 var(--sev-5), var(--g-rim), var(--g-shadow); }
   :root[data-look="glass"] .side { background: var(--g-bar); border-right-color: var(--g-line);
-    -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%); box-shadow: inset -1px 0 0 var(--g-edge); }
+    -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%); box-shadow: inset -1px 0 0 var(--g-edge), inset -14px 0 24px -20px rgba(255, 255, 255, .5); }
   :root[data-look="glass"] .db-bar { background: var(--g-bar); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
     padding-left: 12px; padding-right: 12px; margin: 0 -12px; border-radius: 0 0 16px 16px; }
   :root[data-look="glass"] .nav-item { border-radius: 10px; }
-  :root[data-look="glass"] .nav-item[aria-current="page"] { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 2px 10px -4px rgba(30, 50, 90, .25); }
+  :root[data-look="glass"] .nav-item[aria-current="page"] { background: var(--g-fill-hi); box-shadow: var(--g-rim-sm), 0 4px 14px -6px rgba(30, 50, 90, .35); }
   :root[data-look="glass"] .nav-item:hover { background: var(--g-hover); }
   :root[data-look="glass"] .account { border-radius: 10px; box-shadow: none; }
   /* Controls. */
   :root[data-look="glass"] :is(.btn, .input, .select, textarea, input[type="file"]::file-selector-button) {
     -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%);
-    box-shadow: inset 0 1px 0 var(--g-edge), 0 1px 2px rgba(30, 50, 90, .08);
+    box-shadow: var(--g-rim-sm), 0 1px 2px rgba(30, 50, 90, .08);
   }
   :root[data-look="glass"] .btn { border-radius: 10px; transition: background .15s, transform .1s; }
   :root[data-look="glass"] .btn:hover { background: var(--g-fill-hi); }
   :root[data-look="glass"] .btn:active { transform: scale(.975); }
   :root[data-look="glass"] .btn:disabled { background: var(--g-fill); }
-  :root[data-look="glass"] .btn-primary { background: var(--ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 6px 16px -8px rgba(0, 0, 0, .5); }
+  :root[data-look="glass"] .btn-primary { background: var(--ink); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12), inset 1px 1px 1px -1px rgba(255, 255, 255, .55), inset 0 0 12px -6px rgba(255, 255, 255, .35), 0 6px 16px -8px rgba(0, 0, 0, .5); }
   :root[data-look="glass"] .btn-primary:hover { background: var(--ink); }
   :root[data-look="glass"] :is(.input, .select, textarea) { border-radius: 10px; }
-  :root[data-look="glass"] :is(.input, .select, textarea):focus { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 0 0 3px var(--g-line); }
-  :root[data-look="glass"] .seg, :root[data-look="glass"] .theme { background: var(--g-fill); border-radius: 12px; box-shadow: inset 0 1px 0 var(--g-edge);
+  :root[data-look="glass"] :is(.input, .select, textarea):focus { background: var(--g-fill-hi); box-shadow: var(--g-rim-sm), 0 0 0 3px var(--g-line); }
+  :root[data-look="glass"] .seg, :root[data-look="glass"] .theme { background: var(--g-fill); border-radius: 12px; box-shadow: var(--g-rim-sm);
     -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
   :root[data-look="glass"] :is(.seg button, .theme button) { border-radius: 9px; }
   :root[data-look="glass"] :is(.seg button[aria-pressed="true"], .seg button[aria-selected="true"], .theme button[aria-pressed="true"],
-      .account-grid .theme button[aria-pressed="true"]) { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 2px 8px -3px rgba(30, 50, 90, .3); }
+      .account-grid .theme button[aria-pressed="true"]) { background: var(--g-fill-hi); box-shadow: var(--g-rim-sm), 0 3px 10px -4px rgba(30, 50, 90, .4); }
   :root[data-look="glass"] .track { background: var(--g-line); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12); }
   :root[data-look="glass"] .track::after { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
   :root[data-look="glass"] .switch input:checked + .track { background: var(--ink); }
   /* Tables sit on the pane; rows are lit on hover. */
   :root[data-look="glass"] tr.ev:hover td, :root[data-look="glass"] tr.ev.open td, :root[data-look="glass"] tr.detail td { background: var(--g-hover); }
-  :root[data-look="glass"] :is(pre.raw, pre.example, pre.code) { background: var(--g-fill); box-shadow: inset 0 1px 0 var(--g-edge); }
+  :root[data-look="glass"] :is(pre.raw, pre.example, pre.code) { background: var(--g-fill); box-shadow: var(--g-rim-sm); }
   /* Dialogs float above a blurred page. */
   :root[data-look="glass"] dialog { border-radius: 20px; background: var(--g-fill-hi); border-color: var(--g-edge);
     -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%);
-    box-shadow: inset 0 1px 0 var(--g-edge), 0 40px 90px -30px rgba(0, 0, 0, .55); }
+    box-shadow: var(--g-rim), 0 40px 90px -30px rgba(0, 0, 0, .55); }
   :root[data-look="glass"] dialog::backdrop { background: rgba(20, 30, 50, .28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  /* Where the browser can (Chromium), dialogs and the sticky search bar bend what is behind them toward their edges, like a thick lens. */
+  .lens-defs { position: absolute; }
+  :root[data-look="glass"][data-refract] :is(dialog, .db-bar) {
+    -webkit-backdrop-filter: url(#lg-lens) blur(20px) saturate(180%); backdrop-filter: url(#lg-lens) blur(20px) saturate(180%); }
   /* Sign-in and the restart screen. */
   :root[data-look="glass"] :is(.login, .restarting) { background: var(--g-back); }
   :root[data-look="glass"] .login-art { background: transparent; }
   :root[data-look="glass"] .login-main { background: var(--g-bar); -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
-    box-shadow: inset 1px 0 0 var(--g-edge); }
+    box-shadow: inset 1px 0 0 var(--g-edge), inset 14px 0 24px -20px rgba(255, 255, 255, .5); }
   /* When the system asks for less transparency, the panes turn solid. */
   @media (prefers-reduced-transparency: reduce) {
     :root[data-look="glass"] * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
@@ -151,6 +171,12 @@
   body { margin: 0; background: var(--paper); color: var(--ink); font: 400 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
   [hidden] { display: none !important; }
   button, input, select, textarea { font: inherit; color: inherit; }
+  /* What is typed in a field is brighter than the hint that fills an empty one, so a field with text doesn't read as empty. */
+  :root { --field-ink: var(--ink); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --field-ink: #f7f8f6; } }
+  :root[data-theme="dark"] { --field-ink: #f7f8f6; }
+  .input, .select, textarea { color: var(--field-ink); }
+  ::placeholder { color: var(--ink-2); opacity: .7; }
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .mono { font-family: var(--mono); font-size: 13px; }
@@ -226,7 +252,7 @@
   .account-grid { display: grid; gap: 16px; }
   .account-grid .panel h2 { margin-bottom: 4px; }
   .account-grid .theme { margin: 10px 0 0; max-width: 300px; }
-  .account-grid .glass-switch { margin: 16px 0 6px; padding: 0; max-width: 300px; }
+  .theme.two { grid-template-columns: repeat(2, 1fr); }
   .account-grid .theme button[aria-pressed="true"] { background: var(--raised); box-shadow: none; }
   .acct-pw-form { display: grid; gap: 12px; margin-top: 12px; max-width: 360px; }
   .acct-pw-form .input { width: 100%; }
@@ -339,6 +365,12 @@
   .time { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13.5px; }
   .sev { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
   .sev i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); flex: none; }
+  .ip-link { color: inherit; text-decoration: underline dotted; text-decoration-color: var(--ink-2); text-underline-offset: 4px; }
+  .ip-link:hover, .ip-link:focus-visible { text-decoration-style: solid; text-decoration-color: currentColor; }
+  .ip-tip { position: fixed; z-index: 50; font-family: var(--sans); font-size: 12px; padding: 6px 9px; }
+  .ip-tip b { font-size: 13px; }
+  .ip-tip-src { font-size: 11px; margin-top: 3px; }
+  .ip-tip-hint { margin-top: 4px; font-size: 11px; }
   .cc { margin-left: 6px; color: var(--ink-2); font-family: var(--sans); font-size: 12px; }
   .tag { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 4px; font-size: 12px; font-weight: 600; line-height: 19px; }
   .tag-threat { color: var(--sev-5); box-shadow: inset 0 0 0 1px var(--sev-5); }
@@ -448,6 +480,13 @@
   .preview-status { font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
   .preview-status.miss { color: var(--sev-5); }
   .ai-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .activity:empty { display: none; }
+  .activity { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+  .activity .task { display: grid; gap: 5px; }
+  .activity .task-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .activity .task-detail { color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+  .activity .meter { height: 5px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+  .activity .meter i { display: block; height: 100%; background: var(--ink); border-radius: 3px; transition: width .4s; }
   .spinner { width: 14px; height: 14px; border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -486,6 +525,37 @@
   .integ-switch { padding: 0; gap: 8px; font-size: 13.5px; }
   .integ-switch input:disabled ~ .track { opacity: .45; }
   .integ-body { border-top: 1px solid var(--rule); padding: 18px 20px; }
+  .intel-tabs { margin: 0 0 16px; }
+  .soon { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 56px 24px; }
+  .soon-art { width: 96px; height: 96px; color: var(--ink-2); margin-bottom: 10px; }
+  .soon h2 { margin: 0; }
+  .soon .hint { max-width: 46ch; margin: 0; }
+  .fr-new { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(200px, 2fr) auto; gap: 12px; align-items: end; margin: 14px 0 4px; }
+  .fr-lists { display: grid; gap: 14px; margin-top: 14px; }
+  .fr-list { border: 1px solid var(--rule); border-radius: 10px; padding: 14px; display: grid; gap: 10px; }
+  .fr-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .fr-head h3 { margin: 0; font-size: 15px; }
+  .fr-head .fr-count { color: var(--ink-2); font-size: 13px; }
+  .fr-head .spacer { flex: 1; }
+  .fr-entries { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .fr-entries li { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 4px 2px 12px; font-size: 13px; }
+  .fr-entries li button { border: 0; background: none; color: var(--ink-2); cursor: pointer; padding: 2px 8px; border-radius: 999px; font-size: 15px; line-height: 1; }
+  .fr-entries li button:hover { color: var(--sev-5); }
+  .fr-add { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(140px, 1fr) auto; gap: 12px; align-items: end; }
+  .fr-add textarea { min-height: 64px; resize: vertical; }
+  @media (max-width: 720px) { .fr-new, .fr-add { grid-template-columns: 1fr; } }
+  .tf-list { display: grid; gap: 10px; margin: 12px 0; }
+  .tf-item { border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; align-items: start; }
+  .tf-item input { margin-top: 4px; }
+  .tf-item .tf-name { font-weight: 600; }
+  .tf-item p { margin: 0; grid-column: 2; font-size: 13.5px; }
+  .tf-item .tf-err { color: var(--sev-5); }
+  .aia-title { font-size: 14px; margin: 22px 0 6px; }
+  .aia-list { display: grid; gap: 10px; }
+  .aia-item { border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; }
+  .aia-item .aia-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .aia-item .aia-why { color: var(--ink-2, inherit); }
+  .aia-item .row-actions { margin-top: 4px; }
   .ai-pane { display: grid; gap: 14px; }
   .ai-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .ai-model { position: relative; display: grid; gap: 4px; align-content: start; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 8px; cursor: pointer; }
@@ -610,6 +680,16 @@
 </style>
 </head>
 <body>
+<svg class="lens-defs" width="0" height="0" aria-hidden="true" focusable="false"><defs>
+  <filter id="lg-lens" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
+    <feImage x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="mx"
+      href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3ClinearGradient id='g'%3E%3Cstop offset='0' stop-color='rgb(214,128,128)'/%3E%3Cstop offset='.12' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='.88' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='1' stop-color='rgb(42,128,128)'/%3E%3C/linearGradient%3E%3Crect width='100' height='100' fill='url(%23g)'/%3E%3C/svg%3E"/>
+    <feImage x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="my"
+      href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='rgb(128,214,128)'/%3E%3Cstop offset='.2' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='.8' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='1' stop-color='rgb(128,42,128)'/%3E%3C/linearGradient%3E%3Crect width='100' height='100' fill='url(%23g)'/%3E%3C/svg%3E"/>
+    <feComposite in="mx" in2="my" operator="arithmetic" k1="0" k2="1" k3="1" k4="-0.5" result="map"/>
+    <feDisplacementMap in="SourceGraphic" in2="map" scale="46" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</defs></svg>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-dash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10m5.3 10V4m5.4 16v-7M20 20v-4"/></symbol>
   <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6M4.5 12v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-6"/></symbol>
@@ -617,6 +697,7 @@
   <symbol id="i-sources" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h7m-7 5h7m-7 5h7"/><path d="M13.5 12h6.5m-3-3 3 3-3 3"/></symbol>
   <symbol id="i-parsers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-4.5 5L8 17m8-10 4.5 5L16 17M13.5 5l-3 14"/></symbol>
   <symbol id="i-alerts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-intel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3"/></symbol>
   <symbol id="i-integrations" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5v4m6-4v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l7 2.5v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
   <symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
@@ -663,6 +744,7 @@
       <a class="nav-item" href="#/database" data-nav="database"><svg class="icon"><use href="#i-db"/></svg>Database</a>
       <a class="nav-item alerts-nav" href="#/alerts" data-nav="alerts"><svg class="icon"><use href="#i-alerts"/></svg>Alerts<span class="nav-count" id="nav-alerts" hidden></span></a>
       <a class="nav-item admin-only" href="#/sources" data-nav="sources"><svg class="icon"><use href="#i-sources"/></svg>Sources</a>
+      <a class="nav-item admin-only" href="#/intel" data-nav="intel"><svg class="icon"><use href="#i-intel"/></svg>Intel</a>
       <a class="nav-item admin-only" href="#/parsers" data-nav="parsers"><svg class="icon"><use href="#i-parsers"/></svg>Parsers</a>
       <div class="admin-only nav-sep" role="separator"></div>
       <a class="nav-item admin-only" href="#/users" data-nav="users"><svg class="icon"><use href="#i-users"/></svg>Users</a>
@@ -671,6 +753,7 @@
       <a class="nav-item admin-only" href="#/security" data-nav="security"><svg class="icon"><use href="#i-shield"/></svg>Security audit</a>
     </nav>
     <div class="side-foot">
+      <div class="admin-only"><div id="activity" class="activity" role="status" aria-live="polite" aria-label="Downloads and other jobs"></div></div>
       <div id="status" aria-live="polite"></div>
       <a class="account" href="#/account" data-nav="account" title="Your account">
         <span class="avatar" id="who-initial" aria-hidden="true"></span><b id="who-name"></b>
@@ -871,6 +954,45 @@
       <p class="notice" id="sources-msg" role="status" hidden></p>
     </section>
 
+    <!-- Intel -->
+    <section id="view-intel" class="page" aria-labelledby="intel-title" hidden>
+      <div class="page-head">
+        <div><h1 id="intel-title">Intel</h1><p>Lists of known-bad IP addresses to flag, and lists of friendly addresses to leave alone.</p></div>
+      </div>
+      <div class="seg intel-tabs" role="tablist" aria-label="Intel">
+        <button type="button" role="tab" id="itab-feeds" data-tab="feeds" aria-controls="ipane-feeds">Threat Feeds</button>
+        <button type="button" role="tab" id="itab-friendlies" data-tab="friendlies" aria-controls="ipane-friendlies">Friendlies</button>
+        <button type="button" role="tab" id="itab-cve" data-tab="cve" aria-controls="ipane-cve">CVE</button>
+      </div>
+      <p class="notice" id="intel-msg" role="status" hidden></p>
+      <section class="panel" id="ipane-feeds" role="tabpanel" aria-labelledby="tf-title">
+        <h2 id="tf-title">Threat feeds</h2>
+        <p class="hint">Free lists of known-bad IP addresses, downloaded every 6 hours (a newly chosen one right away). Any event that mentions a listed address is marked as a threat. Each list&rsquo;s own terms decide whether you may use it where you work; read them before choosing one. Nothing is downloaded until you choose it.</p>
+        <div id="tf-list" class="tf-list"></div>
+        <div class="row-actions">
+          <button class="btn btn-primary" type="button" id="tf-save">Save</button>
+          <button class="btn" type="button" id="tf-refresh">Download now</button>
+        </div>
+        <p class="notice" id="tf-msg" role="status" hidden></p>
+      </section>
+      <section class="panel" id="ipane-friendlies" role="tabpanel" aria-labelledby="fr-title" hidden>
+        <h2 id="fr-title">Friendly addresses</h2>
+        <p class="hint">Addresses and ranges you trust, such as your office, a partner or a scanner you run. A friendly address is never marked as a threat, even if a feed lists it. This applies to events stored from now on; it doesn&rsquo;t change events already in the database.</p>
+        <form class="fr-new" id="fr-new">
+          <label class="field-label">List name <input class="input" id="fr-name" maxlength="60" required placeholder="Office"></label>
+          <label class="field-label">What it is for (optional) <input class="input" id="fr-desc" maxlength="300" placeholder="Head office and VPN"></label>
+          <button class="btn btn-primary" type="submit">Create list</button>
+        </form>
+        <p class="notice" id="fr-msg" role="status" hidden></p>
+        <div id="fr-lists" class="fr-lists"></div>
+      </section>
+      <section class="panel soon" id="ipane-cve" role="tabpanel" aria-labelledby="cve-title" hidden>
+        <svg class="soon-art" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M60 10 100 26v30c0 25-17 44-40 54-23-10-40-29-40-54V26z"/><path d="M60 36v26"/><circle cx="60" cy="76" r="2.5" fill="currentColor"/><path d="M12 108h96" opacity=".35"/></svg>
+        <h2 id="cve-title">Coming soon</h2>
+        <p class="hint">Known vulnerabilities (CVEs) will be matched against the software your logs mention, so you can see which weaknesses are being probed or exploited. Not built yet.</p>
+      </section>
+    </section>
+
     <!-- Parsers -->
     <section id="view-parsers" class="page" aria-labelledby="parsers-title" hidden>
       <div class="page-head">
@@ -926,14 +1048,7 @@
               and <code>{name:regex}</code> sets exactly what to match, like <code>{status:\d+}</code>.</p>
           </div>
           <label class="check"><input type="checkbox" id="pe-strip"> Lines start with a syslog header; read it first</label>
-          <div class="two">
-            <label class="field-label">Category
-              <select class="select" id="pe-category">
-                <option value="6">Application activity</option><option value="3">Identity and access</option>
-                <option value="4">Network activity</option><option value="1">System activity</option>
-                <option value="2">Findings</option><option value="5">Discovery</option>
-              </select>
-            </label>
+          <div>
             <label class="field-label">Severity
               <select class="select" id="pe-sev-from">
                 <option value="auto">Detect from the line</option>
@@ -1163,6 +1278,38 @@
           </form>
         </div>
       </section>
+      <section class="panel integ" id="int-aialerts" data-integration="aialerts" aria-labelledby="int-aialerts-title">
+        <div class="integ-head">
+          <div class="integ-title"><h2 id="int-aialerts-title">AI Alerts</h2><span class="pill integ-state">…</span></div>
+          <p class="hint integ-summary">A model reads a summary of your recent logs now and then and proposes alert rules to add.</p>
+          <div class="integ-controls">
+            <label class="switch integ-switch"><span>Off</span><input type="checkbox" disabled><span class="track"></span></label>
+            <button class="btn integ-toggle" type="button" aria-expanded="false" aria-controls="int-aialerts-body">Set up</button>
+          </div>
+        </div>
+        <div class="integ-body" id="int-aialerts-body" hidden>
+          <div class="mail">
+            <p class="hint" id="aia-model">Checking…</p>
+            <p class="hint">Each look gives the model counts and examples from your logs, plus the rules you already have, and asks what is worth catching. It only proposes: a rule changes nothing until you accept it, and it never raises, closes or edits an alert itself. SIEMLite&rsquo;s own audit events are left out, and every look is recorded in the audit log.</p>
+            <div class="mail-grid">
+              <label class="field-label">Look every
+                <select class="select" id="aia-interval"></select>
+              </label>
+              <label class="field-label">Covering the last
+                <select class="select" id="aia-lookback"></select>
+              </label>
+            </div>
+            <div class="row-actions">
+              <button class="btn btn-primary" type="button" id="aia-save">Save</button>
+              <button class="btn" type="button" id="aia-run">Look now</button>
+            </div>
+            <p class="hint" id="aia-last" role="status"></p>
+            <p class="notice" id="aia-msg" role="status" hidden></p>
+            <h3 class="aia-title">Proposed rules</h3>
+            <div id="aia-list" class="aia-list"></div>
+          </div>
+        </div>
+      </section>
       <section class="panel integ" id="int-mcp" data-integration="mcp" aria-labelledby="int-mcp-title">
         <div class="integ-head">
           <div class="integ-title"><h2 id="int-mcp-title">AI agents (MCP)</h2><span class="pill integ-state">…</span></div>
@@ -1212,8 +1359,14 @@
             <button type="button" data-theme-choice="light">Light</button>
             <button type="button" data-theme-choice="dark">Dark</button>
           </div>
-          <label class="switch glass-switch"><span>Glass look</span><input type="checkbox" id="glass-toggle"><span class="track"></span></label>
-          <p class="hint">Frosted, translucent panels over a soft backdrop. Works with light and dark.</p>
+        </section>
+        <section class="panel" aria-labelledby="acct-look-title">
+          <h2 id="acct-look-title">Look</h2>
+          <p class="hint">Original is the plain interface. Glass has frosted, translucent panels over a soft backdrop. Both work with light and dark, and it's remembered on this browser.</p>
+          <div class="theme two" role="group" aria-label="Look">
+            <button type="button" data-look-choice="original">Original</button>
+            <button type="button" data-look-choice="glass">Glass</button>
+          </div>
         </section>
         <section class="panel" aria-labelledby="acct-auth-title">
           <h2 id="acct-auth-title">Sign-in</h2>
@@ -1722,14 +1875,14 @@ function setTheme(choice) {
 }
 for (const b of document.querySelectorAll("[data-theme-choice]")) b.onclick = () => setTheme(b.dataset.themeChoice);
 
-// --- Glass look ---
-function setGlass(on) {
-  if (on) document.documentElement.dataset.look = "glass"; else delete document.documentElement.dataset.look;
-  try { on ? localStorage.setItem("siemlite-look", "glass") : localStorage.removeItem("siemlite-look"); } catch {}
-  $("glass-toggle").checked = on;
+// --- Look (Original or Glass) ---
+function setLook(choice) {
+  if (choice === "glass") document.documentElement.dataset.look = "glass"; else delete document.documentElement.dataset.look;
+  try { choice === "glass" ? localStorage.setItem("siemlite-look", "glass") : localStorage.removeItem("siemlite-look"); } catch {}
+  for (const b of document.querySelectorAll("[data-look-choice]")) b.setAttribute("aria-pressed", String(b.dataset.lookChoice === choice));
 }
-$("glass-toggle").onchange = (e) => setGlass(e.target.checked);
-$("glass-toggle").checked = document.documentElement.dataset.look === "glass";
+for (const b of document.querySelectorAll("[data-look-choice]")) b.onclick = () => setLook(b.dataset.lookChoice);
+setLook(document.documentElement.dataset.look === "glass" ? "glass" : "original");
 
 // --- Sign-in and API ---
 const SSO_ERRORS = {
@@ -1913,6 +2066,7 @@ async function api(path, opts = {}) {
 }
 async function apiJSON(path, opts) {
   const res = await api(path, opts);
+  if (opts && opts.method && opts.method !== "GET" && res.ok) pokeActivity(); // it may have started a download
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
@@ -1966,16 +2120,16 @@ async function withBusy(form, fn) {
   finally { delete form.dataset.busy; for (const b of btns) b.disabled = false; }
 }
 let routeSeq = 0;
-const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "parsers", "parser", "integrations", "system", "security", "account"];
+const VIEWS = ["dashboard", "database", "alerts", "users", "sources", "intel", "parsers", "parser", "integrations", "system", "security", "account"];
 function route() {
   ++routeSeq;
   // Page-scoped timers stop when the page changes (the health and alert-count timers in start() keep going).
-  clearTimeout(backupPoll); clearTimeout(tlsPoll); clearTimeout(aiPoll); clearTimeout(previewTimer);
+  clearTimeout(backupPoll); clearTimeout(tlsPoll); clearTimeout(aiPoll); clearTimeout(previewTimer); clearTimeout(feedTimer);
   const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
   let [view, arg] = path.split("/");
   if (!VIEWS.includes(view) || view === "parser") view = "dashboard";
   if (view === "parsers" && arg) view = "parser";
-  if (!isAdmin && ["users", "sources", "parsers", "parser", "integrations", "system", "security"].includes(view)) view = "dashboard";
+  if (!isAdmin && ["users", "sources", "intel", "parsers", "parser", "integrations", "system", "security"].includes(view)) view = "dashboard";
   if (view === "alerts" && me.limited) view = "dashboard";
   for (const v of VIEWS) $("view-" + v).hidden = v !== view;
   const navKey = view === "parser" ? "parsers" : view;
@@ -1984,9 +2138,9 @@ function route() {
   }
   setMenu(false);
   const params = new URLSearchParams(query || "");
-  ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources,
+  ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources, intel: () => openIntel(arg),
      parsers: openParsers, parser: () => openParserEditor(arg), integrations: openIntegrations, system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
-  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", parsers: "Parsers", parser: "Parser", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
+  document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", intel: "Intel", parsers: "Parsers", parser: "Parser", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
 function setMenu(open) {
@@ -2395,7 +2549,7 @@ function renderRow(ev) {
       textContent: when.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) }),
     el("td", {}, sev),
     el("td", { textContent: ev.source_name || "", title: ev.source_name || "" }),
-    ipCell(ev.src_ip, ev.src_country), ipCell(ev.dst_ip, ev.dst_country),
+    ipCell(ev.src_ip, ev.src_country, (ev.enrichment || {}).src_endpoint), ipCell(ev.dst_ip, ev.dst_country, (ev.enrichment || {}).dst_endpoint),
     el("td", { textContent: ev.user_display || ev.user_name || "", title: ev.user_display ? ev.user_name : "" }),
     msg);
   row.setAttribute("aria-expanded", "false");
@@ -2413,10 +2567,44 @@ function renderRow(ev) {
   row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
   return row;
 }
-function ipCell(ip, cc) {
-  const td = el("td", { className: "mono", textContent: ip || "" });
+function ipCell(ip, cc, enr) {
+  const td = el("td", { className: "mono" }, ipLink(ip, enr));
   if (cc) td.append(el("span", { className: "cc", textContent: cc }));
   return td;
+}
+// An IP is underlined: hovering shows where it is, clicking looks it up on Talos in a new tab (nothing is sent until the click).
+const PRIVATE_IP = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/i;
+let ipTip;
+const countryName = (cc) => { try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || cc; } catch { return cc; } };
+function ipLink(ip, enr) {
+  if (!ip) return "";
+  const priv = PRIVATE_IP.test(ip);
+  enr = enr || {};
+  const a = el("a", { className: "ip-link", textContent: ip, target: "_blank", rel: "noopener noreferrer",
+    href: "https://talosintelligence.com/reputation_center/lookup?search=" + encodeURIComponent(ip) });
+  const as = enr.autonomous_system, loc = enr.location;
+  const place = loc ? [loc.city, countryName(loc.country)].filter(Boolean).join(", ") : "";
+  const show = () => {
+    if (!ipTip) { ipTip = el("div", { className: "tooltip ip-tip", hidden: true }); document.body.append(ipTip); }
+    ipTip.replaceChildren(
+      as && as.name ? el("b", { textContent: as.name }) : el("b", { className: "mono", textContent: ip }),
+      place ? el("span", { textContent: place }) : "",
+      as && as.number ? el("span", { className: "mono", textContent: "AS" + as.number }) : "",
+      !place && !as ? el("span", { textContent: priv ? "Private address" : "No location data for this address." }) : "",
+      place || as ? el("span", { className: "ip-tip-src", textContent: "IP data by DB-IP" }) : "",
+      el("span", { className: "ip-tip-hint", textContent: "Talos Lookup" }));
+    ipTip.hidden = false;
+    const r = a.getBoundingClientRect(), w = ipTip.offsetWidth, h = ipTip.offsetHeight;
+    const below = r.bottom + 8 + h < innerHeight;
+    ipTip.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
+    ipTip.style.top = (below ? r.bottom + 8 : r.top - 8 - h) + "px";
+  };
+  const hide = () => { if (ipTip) ipTip.hidden = true; };
+  a.addEventListener("mouseenter", show); a.addEventListener("focus", show);
+  a.addEventListener("mouseleave", hide); a.addEventListener("blur", hide);
+  a.addEventListener("click", (e) => { e.stopPropagation(); hide(); }); // not a click on the row
+  a.addEventListener("keydown", (e) => e.stopPropagation()); // Enter follows the link, it doesn't open the row
+  return a;
 }
 function details(ev) {
   const frag = document.createDocumentFragment();
@@ -2439,7 +2627,7 @@ function details(ev) {
     const e = enr[side] || {};
     const loc = e.location ? [e.location.city, e.location.country].filter(Boolean).join(", ") : "";
     const as = e.autonomous_system ? `AS${e.autonomous_system.number}${e.autonomous_system.name ? " " + e.autonomous_system.name : ""}` : "";
-    add(label, ip ? el("span", { className: "mono ip", textContent: ip }) : "", loc, as);
+    add(label, ip ? el("span", { className: "mono ip" }, ipLink(ip, e)) : "", loc, as);
   }
   for (const [k, v] of Object.entries(ev.fields || {})) add(k === "parse_error" ? "Parser" : k, v);
   frag.append(dl);
@@ -2534,7 +2722,8 @@ async function openUsers() {
         u.disabled ? el("span", { className: "pill", style: "margin-left:6px", textContent: "Switched off", title: "No longer in the Entra access group, so it can't sign in" }) : "",
         u.display_name && u.display_name !== u.username ? el("div", { className: "muted user-sub", textContent: u.username }) : ""),
       el("td", { textContent: u.role === "admin" ? "Admin" : "Standard" }),
-      el("td", { className: u.limited ? "" : "muted", textContent: u.role === "admin" || !u.limited ? "Every source" : (u.sources.map(name).join(", ") || "No sources") }),
+      el("td", { className: u.limited ? "" : "muted", textContent: u.role === "admin" || !u.limited ? "Every source" : u.sources.length ? `${u.sources.length} ${u.sources.length === 1 ? "source" : "sources"}` : "No sources",
+        title: u.limited && u.role !== "admin" ? u.sources.map(name).join(", ") : "" }),
       el("td", { className: "muted", textContent: shortDate(u.created_at) }),
       el("td", { className: "actions" }, el("div", { className: "row-actions" },
         el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => userDialog(u) }),
@@ -3069,13 +3258,14 @@ async function openParserEditor(arg) {
   }
   fillEditor(def);
 }
+let editorCategory = 6;
 function fillEditor(def) {
   pe("name").value = def.name || "";
   pe("desc").value = def.description || "";
   pe("format").value = def.format || "pattern";
   pe("pattern").value = def.pattern || "";
   pe("strip").checked = !!def.strip_syslog;
-  pe("category").value = String(def.category || 6);
+  editorCategory = def.category || 6; // kept as loaded, drafted or templated; not edited here
   const sev = def.severity || { from: "auto" };
   pe("sev-from").value = sev.from || "auto";
   pe("fixed").replaceChildren(...sevOptions(sev.fixed ?? 3));
@@ -3125,7 +3315,7 @@ function readDefinition() {
       .filter((r) => r.match !== "");
   }
   const def = { name: pe("name").value.trim(), description: pe("desc").value.trim(), format: pe("format").value,
-    strip_syslog: pe("strip").checked, category: Number(pe("category").value), severity,
+    strip_syslog: pe("strip").checked, category: editorCategory, severity,
     samples: pe("samples").value.split("\n").filter((l) => l.trim()).slice(0, 50) };
   if (def.format === "pattern") def.pattern = pe("pattern").value;
   const fields = {};
@@ -3134,7 +3324,7 @@ function readDefinition() {
   return def;
 }
 for (const id of ["name", "desc", "pattern", "samples"]) pe(id).addEventListener("input", () => schedulePreview());
-for (const id of ["format", "strip", "category", "sev-from", "fixed", "sev-field"]) pe(id).addEventListener("change", () => { syncEditor(); schedulePreview(0); });
+for (const id of ["format", "strip", "sev-from", "fixed", "sev-field"]) pe(id).addEventListener("change", () => { syncEditor(); schedulePreview(0); });
 // Choosing "from a field" on a parser with no rules yet starts it with the defaults.
 pe("sev-from").addEventListener("change", () => { if (pe("sev-from").value === "field" && !pe("rules").children.length) resetRules(); });
 pe("sev-field").addEventListener("change", () => (sevFieldWanted = pe("sev-field").value));
@@ -3368,6 +3558,7 @@ function alertRow(a) {
   what.append(el("b", { textContent: a.rule_name }));
   if (a.group_value) what.append(el("span", { className: "grp", textContent: a.group_value }));
   else if (a.group_by) what.append(el("span", { className: "grp none", textContent: `no ${GROUP_LABEL[a.group_by]}` }));
+  if (a.note) what.append(el("div", { className: "muted", textContent: a.note }));
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const set = (status) => async () => {
     try { await apiJSON("/api/v1/alerts/" + a.id, { method: "PATCH", json: { status } }); loadAlertsView(); }
@@ -3732,7 +3923,7 @@ async function refreshIntegrationCards() {
 async function openIntegrations() {
   notice($("integrations-msg"), "");
   await refreshIntegrationCards();
-  await Promise.all([loadMail(), loadEntra(), loadAI(), loadMCP()]);
+  await Promise.all([loadMail(), loadEntra(), loadAI(), loadAIAlerts(), loadMCP()]);
 }
 function toggleIntegration(btn, open) {
   const body = $(btn.getAttribute("aria-controls"));
@@ -3752,6 +3943,172 @@ for (const sw of document.querySelectorAll(".integ-switch input")) {
     await refreshIntegrationCards();
   };
 }
+
+// --- Intel ---
+let feedTimer = 0, tfDirty = false;
+const INTEL_TABS = ["feeds", "friendlies", "cve"];
+async function openIntel(tab) {
+  if (!INTEL_TABS.includes(tab)) tab = "feeds";
+  notice($("intel-msg"), ""); clearTimeout(feedTimer);
+  for (const t of INTEL_TABS) {
+    $("ipane-" + t).hidden = t !== tab;
+    const b = $("itab-" + t);
+    b.setAttribute("aria-selected", String(t === tab)); b.tabIndex = t === tab ? 0 : -1;
+  }
+  if (tab === "feeds") { tfDirty = false; await loadFeeds(); }
+  else if (tab === "friendlies") await loadFriendly();
+}
+for (const b of document.querySelectorAll(".intel-tabs button")) b.onclick = () => { location.hash = "#/intel/" + b.dataset.tab; };
+async function loadFeeds() {
+  clearTimeout(feedTimer);
+  let v;
+  try { v = await apiJSON("/api/v1/intel/feeds"); } catch (err) { notice($("tf-msg"), err.message); return; }
+  const when = (ms) => ms ? new Date(ms).toLocaleString() : "";
+  // A redraw (this runs again while a download is pending) keeps ticks that aren't saved yet.
+  const unsaved = {};
+  if (tfDirty) for (const b of $("tf-list").querySelectorAll("input")) unsaved[b.value] = b.checked;
+  $("tf-list").replaceChildren(...v.feeds.map((f) => {
+    const box = el("input", { type: "checkbox", checked: f.id in unsaved ? unsaved[f.id] : f.selected, disabled: f.custom, id: "tf-" + f.id, value: f.id });
+    box.onchange = () => { tfDirty = true; };
+    const status = f.error ? el("p", { className: "tf-err", textContent: "Last download failed: " + f.error + (f.indicators ? " (the earlier list is kept)" : "") })
+      : f.selected ? (f.indicators ? el("p", { className: "hint", textContent: `${f.indicators.toLocaleString()} addresses, downloaded ${when(f.updated_at)}.` })
+        : el("p", { className: "hint working" }, el("span", { className: "spinner" }), "Downloading…"))
+      : "";
+    return el("div", { className: "tf-item" }, box,
+      el("label", { className: "tf-name", htmlFor: box.id, textContent: f.name + (f.custom ? " (set on the command line)" : "") }),
+      f.description ? el("p", { className: "hint", textContent: f.description }) : "",
+      f.terms ? el("p", { className: "hint" }, "Terms: ", el("a", { href: f.terms, target: "_blank", rel: "noopener noreferrer", textContent: f.license || f.terms })) : "",
+      status);
+  }));
+  // A newly chosen feed is still downloading: look again until each has an answer (and stop when the page changes).
+  if (!$("ipane-feeds").hidden && !$("view-intel").hidden && v.feeds.some((f) => f.selected && !f.error && !f.indicators)) feedTimer = setTimeout(loadFeeds, 3000);
+}
+$("tf-save").onclick = async () => {
+  const ids = [...$("tf-list").querySelectorAll("input:checked:not(:disabled)")].map((b) => b.value);
+  try {
+    await apiJSON("/api/v1/intel/feeds", { method: "PUT", json: { feeds: ids } });
+    tfDirty = false;
+    notice($("tf-msg"), ids.length ? "Saved. The lists are downloading now." : "Saved. No feeds are in use.", true);
+  } catch (err) { notice($("tf-msg"), err.message); }
+  await loadFeeds();
+};
+$("tf-refresh").onclick = async () => {
+  try { await apiJSON("/api/v1/intel/feeds/refresh", { method: "POST" }); notice($("tf-msg"), "Downloading the chosen lists.", true); }
+  catch (err) { notice($("tf-msg"), err.message); }
+  clearTimeout(feedTimer); feedTimer = setTimeout(loadFeeds, 3000);
+};
+
+async function loadFriendly() {
+  let lists;
+  try { lists = await apiJSON("/api/v1/intel/friendly"); } catch (err) { notice($("fr-msg"), err.message); return; }
+  $("fr-lists").replaceChildren(...(lists.length ? lists.map(friendlyCard)
+    : [el("p", { className: "hint", textContent: "No lists yet. Create one above, then add addresses to it." })]));
+}
+function friendlyCard(l) {
+  const msg = el("p", { className: "notice", role: "status", hidden: true });
+  const ta = el("textarea", { className: "input mono", rows: 2, "aria-label": `Addresses to add to ${l.name}`, placeholder: "203.0.113.7\n198.51.100.0/24", spellcheck: false });
+  const note = el("input", { className: "input", maxLength: 200, "aria-label": `Note for ${l.name}`, placeholder: "Note (optional)" });
+  const add = el("button", { className: "btn btn-primary", type: "button", textContent: "Add" });
+  add.onclick = async () => {
+    add.disabled = true;
+    try {
+      const r = await apiJSON(`/api/v1/intel/friendly/${l.id}/entries`, { method: "POST", json: { values: ta.value, note: note.value } });
+      notice($("fr-msg"), `Added ${r.added} to ${l.name}.` + (r.already_there ? ` ${r.already_there} ${r.already_there === 1 ? "was" : "were"} already there.` : ""), true);
+      await loadFriendly();
+    } catch (err) { notice(msg, err.message); add.disabled = false; }
+  };
+  const del = el("button", { className: "btn btn-small btn-danger", type: "button", textContent: "Delete list" });
+  del.onclick = async () => {
+    if (!await confirmAction("Delete " + l.name + "?", "Its addresses will be flagged again if a threat feed lists them.", "Delete list")) return;
+    try { await apiJSON(`/api/v1/intel/friendly/${l.id}`, { method: "DELETE" }); notice($("fr-msg"), `Deleted ${l.name}.`, true); await loadFriendly(); }
+    catch (err) { notice($("fr-msg"), err.message); }
+  };
+  const items = l.entries.map((e) => {
+    const x = el("button", { type: "button", textContent: "×", "aria-label": `Remove ${e.value}`, title: "Remove" });
+    x.onclick = async () => {
+      try { await apiJSON(`/api/v1/intel/friendly/${l.id}/entries?value=${encodeURIComponent(e.value)}`, { method: "DELETE" }); await loadFriendly(); }
+      catch (err) { notice($("fr-msg"), err.message); }
+    };
+    return el("li", { title: e.note || "" }, el("span", { className: "mono", textContent: e.value }), e.note ? el("span", { className: "muted", textContent: e.note }) : "", x);
+  });
+  return el("div", { className: "fr-list" },
+    el("div", { className: "fr-head" }, el("h3", { textContent: l.name }),
+      el("span", { className: "fr-count", textContent: `${l.entries.length} ${l.entries.length === 1 ? "entry" : "entries"}` }),
+      l.description ? el("span", { className: "muted", textContent: l.description }) : "", el("span", { className: "spacer" }), del),
+    items.length ? el("ul", { className: "fr-entries" }, ...items) : el("p", { className: "hint", textContent: "Empty. Add addresses below." }),
+    el("div", { className: "fr-add" }, ta, note, add), msg);
+}
+$("fr-new").onsubmit = async (ev) => {
+  ev.preventDefault();
+  try {
+    await apiJSON("/api/v1/intel/friendly", { method: "POST", json: { name: $("fr-name").value, description: $("fr-desc").value } });
+    notice($("fr-msg"), `Created ${$("fr-name").value}. Add its addresses below.`, true);
+    $("fr-name").value = ""; $("fr-desc").value = "";
+    await loadFriendly();
+  } catch (err) { notice($("fr-msg"), err.message); }
+};
+
+// --- AI Alerts ---
+let aiaView = null, aiaTimer = 0;
+const AIA_HOURS = { 1: "hour", 6: "6 hours", 24: "day", 168: "week" };
+function aiaOptions(sel, list, cur) {
+  sel.replaceChildren(...list.map((h) => el("option", { value: String(h), textContent: AIA_HOURS[h] || h + " hours", selected: h === cur })));
+}
+async function loadAIAlerts() {
+  clearTimeout(aiaTimer);
+  try { aiaView = await apiJSON("/api/v1/integrations/aialerts"); } catch (err) { notice($("aia-msg"), err.message); return; }
+  const v = aiaView;
+  $("aia-model").textContent = !v.configured ? "No model yet. AI Alerts uses the model chosen under AI Parsers, on this server or in the cloud; set one up there first."
+    : v.cloud ? `Uses ${v.model}, in the cloud. A summary of your logs is sent there, with IP addresses, email addresses, MAC addresses and host names replaced first unless you chose on the AI Parsers card to send them.`
+    : `Uses ${v.model}, on this server, so nothing leaves your network.`;
+  aiaOptions($("aia-interval"), v.intervals, v.interval_hours);
+  aiaOptions($("aia-lookback"), v.lookbacks, v.lookback_hours);
+  $("aia-run").disabled = !v.configured || v.running;
+  $("aia-run").textContent = v.running ? "Looking…" : "Look now";
+  $("aia-last").textContent = v.running ? "Reading the logs and asking the model. This can take a few minutes."
+    : v.last_error ? `The last look (${ago(v.last_run)}) failed: ${v.last_error}`
+    : v.last_run ? `Last look ${ago(v.last_run)}. ${v.last_message}` : v.enabled ? "It will look soon." : "Switch it on to look on a schedule, or use Look now.";
+  await loadProposals();
+  if (v.running) aiaTimer = setTimeout(loadAIAlerts, 2500);
+}
+async function loadProposals() {
+  let list = [];
+  try { list = await apiJSON("/api/v1/integrations/aialerts/proposals?status=pending"); } catch (err) { notice($("aia-msg"), err.message); return; }
+  $("aia-list").replaceChildren(...(list.length ? list.map(proposalCard) : [el("p", { className: "hint", textContent: "Nothing waiting. Proposed rules appear here for you to accept or dismiss." })]));
+}
+function proposalCard(p) {
+  const sev = el("span", { className: "sev" }, el("i"), SEV[p.severity]); sev.style.setProperty("--c", `var(--sev-${p.severity})`);
+  const decide = (verb) => async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    try {
+      await apiJSON(`/api/v1/integrations/aialerts/proposals/${p.id}/${verb}`, { method: "POST" });
+      notice($("aia-msg"), verb === "accept" ? `Added the rule ${p.name}. It is on now; you can edit it on the Alerts page.` : `Dismissed ${p.name}. It won't be proposed again.`, true);
+      rulesCache = [];
+      await Promise.all([loadProposals(), refreshIntegrationCards()]);
+    } catch (err) { notice($("aia-msg"), err.message); btn.disabled = false; }
+  };
+  return el("div", { className: "aia-item" },
+    el("div", { className: "aia-head" }, el("b", { textContent: p.name }), sev),
+    p.description ? el("div", { textContent: p.description }) : "",
+    el("div", { className: "muted" }, "Alerts on ", ruleSentence(p)),
+    p.reasoning ? el("div", { className: "aia-why", textContent: "Why: " + p.reasoning }) : "",
+    el("div", { className: "muted", textContent: `Its search matched ${p.matched >= 1000 ? "1,000 or more" : nf.format(p.matched)} ${p.matched === 1 ? "event" : "events"} in the period it read.` }),
+    el("div", { className: "row-actions" },
+      el("button", { className: "btn btn-small btn-primary", type: "button", textContent: "Accept and turn on", onclick: decide("accept") }),
+      el("button", { className: "btn btn-small", type: "button", textContent: "Dismiss", onclick: decide("dismiss") })));
+}
+$("aia-save").onclick = async () => {
+  try {
+    aiaView = await apiJSON("/api/v1/integrations/aialerts", { method: "PUT", json: { enabled: aiaView.enabled, interval_hours: Number($("aia-interval").value), lookback_hours: Number($("aia-lookback").value) } });
+    notice($("aia-msg"), "Saved.", true);
+    await refreshIntegrationCards();
+  } catch (err) { notice($("aia-msg"), err.message); }
+};
+$("aia-run").onclick = async () => {
+  notice($("aia-msg"), "");
+  try { await apiJSON("/api/v1/integrations/aialerts/run", { method: "POST" }); } catch (err) { notice($("aia-msg"), err.message); return; }
+  await loadAIAlerts();
+};
 
 // --- AI agents (MCP) ---
 let mcpView = null;
@@ -4451,6 +4808,41 @@ function waitForRestart(title, text) {
   setTimeout(poll, 1500);
 }
 
+// --- Activity: downloads and other long jobs the server is running ---
+// They run on the server, so they carry on when you leave a page or close the tab; this tray, in
+// the sidebar on every page, shows what is still going.
+let activityTimer = 0, activityPrev = new Set(), activityOn = false;
+function pokeActivity(delay = 600) {
+  if (!activityOn) return;
+  clearTimeout(activityTimer);
+  activityTimer = setTimeout(pollActivity, delay);
+}
+async function pollActivity() {
+  clearTimeout(activityTimer);
+  if (!me || !isAdmin) return;
+  let tasks = [];
+  try { tasks = (await apiJSON("/api/v1/activity")).tasks; } catch { activityTimer = setTimeout(pollActivity, 10000); return; }
+  $("activity").replaceChildren(...tasks.map((t) => {
+    const pct = t.total > 0 ? Math.min(100, Math.floor(t.done * 100 / t.total)) : null;
+    const detail = t.bytes && t.total > 0 ? `${bytes(t.done)} of ${bytes(t.total)}` + (t.detail ? " · " + t.detail : "") : t.detail || "";
+    const meter = pct === null ? "" : el("div", { className: "meter", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": pct, "aria-label": t.label },
+      el("i"));
+    if (meter) meter.firstChild.style.width = pct + "%";
+    return el("div", { className: "task" },
+      el("div", { className: "task-head" }, pct === null ? el("span", { className: "spinner" }) : "", el("span", { textContent: t.label + (pct === null ? "…" : ` ${pct}%`) })),
+      meter, detail ? el("div", { className: "task-detail", textContent: detail }) : "");
+  }));
+  const now = new Set(tasks.map((t) => t.id));
+  for (const id of activityPrev) if (!now.has(id)) jobFinished(id);
+  activityPrev = now;
+  activityTimer = setTimeout(pollActivity, tasks.length ? 1500 : 15000);
+}
+// When a job ends, redraw the page that shows its result, if that page is open.
+function jobFinished(id) {
+  if (id === "feeds" && !$("view-intel").hidden && !$("ipane-feeds").hidden && !tfDirty) loadFeeds();
+  if (id === "backup" && !$("view-system").hidden) loadBackups(false);
+}
+
 // --- Start ---
 let healthTimer;
 function start() {
@@ -4459,6 +4851,7 @@ function start() {
   clearInterval(healthTimer);
   healthTimer = setInterval(() => { refreshHealth(); refreshAlertCount(); }, 5000);
   refreshAlertCount();
+  activityOn = true; activityPrev = new Set(); pollActivity();
   if (!location.hash || location.hash === "#") history.replaceState(null, "", "#/dashboard");
   route();
 }

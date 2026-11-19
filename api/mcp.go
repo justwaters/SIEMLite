@@ -256,6 +256,20 @@ func (s *Server) mcpServer() *mcp.Server {
 				return api(ctx, s.handleSetAlertStatus, http.MethodPatch, "/api/v1/alerts/"+id, nil, rest, map[string]string{"id": id})
 			})},
 
+		{Name: "create_alert", Min: mcp.LevelAnalyst,
+			Description: "Open an alert for something you found in the logs that no rule describes. Give a short title, a severity and, if it is about one address, user or host, say which. Say why in the note, with what you saw. If an alert with the same title and group is already open, this adds to it instead of opening another. Recorded in the audit log under this token's name. Only raise what you can point to in the logs; people act on these.",
+			Schema: mcpSchema(map[string]any{
+				"title":       prop("string", "A short name for what was found, up to 80 characters, such as \"Password spraying from one address\"."),
+				"severity":    prop("integer", "1 informational, 2 low, 3 medium, 4 high, 5 critical, 6 fatal."),
+				"group_by":    map[string]any{"type": "string", "enum": []string{"src_ip", "dst_ip", "user", "host"}, "description": "What the alert is about, if one thing: a source address, a destination address, a user or a host."},
+				"group_value": prop("string", "The address, user or host it is about. Needs group_by."),
+				"count":       prop("integer", "How many events you saw (default 1)."),
+				"note":        prop("string", "Why you raised it and what you saw, up to 1000 characters."),
+			}, "title", "severity"),
+			Run: run(func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
+				return api(ctx, s.handleCreateAlert, http.MethodPost, "/api/v1/alerts", nil, args, nil)
+			})},
+
 		{Name: "list_parsers", Min: mcp.LevelAdmin, ReadOnly: true,
 			Description: "The parsers that turn log lines into events, with their ids and which sources use them.",
 			Schema:      mcpSchema(map[string]any{}),
@@ -351,7 +365,40 @@ func (s *Server) mcpServer() *mcp.Server {
 				return api(ctx, s.handleDeleteSource, http.MethodDelete, "/api/v1/sources/"+id, nil, nil, map[string]string{"id": id})
 			})},
 	}
-	return &mcp.Server{Name: "siemlite", Version: s.deps.Version, Instructions: mcpInstructions, Tools: tools}
+	return &mcp.Server{Name: "siemlite", Version: s.deps.Version, Instructions: mcpInstructions, Tools: tools, OnCall: s.auditMCPCall}
+}
+
+// mcpAuditArgsMax caps the arguments kept in an audit entry, so a big batch of
+// log lines doesn't become a big audit event.
+const mcpAuditArgsMax = 400
+
+// auditMCPCall records every tool an AI agent calls, reads included: who
+// (the token's name), which tool, what it was asked, and whether it worked.
+// Changes are also audited by the handler that makes them; this is the
+// agent's own trail, so what it looked at is on record too.
+func (s *Server) auditMCPCall(ctx context.Context, t mcp.Tool, args json.RawMessage, res mcp.Result, denied bool) {
+	c, _ := ctx.Value(mcpCtxKey{}).(*mcpCaller)
+	if c == nil {
+		return
+	}
+	a := strings.Join(strings.Fields(string(args)), " ")
+	if r := []rune(a); len(r) > mcpAuditArgsMax {
+		a = string(r[:mcpAuditArgsMax]) + "…"
+	}
+	e := audit.Entry{Action: "mcp.call", Actor: c.p.Name, Severity: 1,
+		Fields: map[string]string{"tool": t.Name, "arguments": a, "outcome": "ok"}}
+	switch {
+	case denied:
+		e.Action, e.Severity = "mcp.denied", 3
+		e.Fields["outcome"] = "denied"
+		e.Message = c.p.Name + " tried " + t.Name + " but its token's level doesn't allow it"
+	case res.IsError:
+		e.Fields["outcome"] = "error"
+		e.Message = c.p.Name + " called " + t.Name + " and it failed"
+	default:
+		e.Message = c.p.Name + " called " + t.Name
+	}
+	s.audit(c.r.WithContext(auth.NewContext(ctx, c.p)), e)
 }
 
 func parserDefinitionSchema() map[string]any {

@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -74,7 +75,22 @@ type Checker struct {
 	cached  Status
 	checked time.Time
 	busy    bool
+
+	dlDone, dlTotal atomic.Int64 // bytes of the release downloaded so far, and its size (0 when unknown)
 }
+
+// Progress reports an update in progress: whether one is running, and how much of the
+// download is done (total is 0 until the size is known, or when it isn't).
+func (c *Checker) Progress() (active bool, done, total int64) {
+	c.mu.Lock()
+	active = c.busy
+	c.mu.Unlock()
+	return active, c.dlDone.Load(), c.dlTotal.Load()
+}
+
+type countWriter struct{ n *atomic.Int64 }
+
+func (w countWriter) Write(p []byte) (int, error) { w.n.Add(int64(len(p))); return len(p), nil }
 
 // New returns a Checker for the running binary exe.
 func New(current, exe string) *Checker {
@@ -243,6 +259,8 @@ func (c *Checker) Apply(ctx context.Context) (string, error) {
 		return "", errors.New("an update is already in progress")
 	}
 	c.busy = true
+	c.dlDone.Store(0)
+	c.dlTotal.Store(0)
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); c.busy = false; c.mu.Unlock() }()
 
@@ -354,7 +372,9 @@ func (c *Checker) download(ctx context.Context, url string, f *os.File) (string,
 		return "", fmt.Errorf("%s", resp.Status)
 	}
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxArchive+1))
+	c.dlDone.Store(0)
+	c.dlTotal.Store(max(resp.ContentLength, 0))
+	n, err := io.Copy(io.MultiWriter(f, h, countWriter{&c.dlDone}), io.LimitReader(resp.Body, maxArchive+1))
 	if err != nil {
 		return "", err
 	}
