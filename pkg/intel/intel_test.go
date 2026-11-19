@@ -136,3 +136,15 @@ func TestMatchesCarryTheListsDetails(t *testing.T) {
 		t.Errorf("a bare count was kept as the note: %+v", got)
 	}
 }
+
+// A feed address can hold a key, so a match only ever shows the feed's site.
+func TestCustomFeedReferenceHasNoSecrets(t *testing.T) {
+	svc := NewService(nil, Config{Feeds: []Feed{{Name: "mine", URL: "https://user:pw@feeds.example/list.txt?key=SECRET#frag"}, {Name: "odd", URL: "ftp://x/y"}}})
+	meta := svc.listMeta()
+	if got := meta["mine"].Reference; got != "https://feeds.example" {
+		t.Errorf("reference = %q", got)
+	}
+	if got := meta["odd"].Reference; got != "" {
+		t.Errorf("a non-web address was kept: %q", got)
+	}
+}

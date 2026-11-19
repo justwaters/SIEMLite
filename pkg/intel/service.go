@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -274,10 +275,20 @@ func FetchFeed(ctx context.Context, client *http.Client, store Store, f Feed) (n
 func (s *Service) listMeta() map[string]Meta {
 	meta := map[string]Meta{}
 	for _, f := range s.cfg.Feeds {
-		meta[f.Name] = Meta{Category: "Custom feed", Reference: f.URL}
+		meta[f.Name] = Meta{Category: "Custom feed", Reference: siteOf(f.URL)}
 	}
 	for _, p := range Presets {
 		meta[p.Name] = Meta{Category: p.Category, Confidence: p.Confidence, Reference: p.Terms}
 	}
 	return meta
+}
+
+// siteOf reduces a feed's address to its site (https://host), dropping any login, path, query or
+// fragment: a feed address can carry a key, and a match is shown to everyone who can read events.
+func siteOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
