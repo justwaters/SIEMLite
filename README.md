@@ -807,7 +807,7 @@ Enter them on the card, choose **Test connection** (it shows the group names and
 
 ## Slack and Microsoft Teams
 
-*Beta: first shipped in v0.34-beta.1, available on the **Beta** release channel (System page) before it reaches Stable.*
+*New in v0.34 (first tried on the Beta channel as v0.34-beta.1).*
 
 Two integrations post a message to a chat channel whenever SIEMLite **opens** an alert (an alert that gains more events
 is not posted again). Each has its own card on the Integrations
