@@ -289,7 +289,11 @@ func (s *Server) handleSaveAutoUpdate(w http.ResponseWriter, r *http.Request) {
 	if v.Enabled || was.Enabled {
 		what := "turned automatic updates off"
 		if v.Enabled {
-			what = fmt.Sprintf("set automatic updates for %s at %s", dayNames(v.Days), strings.Join(v.Times, ", "))
+			var parts []string
+			for _, w := range v.Schedules {
+				parts = append(parts, dayNames(w.Days)+" at "+strings.Join(w.Times, ", "))
+			}
+			what = "set automatic updates for " + strings.Join(parts, "; ")
 		}
 		s.audit(r, audit.Entry{Action: "system.autoupdate", Severity: 3, Message: auth.FromContext(r.Context()).Name + " " + what,
 			Fields: map[string]string{"enabled": strconv.FormatBool(v.Enabled)}})

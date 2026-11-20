@@ -722,12 +722,15 @@ seconds. Nothing changes if the download or check fails. Updates are recorded in
 first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
 Pass `-update-check=false` (or `SIEMLITE_UPDATE_CHECK=false`) to stop SIEMLite contacting GitHub at all.
 
-**Automatic updates** (System page, admins) install new releases on a schedule you choose: tick the days (none ticked
-means every day) and add one to four times of day, to the minute, in the server's time zone. At each time SIEMLite
-checks for a release and, if there is a newer one, makes a backup first (switch that off if you like; if the backup fails
-nothing is installed), installs it and restarts. The card shows the next check and what the last one did. A time that
-passed while SIEMLite was off, or before you changed the schedule, is not run late. It works wherever **Update and
-restart** works, and each automatic update is recorded in the audit log. API: `GET`/`PUT /api/v1/system/update/auto`.
+**Automatic updates** (System page, admins) install new releases on a schedule you choose. Each schedule is some days
+(none ticked means every day) and one to four times of day, to the minute, in the server's time zone; add up to seven
+schedules, for example weekdays at 03:00 and weekends at 06:00 and 22:00. At each time SIEMLite checks for a release and,
+if there is a newer one, installs it and restarts, which takes a few seconds. Two options are on by default: **Make a
+backup first** (if the backup fails nothing is installed) and **Wait while a High or Critical alert is open** (it looks
+again every half hour until they are closed, and also holds back if it can't tell). The card shows the next check and
+what the last one did. A time that passed while SIEMLite was off, or before you changed the schedule, is not run late.
+It works wherever **Update and restart** works, and each automatic update is recorded in the audit log.
+API: `GET`/`PUT /api/v1/system/update/auto`.
 
 **Everyone is signed out when SIEMLite changes version**, however it was updated (the button, `docker compose pull`, a new
 binary, or going back to an older one), so people sign in again on the new version. Restarting the same version keeps

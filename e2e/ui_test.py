@@ -508,28 +508,41 @@ def main(binary, loggen):
             sentence = page.locator("#rules-body tr", has_text="Source went quiet").locator(".rule-sentence").inner_text()
             check("sends fewer than 1 event in 15 minutes" in sentence, f"the rule list reads a volume rule back ({sentence!r})")
 
-            # System > Automatic updates: pick days and times, save, and see it kept.
+            # System > Automatic updates: schedules of days and times, saved and kept.
             page.goto(url + "#/system")
-            page.wait_for_selector("#au-times input")
-            check(not page.is_checked("#au-enabled") and page.locator("#au-times input").count() == 1, "automatic updates start off with one time")
+            page.wait_for_selector("#au-rows input")
+            check(not page.is_checked("#au-enabled") and page.is_checked("#au-backup") and page.is_checked("#au-hold") and page.locator("#au-rows input").count() == 1,
+                  "automatic updates start off, with a backup first, holding for alerts, and one time")
             page.check("#au-enabled")
-            page.click('[data-day="1"]')
-            page.click('[data-day="4"]')
-            page.fill("#au-times input", "04:15")
+            page.uncheck("#au-hold")
+            row = page.locator(".au-row").nth(0)
+            for d in ("1", "2", "3", "4", "5"):
+                row.locator(f'[data-day="{d}"]').click()
+            row.locator("input").nth(0).fill("04:15")
             page.click("#au-add")
-            page.locator("#au-times input").nth(1).fill("22:45")
-            check(page.locator("#au-times input").count() == 2, "a second update time can be added")
+            row2 = page.locator(".au-row").nth(1)
+            row2.locator('[data-day="6"]').click()
+            row2.locator('[data-day="0"]').click()
+            row2.locator("input").nth(0).fill("06:00")
+            row2.locator("[data-add-time]").click()
+            row2.locator("input").nth(1).fill("22:45")
+            check(page.locator(".au-row").count() == 2 and row2.locator("input").count() == 2, "a second schedule with two times can be added")
             page.click("#au-save")
             page.wait_for_selector("#au-msg:not([hidden])")
-            check("Saved" in page.inner_text("#au-msg") and "04:15" in page.inner_text("#au-msg"), "the update schedule saves")
+            msg = page.inner_text("#au-msg")
+            check("Saved" in msg and "04:15" in msg and "06:00, 22:45" in msg and "Sat, Sun" in msg, f"the update schedule saves ({msg!r})")
             page.reload()
-            page.wait_for_selector("#au-times input")
-            check(page.is_checked("#au-enabled") and page.locator("#au-times input").count() == 2 and
-                  page.get_attribute('[data-day="1"]', "aria-pressed") == "true" and page.get_attribute('[data-day="2"]', "aria-pressed") == "false",
+            page.wait_for_selector("#au-rows input")
+            check(page.is_checked("#au-enabled") and not page.is_checked("#au-hold") and page.locator(".au-row").count() == 2 and
+                  page.locator(".au-row").nth(0).locator('[data-day="1"]').get_attribute("aria-pressed") == "true" and
+                  page.locator(".au-row").nth(0).locator('[data-day="6"]').get_attribute("aria-pressed") == "false" and
+                  page.locator(".au-row").nth(1).locator("input").count() == 2,
                   "the update schedule is kept after a reload")
-            page.click("#au-add")
-            page.click("#au-add")
-            check(page.locator("#au-times input").count() == 4 and not page.is_visible("#au-add"), "at most four update times")
+            page.locator(".au-row").nth(1).get_by_text("Remove schedule").click()
+            check(page.locator(".au-row").count() == 1, "a schedule can be removed")
+            page.locator(".au-row").nth(0).locator("[data-add-time]").click()
+            page.locator(".au-row").nth(0).locator("[data-add-time]").click()
+            check(page.locator(".au-row").nth(0).locator("input").count() == 3, "times can be added to a schedule")
 
             # An AI agent token: make it on the Integrations page, see it once, and
             # connect to /mcp with it as an analyst.

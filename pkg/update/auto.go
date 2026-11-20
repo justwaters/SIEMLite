@@ -20,15 +20,32 @@ const (
 	MaxTimes = 4
 )
 
-// AutoSettings is when SIEMLite installs a new release by itself.
-type AutoSettings struct {
-	Enabled bool `json:"enabled"`
+// AutoWindow is one part of the schedule: some days, and the times of day on them.
+type AutoWindow struct {
 	// Days are the days it may update, 0 (Sunday) to 6 (Saturday). Empty means every day.
 	Days []int `json:"days"`
 	// Times are the times of day (server time, "15:04") at which it looks for a release.
 	Times []string `json:"times"`
+}
+
+// MaxSchedules is how many windows (for example weekdays and weekends) one schedule can have.
+const MaxSchedules = 7
+
+// HoldSeverity is the severity from which an open alert holds an update back (High).
+const HoldSeverity = 4
+
+// holdRetry is how long an update held back by open alerts waits before looking again.
+const holdRetry = 30 * time.Minute
+
+// AutoSettings is when SIEMLite installs a new release by itself.
+type AutoSettings struct {
+	Enabled bool `json:"enabled"`
+	// Schedules are the windows; an update is looked for at the times of every one of them.
+	Schedules []AutoWindow `json:"schedules"`
 	// BackupFirst makes a backup before installing; if the backup fails nothing is installed.
 	BackupFirst bool `json:"backup_first"`
+	// HoldForAlerts keeps an update back while a High or Critical alert is open, trying again every half hour.
+	HoldForAlerts bool `json:"hold_for_alerts"`
 }
 
 // AutoLast is what the latest scheduled check did.
@@ -51,13 +68,12 @@ type AutoState struct {
 
 // DefaultAuto is the schedule before anyone sets one: off, a quiet time at night, with a backup.
 func DefaultAuto() AutoSettings {
-	return AutoSettings{Times: []string{"03:00"}, BackupFirst: true}
+	return AutoSettings{Schedules: []AutoWindow{{Days: []int{}, Times: []string{"03:00"}}}, BackupFirst: true, HoldForAlerts: true}
 }
 
-// ValidateAuto checks a schedule and returns it tidied (times sorted and in HH:MM form, days sorted).
-// A schedule that is turned on needs at least one time.
-func ValidateAuto(in AutoSettings) (AutoSettings, error) {
-	out := AutoSettings{Enabled: in.Enabled, BackupFirst: in.BackupFirst, Days: []int{}, Times: []string{}}
+// validateWindow tidies one window (days sorted, all seven meaning every day; times sorted in HH:MM form).
+func validateWindow(in AutoWindow) (AutoWindow, error) {
+	out := AutoWindow{Days: []int{}, Times: []string{}}
 	seen := map[int]bool{}
 	for _, d := range in.Days {
 		if d < 0 || d > 6 {
@@ -70,10 +86,10 @@ func ValidateAuto(in AutoSettings) (AutoSettings, error) {
 	}
 	sort.Ints(out.Days)
 	if len(out.Days) == 7 {
-		out.Days = []int{} // every day
+		out.Days = []int{}
 	}
 	if len(in.Times) > MaxTimes {
-		return out, fmt.Errorf("Use at most %d times a day.", MaxTimes)
+		return out, fmt.Errorf("Use at most %d times a day in one schedule.", MaxTimes)
 	}
 	have := map[string]bool{}
 	for _, raw := range in.Times {
@@ -81,22 +97,51 @@ func ValidateAuto(in AutoSettings) (AutoSettings, error) {
 		if err != nil {
 			return out, fmt.Errorf("%q isn't a time. Use hours and minutes, like 03:30.", raw)
 		}
-		s := t.Format("15:04")
-		if !have[s] {
+		if s := t.Format("15:04"); !have[s] {
 			have[s] = true
 			out.Times = append(out.Times, s)
 		}
 	}
 	sort.Strings(out.Times)
-	if out.Enabled && len(out.Times) == 0 {
-		return out, errors.New("Add at least one time to update at.")
+	return out, nil
+}
+
+// ValidateAuto checks a schedule and returns it tidied. A schedule that is turned on needs at
+// least one window, and every window needs a time.
+func ValidateAuto(in AutoSettings) (AutoSettings, error) {
+	out := AutoSettings{Enabled: in.Enabled, BackupFirst: in.BackupFirst, HoldForAlerts: in.HoldForAlerts, Schedules: []AutoWindow{}}
+	if len(in.Schedules) > MaxSchedules {
+		return out, fmt.Errorf("Use at most %d schedules.", MaxSchedules)
+	}
+	for _, w := range in.Schedules {
+		v, err := validateWindow(w)
+		if err != nil {
+			return out, err
+		}
+		if in.Enabled && len(v.Times) == 0 {
+			return out, errors.New("Add at least one time to every schedule.")
+		}
+		out.Schedules = append(out.Schedules, v)
+	}
+	if in.Enabled && len(out.Schedules) == 0 {
+		return out, errors.New("Add a schedule with at least one time.")
 	}
 	return out, nil
 }
 
-// NextAuto is the first scheduled time after t, in loc; the zero time if the schedule has no times.
+// NextAuto is the first scheduled time after t, in loc, over all the windows; the zero time if there is none.
 func NextAuto(set AutoSettings, t time.Time, loc *time.Location) time.Time {
-	if len(set.Times) == 0 {
+	var best time.Time
+	for _, w := range set.Schedules {
+		if n := nextWindow(w, t, loc); !n.IsZero() && (best.IsZero() || n.Before(best)) {
+			best = n
+		}
+	}
+	return best
+}
+
+func nextWindow(w AutoWindow, t time.Time, loc *time.Location) time.Time {
+	if len(w.Times) == 0 {
 		return time.Time{}
 	}
 	if loc == nil {
@@ -104,17 +149,17 @@ func NextAuto(set AutoSettings, t time.Time, loc *time.Location) time.Time {
 	}
 	t = t.In(loc)
 	allowed := func(d time.Weekday) bool {
-		if len(set.Days) == 0 {
+		if len(w.Days) == 0 {
 			return true
 		}
-		for _, x := range set.Days {
+		for _, x := range w.Days {
 			if x == int(d) {
 				return true
 			}
 		}
 		return false
 	}
-	times := append([]string(nil), set.Times...)
+	times := append([]string(nil), w.Times...)
 	sort.Strings(times)
 	for off := 0; off <= 8; off++ {
 		day := time.Date(t.Year(), t.Month(), t.Day()+off, 12, 0, 0, 0, loc) // noon: safely inside the day
@@ -147,6 +192,8 @@ type Auto struct {
 	Store   AutoStore
 	// Backup makes a backup and waits for it (nil: BackupFirst is ignored).
 	Backup func(ctx context.Context) error
+	// OpenAlerts counts the open alerts of at least the given severity (nil: HoldForAlerts is ignored).
+	OpenAlerts func(ctx context.Context, minSeverity int) (int64, error)
 	// Restart restarts SIEMLite on the new version.
 	Restart func()
 	// Done is told about an installed update (for the audit log).
@@ -272,6 +319,20 @@ func (a *Auto) runOnce(ctx context.Context, set AutoSettings) bool {
 		a.record(ctx, false, st.Latest+" is available but can't be installed here: "+why)
 		return false
 	}
+	if set.HoldForAlerts && a.OpenAlerts != nil {
+		n, err := a.OpenAlerts(ctx, HoldSeverity)
+		if err != nil {
+			a.record(ctx, false, "Not updated to "+st.Latest+": couldn't count the open alerts ("+err.Error()+"). Will try again.")
+			a.retrySoon()
+			return false
+		}
+		if n > 0 {
+			a.record(ctx, true, fmt.Sprintf("%s is ready, but %d High or Critical %s open. Waiting until %s closed; looking again in 30 minutes.",
+				st.Latest, n, plural(n, "alert is", "alerts are"), plural(n, "it is", "they are")))
+			a.retrySoon()
+			return false
+		}
+	}
 	if set.BackupFirst && a.Backup != nil {
 		if err := a.Backup(ctx); err != nil {
 			log.Warn("automatic update skipped: the backup before it failed", "err", err)
@@ -299,6 +360,22 @@ func (a *Auto) runOnce(ctx context.Context, set AutoSettings) bool {
 		go func() { time.Sleep(300 * time.Millisecond); a.Restart() }()
 	}
 	return true
+}
+
+// retrySoon makes the next check half an hour from now, when that is sooner than the schedule's own.
+func (a *Auto) retrySoon() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if r := a.now().Add(holdRetry); a.armed.IsZero() || r.Before(a.armed) {
+		a.armed = r
+	}
+}
+
+func plural(n int64, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // Run checks the schedule every 20 seconds until ctx is done.

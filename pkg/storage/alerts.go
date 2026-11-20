@@ -819,3 +819,10 @@ func (r *Repository) CountOpenAlerts(ctx context.Context) (int64, error) {
 	err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'open'`).Scan(&n)
 	return n, err
 }
+
+// CountOpenAlertsAtLeast returns the number of open alerts whose severity is at least min.
+func (r *Repository) CountOpenAlertsAtLeast(ctx context.Context, min int) (int64, error) {
+	var n int64
+	err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'open' AND severity >= ?`, min).Scan(&n)
+	return n, err
+}

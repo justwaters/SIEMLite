@@ -431,7 +431,8 @@ func run() error {
 	var autoUpdate *update.Auto
 	if updates != nil {
 		autoUpdate = &update.Auto{Checker: updates, Store: repo, Log: slog.Default(),
-			Backup: func(ctx context.Context) error { _, err := backups.Create(ctx, backup.Manual); return err },
+			Backup:     func(ctx context.Context) error { _, err := backups.Create(ctx, backup.Manual); return err },
+			OpenAlerts: repo.CountOpenAlertsAtLeast,
 			Restart: func() {
 				select {
 				case restartCh <- struct{}{}:
