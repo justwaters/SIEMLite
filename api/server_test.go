@@ -36,7 +36,7 @@ import (
 const password = "correct horse battery"
 
 type env struct {
-	t      *testing.T
+	t      testing.TB
 	srv    *httptest.Server
 	local  *httptest.Server // the same server's local port
 	api    *api.Server
@@ -52,6 +52,12 @@ func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
 // newEnvWith is newEnv with a chance to change the server's dependencies.
 func newEnvWith(t *testing.T, change func(*api.Deps)) *env {
 	t.Helper()
+	return newEnvTB(t, entratest.New(t), change)
+}
+
+// newEnvTB builds the env for a test or a fuzz target; ms may be nil when Entra isn't needed.
+func newEnvTB(t testing.TB, ms *entratest.Microsoft, change func(*api.Deps)) *env {
+	t.Helper()
 	auth.HashCost = bcrypt.MinCost // keep tests fast
 
 	ctx := context.Background()
@@ -65,9 +71,10 @@ func newEnvWith(t *testing.T, change func(*api.Deps)) *env {
 	t.Cleanup(worker.Close)
 
 	router := sources.New(repo)
-	ms := entratest.New(t)
 	entraSvc := entra.NewService(repo, repo, secret.NewBox(filepath.Join(t.TempDir(), "entra.key")), nil)
-	entraSvc.Authority, entraSvc.Graph = ms.URL, ms.URL+"/v1.0"
+	if ms != nil {
+		entraSvc.Authority, entraSvc.Graph = ms.URL, ms.URL+"/v1.0"
+	}
 	emailSvc := email.NewService(repo, filepath.Join(t.TempDir(), "k.key"))
 	aiSvc := ai.NewService(repo, secret.NewBox(filepath.Join(t.TempDir(), "ai.key")), ai.Defaults{}, nil)
 	agentSvc := agents.New(repo)

@@ -592,3 +592,17 @@ func TestAttachments(t *testing.T) {
 		t.Error("an oversized attachment was accepted")
 	}
 }
+
+func TestAttachmentContentTypeIsCheckedAndBare(t *testing.T) {
+	cfg := Config{Host: "smtp.example.com", Port: 587, Security: SecuritySTARTTLS, FromAddress: "siemlite@example.com"}
+	for ct, want := range map[string]string{"application/pdf": "application/pdf", "": "application/octet-stream", "\x06": "application/octet-stream",
+		"text/html\r\nX-Evil: 1": "application/octet-stream", "text/plain; boundary=zzz": "text/plain", "Application/PDF": "application/pdf"} {
+		raw, _, err := build(cfg, Message{To: []string{"a@example.com"}, Attachments: []Attachment{{Name: "a.bin", ContentType: ct, Data: []byte("x")}}}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "\r\nContent-Type: "+want+"; name=\"a.bin\"\r\n") || strings.Contains(string(raw), "X-Evil") || strings.Contains(string(raw), "zzz") {
+			t.Errorf("content type %q: want %q in\n%s", ct, want, raw)
+		}
+	}
+}

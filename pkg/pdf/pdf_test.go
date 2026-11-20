@@ -132,3 +132,27 @@ func TestEncodeUnencodable(t *testing.T) {
 		t.Fatal(string(encode("a中b\n")))
 	}
 }
+
+func TestEllipsizeNarrowOrNegativeWidth(t *testing.T) {
+	for _, w := range []float64{-5, -1e9, 0, 1} {
+		if got := Ellipsize(Helvetica, 10, w, "a long piece of text"); got != "..." {
+			t.Errorf("Ellipsize at width %v = %q, want the dots alone", w, got)
+		}
+	}
+}
+
+func TestWrapLongWordIsFast(t *testing.T) {
+	start := time.Now()
+	lines := Wrap(Helvetica, 10, 200, strings.Repeat("W", 1<<20))
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("wrapping a 1 MB word took %v", d)
+	}
+	if len(lines) < 1000 {
+		t.Errorf("%d lines", len(lines))
+	}
+	for _, l := range lines {
+		if TextWidth(Helvetica, 10, l) > 200 {
+			t.Fatalf("line %q is too wide", l)
+		}
+	}
+}

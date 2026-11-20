@@ -96,6 +96,15 @@ func TextWidth(f Font, size float64, s string) float64 {
 	return float64(w) * size / 1000
 }
 
+// runeWidth is the width of one character in thousandths of the font size.
+func runeWidth(f Font, r rune) int {
+	w := 0
+	for _, b := range encode(string(r)) {
+		w += f.width(b)
+	}
+	return w
+}
+
 // Wrap breaks s into lines no wider than maxWidth, at spaces; a word wider than a line is broken
 // hard. It always returns at least one line.
 func Wrap(f Font, size, maxWidth float64, s string) []string {
@@ -113,18 +122,25 @@ func Wrap(f Font, size, maxWidth float64, s string) []string {
 			}
 			flush()
 		}
-		for TextWidth(f, size, word) > maxWidth {
-			rs := []rune(word)
-			n := 1
-			for n < len(rs) && TextWidth(f, size, string(rs[:n+1])) <= maxWidth {
-				n++
+		// Break a word wider than a line hard, a run of characters at a time. Widths are added up as
+		// we go, so a very long word costs time in proportion to its length.
+		rs := []rune(word)
+		for len(rs) > 0 {
+			w, n := runeWidth(f, rs[0]), 1
+			for n < len(rs) {
+				next := w + runeWidth(f, rs[n])
+				if float64(next)*size/1000 > maxWidth {
+					break
+				}
+				w, n = next, n+1
 			}
 			if n >= len(rs) {
 				break
 			}
 			lines = append(lines, string(rs[:n]))
-			word = string(rs[n:])
+			rs = rs[n:]
 		}
+		word = string(rs)
 		cur = word
 	}
 	if cur != "" || len(lines) == 0 {
@@ -142,7 +158,7 @@ func Ellipsize(f Font, size, maxWidth float64, s string) string {
 	const dots = "..."
 	rs := []rune(s)
 	// No character is narrower than 0.19 em, so nothing past this many can fit.
-	if lim := int(maxWidth*1000/(190*size)) + 2; size > 0 && lim < len(rs) {
+	if lim := max(0, int(maxWidth*1000/(190*size))+2); size > 0 && lim < len(rs) { // (a negative width must not slice backwards)
 		rs = rs[:lim]
 	}
 	for n := len(rs) - 1; n > 0; n-- {

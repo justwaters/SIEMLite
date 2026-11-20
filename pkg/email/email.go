@@ -208,9 +208,11 @@ func build(cfg Config, m Message, now time.Time) (msg []byte, rcpts []string, er
 	}
 	for _, a := range m.Attachments {
 		name := mime.QEncoding.Encode("utf-8", safeFileName(a.Name))
-		ct := strings.NewReplacer("\r", "", "\n", "").Replace(strings.TrimSpace(a.ContentType))
-		if ct == "" {
-			ct = "application/octet-stream"
+		// Only a well-formed type is used, and without parameters: anything else (a control character,
+		// "a/b; boundary=x") would give a header some mail programs refuse or misread.
+		ct := "application/octet-stream"
+		if mt, _, err := mime.ParseMediaType(strings.TrimSpace(a.ContentType)); err == nil {
+			ct = mt
 		}
 		b.WriteString("\r\n--" + boundary + "\r\n")
 		b.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", ct, name))

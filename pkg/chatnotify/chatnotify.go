@@ -221,6 +221,9 @@ func (s *Service) CheckWebhook(raw string) string {
 	if u.Scheme != "https" {
 		return "The webhook address must start with https://."
 	}
+	if u.User != nil {
+		return "The webhook address must not contain a user name or password."
+	}
 	host := strings.ToLower(u.Hostname())
 	ok := false
 	switch s.kind {
@@ -228,8 +231,11 @@ func (s *Service) CheckWebhook(raw string) string {
 		ok = host == "hooks.slack.com" || host == "hooks.slack-gov.com"
 	case Teams:
 		for _, suffix := range []string{".logic.azure.com", ".webhook.office.com", ".powerplatform.com", ".api.powerplatform.com"} {
-			ok = ok || strings.HasSuffix(host, suffix)
+			ok = ok || strings.HasSuffix(host, suffix) && !strings.HasPrefix(host, ".") && !strings.Contains(host, "..")
 		}
+	}
+	if strings.Trim(host, "abcdefghijklmnopqrstuvwxyz0123456789.-") != "" {
+		ok = false // letters, digits, dots and hyphens only; anything else in a host name is a trick
 	}
 	if !ok {
 		if s.kind == Teams {
@@ -423,11 +429,13 @@ func slackMessage(a Alert) any {
 	if a.Note != "" {
 		lines = append(lines, "_"+esc(a.Note)+"_")
 	}
-	blocks := []any{map[string]any{"type": "header", "text": map[string]any{"type": "plain_text", "text": head}}}
+	// Slack refuses a header over 150 characters and a section over 3000, which would lose the alert.
+	blocks := []any{map[string]any{"type": "header", "text": map[string]any{"type": "plain_text", "text": clip(head, 150)}}}
 	if len(lines) > 0 {
-		blocks = append(blocks, map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": strings.Join(lines, "\n")}})
+		blocks = append(blocks, map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": clip(strings.Join(lines, "\n"), 3000)}})
 	}
-	return map[string]any{"text": head, "attachments": []any{map[string]any{"color": sevColor[a.Severity], "blocks": blocks}}}
+	// "text" is read as markup too (it is the notification text), so it is escaped; the header block is plain text.
+	return map[string]any{"text": clip(esc(head), 3000), "attachments": []any{map[string]any{"color": sevColor[a.Severity], "blocks": blocks}}}
 }
 
 // teamsCard is an Adaptive Card in a message, which is what a Teams workflow's "when a webhook
@@ -464,4 +472,18 @@ func teamsCard(a Alert) any {
 		"contentType": "application/vnd.microsoft.card.adaptive",
 		"content":     map[string]any{"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard", "version": "1.4", "body": body},
 	}}}
+}
+
+// clip cuts s to at most n characters (not bytes), ending in an ellipsis when it was cut.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	cut := string(r[:n-1])
+	// Don't end in half of an escaped &amp; &lt; or &gt;.
+	if i := strings.LastIndex(cut, "&"); i >= 0 && len(cut)-i <= 5 && !strings.Contains(cut[i:], ";") {
+		cut = cut[:i]
+	}
+	return cut + "…"
 }

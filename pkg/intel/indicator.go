@@ -56,7 +56,7 @@ func Normalize(typ, value string) (string, string, error) {
 	switch typ {
 	case TypeIP:
 		a, err := netip.ParseAddr(v)
-		if err != nil {
+		if err != nil || a.Zone() != "" { // a zone ("fe80::1%eth0") is a local interface name, and can hold any byte
 			return "", "", fmt.Errorf("%q is not an IP address", value)
 		}
 		return TypeIP, a.Unmap().String(), nil

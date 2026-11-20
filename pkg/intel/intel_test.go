@@ -148,3 +148,13 @@ func TestCustomFeedReferenceHasNoSecrets(t *testing.T) {
 		t.Errorf("a non-web address was kept: %q", got)
 	}
 }
+
+func TestNormalizeRejectsZonedAddresses(t *testing.T) {
+	for _, v := range []string{"fe80::1%eth0", "::a%0\x8d0", "fe80::1%"} {
+		for _, typ := range []string{"", TypeIP} {
+			if _, got, err := Normalize(typ, v); err == nil {
+				t.Errorf("Normalize(%q, %q) = %q, want an error", typ, v, got)
+			}
+		}
+	}
+}
