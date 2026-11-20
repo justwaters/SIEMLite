@@ -807,8 +807,10 @@ Enter them on the card, choose **Test connection** (it shows the group names and
 
 ## Slack and Microsoft Teams
 
+*Beta: first shipped in v0.34-beta.1, available on the **Beta** release channel (System page) before it reaches Stable.*
+
 Two integrations post a message to a chat channel whenever SIEMLite **opens** an alert (an alert that gains more events
-is not posted again), including alerts an AI agent raises with `create_alert`. Each has its own card on the Integrations
+is not posted again). Each has its own card on the Integrations
 page, a **Post alerts of** choice (Low, Medium, High or Critical and above; High is the default) and a **Send a test message** button.
 
 - **Slack**: create an app with an [incoming webhook](https://api.slack.com/messaging/webhooks), choose the channel and
@@ -818,8 +820,7 @@ page, a **Post alerts of** choice (Low, Medium, High or Critical and above; High
   `...powerplatform.com`). The message is an Adaptive Card.
 
 The webhook address works like a password, so it is saved sealed (like the email password), never shown again, and left
-out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute (alerts raised by hand, such as an AI agent's `create_alert`, have their own
-budget of 3 a minute so they can't crowd out detected ones); if more alerts open, the next message says how many were
+out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute; if more alerts open, the next message says how many were
 held back. Redirects are not followed, text from logs is escaped so it can't make links or channel pings, and what
 the far end replies isn't repeated back. A failed post shows on the card. The messages name
 the rule, severity, who or what it was about, and how many events; they link nowhere, since SIEMLite doesn't know the

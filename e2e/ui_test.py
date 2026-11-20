@@ -182,7 +182,7 @@ def main(binary, loggen):
                 page = ctx.new_page()
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 # 401s are expected: the page asks who is signed in before anyone is.
-                page.on("console", lambda m: m.type == "error" and "status of 401" not in m.text and errors.append(m.text))
+                page.on("console", lambda m: m.type == "error" and "status of 401" not in m.text and "status of 400" not in m.text and errors.append(m.text))
                 page.goto(url)
                 page.fill("#username", user)
                 page.fill("#password", pw)

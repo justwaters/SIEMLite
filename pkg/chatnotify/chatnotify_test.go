@@ -277,3 +277,81 @@ func TestRedirectsAreNotFollowedAndBodiesNotEchoed(t *testing.T) {
 		t.Errorf("the far end's words were echoed: %v", err)
 	}
 }
+
+// A webhook address with credentials in it is refused, even on an allowed host.
+func TestCheckWebhookRefusesUserInfo(t *testing.T) {
+	svc := New(Slack, nil, "")
+	for _, raw := range []string{"https://user:pw@hooks.slack.com/services/T/B/x", "https://user@hooks.slack.com/services/T/B/x"} {
+		if svc.CheckWebhook(raw) == "" {
+			t.Errorf("%q was accepted", raw)
+		}
+	}
+	if svc.CheckWebhook("https://hooks.slack.com/services/T/B/x") != "" {
+		t.Error("a plain Slack address was refused")
+	}
+}
+
+func TestSlackNotificationTextCannotPingAChannel(t *testing.T) {
+	s, _ := newSvc(t, Slack)
+	var v struct {
+		Text        string `json:"text"`
+		Attachments []struct {
+			Blocks []struct {
+				Text struct{ Type, Text string } `json:"text"`
+			} `json:"blocks"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(s.payload(Alert{Title: "<!channel> & <@U1|x>", Severity: 5}), &v); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(v.Text, "<>") || !strings.Contains(v.Text, "&lt;!channel&gt; &amp; &lt;@U1|x&gt;") {
+		t.Errorf("notification text %q", v.Text)
+	}
+	if h := v.Attachments[0].Blocks[0].Text; h.Type != "plain_text" || !strings.Contains(h.Text, "<!channel>") {
+		t.Errorf("the plain-text header should show the name as it is: %+v", h)
+	}
+}
+
+func TestTeamsHostNeedsALabelBeforeTheSuffix(t *testing.T) {
+	s, _ := newSvc(t, Teams)
+	s.AnyHost = false
+	for _, u := range []string{"https://.logic.azure.com/x", "https://a..logic.azure.com/x", "https://.webhook.office.com/"} {
+		if s.CheckWebhook(u) == "" {
+			t.Errorf("%q was accepted", u)
+		}
+	}
+	if s.CheckWebhook("https://prod-12.westus.logic.azure.com:443/workflows/x") != "" {
+		t.Error("a real workflow address was refused")
+	}
+}
+
+func TestWebhookHostCharactersAreLimited(t *testing.T) {
+	s, _ := newSvc(t, Teams)
+	s.AnyHost = false
+	if s.CheckWebhook("https://0!.logic.azure.com/x") == "" || s.CheckWebhook("https://a_b.logic.azure.com/x") == "" {
+		t.Error("a host with odd characters was accepted")
+	}
+}
+
+// A long title or description is cut to what Slack accepts rather than losing the alert.
+func TestSlackMessageStaysWithinSlackLimits(t *testing.T) {
+	long := strings.Repeat("é", 5000)
+	b, _ := json.Marshal(slackMessage(Alert{Severity: 4, Title: long, Description: long, Note: long}))
+	var m struct {
+		Attachments []struct {
+			Blocks []struct {
+				Text struct{ Text string }
+			}
+		}
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	bl := m.Attachments[0].Blocks
+	if n := len([]rune(bl[0].Text.Text)); n > 150 {
+		t.Errorf("header has %d characters", n)
+	}
+	if n := len([]rune(bl[1].Text.Text)); n > 3000 {
+		t.Errorf("section has %d characters", n)
+	}
+}
