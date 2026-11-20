@@ -1088,7 +1088,7 @@
         </div>
         <div class="integ-body" id="int-teams-body" hidden>
           <form class="mail" id="chat-teams-form" autocomplete="off">
-            <p class="hint">In Teams, add a workflow to the channel with the trigger &ldquo;When a Teams webhook request is received&rdquo; and the action &ldquo;Post card in a chat or channel&rdquo;, then paste the workflow&rsquo;s address here. The address works like a password, so SIEMLite keeps it sealed and never shows it again. At most 10 messages are posted a minute; if more alerts open, the next message says how many were held back.</p>
+            <p class="hint">In Teams, open Workflows in the channel and choose the template &ldquo;Send webhook alerts to a channel&rdquo; (search for &ldquo;webhook&rdquo;). Set the team and channel in both branches and save. Then open its first step, &ldquo;When a Teams webhook request is received&rdquo;, and paste its HTTP POST URL here. The address works like a password, so SIEMLite keeps it sealed and never shows it again. At most 10 messages are posted a minute; if more alerts open, the next message says how many were held back.</p>
             <div class="mail-grid">
               <label class="field-label">Webhook address
                 <input class="input mono" type="password" id="chat-teams-hook" autocomplete="off" spellcheck="false" placeholder="">
