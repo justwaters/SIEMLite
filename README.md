@@ -877,9 +877,14 @@ page, a **Post alerts of** choice (Low, Medium, High or Critical and above; High
 
 - **Slack**: create an app with an [incoming webhook](https://api.slack.com/messaging/webhooks), choose the channel and
   paste the address (`https://hooks.slack.com/services/...`).
-- **Microsoft Teams**: add a workflow to the channel with the trigger *When a Teams webhook request is received* and the
-  action *Post card in a chat or channel*, and paste its address (`...logic.azure.com`, `...webhook.office.com` or
-  `...powerplatform.com`). The message is an Adaptive Card.
+- **Microsoft Teams**: in the channel, choose **Workflows** and pick the template *Send webhook alerts to a channel*
+  (search for "webhook"). Set the team and channel in both of its branches, save, then open the first step, *When a
+  Teams webhook request is received*, and copy its **HTTP POST URL** (`...logic.azure.com`, `...webhook.office.com` or
+  `...powerplatform.com`) into the card. The message is an Adaptive Card, which the template posts from the request.
+  Building the workflow by hand from a blank one also works, but the simple editor has no expression box, so the card
+  field can't be filled in there; use the template, or finish the workflow in Power Automate with the card set to
+  `triggerBody()?['attachments']?[0]?['content']`. Teams adds a line under each card saying it came from a workflow
+  template; SIEMLite can't remove it.
 
 The webhook address works like a password, so it is saved sealed (like the email password), never shown again, and left
 out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute (alerts raised by hand, such as an AI agent's `create_alert`, have their own
