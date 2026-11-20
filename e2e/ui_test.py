@@ -508,6 +508,29 @@ def main(binary, loggen):
             sentence = page.locator("#rules-body tr", has_text="Source went quiet").locator(".rule-sentence").inner_text()
             check("sends fewer than 1 event in 15 minutes" in sentence, f"the rule list reads a volume rule back ({sentence!r})")
 
+            # System > Automatic updates: pick days and times, save, and see it kept.
+            page.goto(url + "#/system")
+            page.wait_for_selector("#au-times input")
+            check(not page.is_checked("#au-enabled") and page.locator("#au-times input").count() == 1, "automatic updates start off with one time")
+            page.check("#au-enabled")
+            page.click('[data-day="1"]')
+            page.click('[data-day="4"]')
+            page.fill("#au-times input", "04:15")
+            page.click("#au-add")
+            page.locator("#au-times input").nth(1).fill("22:45")
+            check(page.locator("#au-times input").count() == 2, "a second update time can be added")
+            page.click("#au-save")
+            page.wait_for_selector("#au-msg:not([hidden])")
+            check("Saved" in page.inner_text("#au-msg") and "04:15" in page.inner_text("#au-msg"), "the update schedule saves")
+            page.reload()
+            page.wait_for_selector("#au-times input")
+            check(page.is_checked("#au-enabled") and page.locator("#au-times input").count() == 2 and
+                  page.get_attribute('[data-day="1"]', "aria-pressed") == "true" and page.get_attribute('[data-day="2"]', "aria-pressed") == "false",
+                  "the update schedule is kept after a reload")
+            page.click("#au-add")
+            page.click("#au-add")
+            check(page.locator("#au-times input").count() == 4 and not page.is_visible("#au-add"), "at most four update times")
+
             # An AI agent token: make it on the Integrations page, see it once, and
             # connect to /mcp with it as an analyst.
             page.goto(url + "#/integrations")

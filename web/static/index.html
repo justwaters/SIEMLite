@@ -260,6 +260,8 @@
   .dash-hint { margin: 12px 4px 0; color: var(--ink-2); font-size: 13.5px; text-align: center; }
   .dash-body { margin-top: 56px; }
   .dash-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .au-times { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .au-times .au-time { display: inline-flex; gap: 2px; align-items: center; }
   .seg { display: inline-grid; grid-auto-flow: column; padding: 2px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
   .seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; color: var(--ink-2); cursor: pointer; font-size: 13.5px; }
   .seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--raised); color: var(--ink); }
@@ -523,6 +525,10 @@
   .sched-fields .input { width: 90px; }
   .sched-fields #tls-domain { width: 240px; }
   #tls-form .notice { grid-column: 1 / -1; margin: 0; }
+  #au-form { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  #au-form .notice { margin: 0; }
+  #au-form .au-time .input { width: 130px; }
+  #au-form .sched-fields { align-items: center; }
   .working td { color: var(--ink-2); }
   .backups td { white-space: nowrap; }
   .backups tr.working td, .backups tr.empty td { white-space: normal; }
@@ -1253,6 +1259,27 @@
           <button class="btn btn-primary" type="button" id="update-apply" hidden>Update and restart</button>
         </div>
       </div>
+      <form class="panel sched" id="au-form" autocomplete="off">
+        <div><h2>Automatic updates</h2>
+          <p class="hint" id="au-status">Checking…</p></div>
+        <div class="sched-fields">
+          <label class="check"><input type="checkbox" id="au-enabled"> Install new releases by itself</label>
+          <div class="seg" role="group" aria-label="Days to update on" id="au-days">
+            <button type="button" data-day="1" aria-pressed="false">Mon</button>
+            <button type="button" data-day="2" aria-pressed="false">Tue</button>
+            <button type="button" data-day="3" aria-pressed="false">Wed</button>
+            <button type="button" data-day="4" aria-pressed="false">Thu</button>
+            <button type="button" data-day="5" aria-pressed="false">Fri</button>
+            <button type="button" data-day="6" aria-pressed="false">Sat</button>
+            <button type="button" data-day="0" aria-pressed="false">Sun</button>
+          </div>
+          <div class="au-times" id="au-times" role="group" aria-label="Times to update at"></div>
+          <button class="btn" type="button" id="au-add">Add a time</button>
+          <label class="check"><input type="checkbox" id="au-backup"> Make a backup first</label>
+          <button class="btn btn-primary" type="submit" id="au-save">Save</button>
+        </div>
+        <p class="notice" id="au-msg" role="status" hidden></p>
+      </form>
       <form class="panel sched" id="tls-form" autocomplete="off">
         <div><h2>HTTPS certificate</h2>
           <p class="hint" id="tls-status">Checking…</p></div>
@@ -3514,6 +3541,8 @@ async function openSystem() {
     }
   } catch (err) { notice($("system-msg"), err.message); }
   loadUpdate(false);
+  loadAutoUpdate();
+  notice($("au-msg"), "");
   loadTLS(true);
   loadRetention();
   loadRawKeep();
@@ -3561,6 +3590,68 @@ async function applyUpdate(u) {
   try { sessionStorage.setItem("siemlite.updated", "1"); } catch {}
   waitForRestart("Updating SIEMLite", "SIEMLite is restarting on the new version. This page reloads when it\u2019s back.");
 }
+// --- Automatic updates ---
+let auView = null, auTimes = [], auDays = new Set();
+const AU_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function auRender() {
+  for (const b of document.querySelectorAll("[data-day]")) b.setAttribute("aria-pressed", String(auDays.has(Number(b.dataset.day))));
+  const box = $("au-times");
+  box.textContent = "";
+  auTimes.forEach((t, i) => {
+    const wrap = document.createElement("span"); wrap.className = "au-time";
+    const inp = document.createElement("input");
+    inp.type = "time"; inp.className = "input"; inp.required = true; inp.value = t;
+    inp.setAttribute("aria-label", `Update time ${i + 1}`);
+    inp.oninput = () => { auTimes[i] = inp.value; };
+    wrap.append(inp);
+    if (auTimes.length > 1) {
+      const x = document.createElement("button");
+      x.type = "button"; x.className = "btn"; x.textContent = "Remove"; x.setAttribute("aria-label", `Remove time ${t || i + 1}`);
+      x.onclick = () => { auTimes.splice(i, 1); auRender(); };
+      wrap.append(x);
+    }
+    box.append(wrap);
+  });
+  $("au-add").hidden = auTimes.length >= 4;
+}
+function auStatus(v) {
+  const bits = [];
+  if (!v.can_apply) bits.push(`This install can't update itself. ${v.why_not || ""}`);
+  else if (v.enabled && v.next) bits.push(`Next check ${new Date(v.next).toLocaleString([], { weekday: "long", hour: "numeric", minute: "2-digit" })} (server time, ${v.timezone}).`);
+  else bits.push("Off. When on, SIEMLite checks at the times you pick and installs a newer release, then restarts, which takes a few seconds.");
+  if (v.last) bits.push(`Last check ${new Date(v.last.at).toLocaleString()}: ${v.last.result}`);
+  $("au-status").textContent = bits.join(" ");
+}
+async function loadAutoUpdate() {
+  try {
+    auView = await apiJSON("/api/v1/system/update/auto");
+  } catch (err) { $("au-status").textContent = err.message; $("au-form").querySelector(".sched-fields").hidden = true; return; }
+  $("au-form").querySelector(".sched-fields").hidden = false;
+  $("au-enabled").checked = auView.enabled;
+  $("au-backup").checked = auView.backup_first;
+  auDays = new Set(auView.days || []);
+  auTimes = (auView.times && auView.times.length) ? [...auView.times] : ["03:00"];
+  auRender();
+  auStatus(auView);
+}
+for (const b of document.querySelectorAll("[data-day]")) b.onclick = () => {
+  const d = Number(b.dataset.day);
+  if (auDays.has(d)) auDays.delete(d); else auDays.add(d);
+  auRender();
+};
+$("au-add").onclick = () => { if (auTimes.length < 4) { auTimes.push("12:00"); auRender(); } };
+$("au-form").onsubmit = async (e) => {
+  e.preventDefault();
+  $("au-save").disabled = true;
+  try {
+    const v = await apiJSON("/api/v1/system/update/auto", { method: "PUT", json: {
+      enabled: $("au-enabled").checked, days: [...auDays].sort(), times: auTimes.filter(Boolean), backup_first: $("au-backup").checked } });
+    auView = v; auDays = new Set(v.days || []); auTimes = v.times.length ? [...v.times] : ["03:00"]; auRender(); auStatus(v);
+    notice($("au-msg"), v.enabled ? `Saved. ${auDays.size ? [...auDays].sort().map((d) => AU_DAYS[d].slice(0, 3)).join(", ") : "Every day"} at ${v.times.join(", ")}.` : "Saved. Automatic updates are off.", true);
+  } catch (err) { notice($("au-msg"), err.message); }
+  $("au-save").disabled = false;
+};
+
 // --- Security audit ---
 let audit = null, auditFilter = "open", auditBusy = false;
 const AUDIT_STATUS = { pass: "Pass", warn: "Warning", fail: "Failed", skip: "Skipped" };

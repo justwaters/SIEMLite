@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"siemlite/pkg/audit"
@@ -253,4 +255,56 @@ func (s *Server) handleApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(300 * time.Millisecond)
 		s.deps.Restart()
 	}()
+}
+
+// handleGetAutoUpdate returns the schedule for installing updates by itself.
+func (s *Server) handleGetAutoUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.AutoUpdate == nil {
+		writeError(w, http.StatusNotImplemented, "Update checks are turned off on this server.")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.deps.AutoUpdate.State(r.Context()))
+}
+
+// handleSaveAutoUpdate saves the schedule: which days, and up to four times of day.
+func (s *Server) handleSaveAutoUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.deps.AutoUpdate == nil {
+		writeError(w, http.StatusNotImplemented, "Update checks are turned off on this server.")
+		return
+	}
+	var req update.AutoSettings
+	if !decodeJSON(w, r, &req, 4<<10) {
+		return
+	}
+	was := s.deps.AutoUpdate.Settings(r.Context())
+	v, err := s.deps.AutoUpdate.Save(r.Context(), req)
+	if err != nil {
+		if _, verr := update.ValidateAuto(req); verr != nil {
+			writeError(w, http.StatusBadRequest, verr.Error())
+			return
+		}
+		s.internal(w, "save the update schedule", err)
+		return
+	}
+	if v.Enabled || was.Enabled {
+		what := "turned automatic updates off"
+		if v.Enabled {
+			what = fmt.Sprintf("set automatic updates for %s at %s", dayNames(v.Days), strings.Join(v.Times, ", "))
+		}
+		s.audit(r, audit.Entry{Action: "system.autoupdate", Severity: 3, Message: auth.FromContext(r.Context()).Name + " " + what,
+			Fields: map[string]string{"enabled": strconv.FormatBool(v.Enabled)}})
+	}
+	writeJSON(w, http.StatusOK, s.deps.AutoUpdate.State(r.Context()))
+}
+
+func dayNames(days []int) string {
+	if len(days) == 0 {
+		return "every day"
+	}
+	names := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+	var out []string
+	for _, d := range days {
+		out = append(out, names[d])
+	}
+	return strings.Join(out, ", ")
 }

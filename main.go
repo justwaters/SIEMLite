@@ -428,10 +428,27 @@ func run() error {
 		updates = update.New(version(), startExe)
 		updates.DataDir = dataDir
 	}
+	var autoUpdate *update.Auto
+	if updates != nil {
+		autoUpdate = &update.Auto{Checker: updates, Store: repo, Log: slog.Default(),
+			Backup: func(ctx context.Context) error { _, err := backups.Create(ctx, backup.Manual); return err },
+			Restart: func() {
+				select {
+				case restartCh <- struct{}{}:
+				default:
+				}
+			},
+			Done: func(from, to string) {
+				auditLog.Record(context.Background(), audit.Entry{Action: "system.update", Actor: "SIEMLite", Severity: 3,
+					Message: fmt.Sprintf("SIEMLite updated itself from %s to %s on its schedule", from, to), Fields: map[string]string{"from": from, "to": to, "automatic": "true"}})
+			}}
+		wg.Add(1)
+		go func() { defer wg.Done(); autoUpdate.Run(bgCtx) }()
+	}
 	srv := api.NewServer(*addr, api.Deps{
 		DB: db, Repo: repo, Ingest: worker, Search: engine, Retention: cleaner,
 		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc,
-		Backups: backups, Started: started, Version: version(), Updates: updates, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, entraSvc, aiSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
+		Backups: backups, Started: started, Version: version(), Updates: updates, AutoUpdate: autoUpdate, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, entraSvc, aiSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
 		SecAudit: secaudit.New(repo, hostname()), SecConfig: secaudit.Config{
 			DBPath: *dbPath, SecretKeyPath: secret.KeyPath(*dbPath), TLSKeyPath: *keyFile, ACMEDir: filepath.Join(filepath.Dir(*dbPath), "acme"),
 			Addr: *addr, LocalAddr: *localAddr, HTTPAddr: *httpAddr, SyslogUDP: *syslogUDP, SyslogTCP: *syslogTCP, SyslogTLS: *syslogTLS,

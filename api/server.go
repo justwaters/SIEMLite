@@ -78,11 +78,12 @@ type Deps struct {
 	// Requests on it count as coming from the server itself (see signin.go).
 	LocalAddr string
 	// Certs chooses the HTTPS certificate (System page; optional).
-	Certs   *certs.Manager
-	Updates *update.Checker // optional: the System page's update card
-	Version string          // e.g. "v0.7"
-	Audit   *audit.Logger   // optional: records actions as INTERNAL events
-	Alerts  *alerts.Engine  // optional: alert rules
+	Certs      *certs.Manager
+	Updates    *update.Checker // optional: the System page's update card
+	AutoUpdate *update.Auto    // optional: the schedule for installing updates by itself
+	Version    string          // e.g. "v0.7"
+	Audit      *audit.Logger   // optional: records actions as INTERNAL events
+	Alerts     *alerts.Engine  // optional: alert rules
 	// SecAudit runs the Security audit page's checks (optional); SecConfig is
 	// what they need to know of how SIEMLite was started.
 	SecAudit  *secaudit.Service
@@ -209,6 +210,8 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/v1/system/signin", s.handleSaveSignin)
 	admin("GET /api/v1/system/update", s.handleUpdateStatus)
 	admin("POST /api/v1/system/update", s.handleApplyUpdate)
+	admin("GET /api/v1/system/update/auto", s.handleGetAutoUpdate)
+	admin("PUT /api/v1/system/update/auto", s.handleSaveAutoUpdate)
 	admin("GET /api/v1/security-audit", s.handleAuditState)
 	admin("POST /api/v1/security-audit/run", s.handleAuditRun)
 	admin("GET /api/v1/security-audit/report", s.handleAuditReport)
