@@ -860,6 +860,13 @@ func (r *Repository) CountOpenAlerts(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// CountOpenAlertsAtLeast returns the number of open alerts whose severity is at least min.
+func (r *Repository) CountOpenAlertsAtLeast(ctx context.Context, min int) (int64, error) {
+	var n int64
+	err := r.db.Read.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'open' AND severity >= ?`, min).Scan(&n)
+	return n, err
+}
+
 // RaiseManualAlert opens an alert that no rule raised (an AI agent or a person
 // found something). One already open or acknowledged with the same title and
 // group is updated instead (its count goes up, and its severity and note are
