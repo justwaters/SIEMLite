@@ -3412,7 +3412,13 @@ async function openAlerts(params) {
   if (my !== alertsSeq) return;
   loadAlertsView();
 }
+// The built-in rule that finds the same user signing in from places too far apart (found by its name).
+const isTravelRule = (r) => !!r && !!r.builtin && String(r.name).toLowerCase() === "improbable travel";
 function ruleSentence(r) {
+  if (isTravelRule(r)) {
+    return el("span", { className: "rule-sentence" }, "Alerts when the same user signs in from places too far apart to travel between: faster than ",
+      `${nf.format(r.threshold)} km/h`, r.query ? el("span", {}, ", for sign-ins matching ", el("code", { textContent: r.query })) : "");
+  }
   if (r.kind === "volume_over" || r.kind === "volume_under") {
     const src = r.source_id ? ((sourcesCache.find((x) => x.id === r.source_id) || {}).name || "a source that was removed") : "a source that was removed";
     return el("span", { className: "rule-sentence" }, `${src} sends ${r.kind === "volume_over" ? "more" : "fewer"} than ` +
@@ -3533,6 +3539,13 @@ function ruleDialog(r) {
         (k === "volume_under" ? "It waits a whole window after the rule is saved, or SIEMLite starts, before it says the source went quiet." : "It stays open while the source is still over, and keeps the highest count.");
     $("r-source-label").textContent = k === "match" ? "From source" : "Source to watch";
     $("r-threshold-label").textContent = k === "match" ? "At least" : k === "volume_over" ? "More than" : "Fewer than";
+    if (isTravelRule(r)) { // a speed, not a count: the window and grouping are not the rule's to choose
+      $("r-intro").textContent = "An alert opens when the same user signs in from two places too far apart to travel between in the time that passed. " +
+        "The search says what counts as a successful sign-in. It needs a GeoIP City database; sign-ins without a location are left out.";
+      $("r-threshold-label").textContent = "Fastest believable travel (km/h)";
+    }
+    $("r-query").closest("label").firstChild.textContent = isTravelRule(r) ? "Events that count as a successful sign-in " : "Events that match the search ";
+    for (const n of [$("r-window"), $("r-group"), $("r-kind")]) n.closest("label").hidden = isTravelRule(r) || (n.id === "r-group" && k !== "match");
     fillSources();
   };
   $("r-kind").onchange = showKind;

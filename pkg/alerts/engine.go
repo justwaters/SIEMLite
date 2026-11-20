@@ -30,6 +30,8 @@ type Store interface {
 	WindowCounts(ctx context.Context, ru storage.Rule, groups []storage.RuleGroup, afterSeq, window, maxSeq int64) (map[string]storage.WindowStat, error)
 	ActiveAlertGroups(ctx context.Context, ruleID int64) (map[string]bool, error)
 	RaiseAlerts(ctx context.Context, ru storage.Rule, raises []storage.AlertRaise, nowMs int64) ([]bool, error)
+	TravelLogins(ctx context.Context, ru storage.Rule, afterSeq, maxSeq int64) ([]storage.Login, error)
+	PreviousLogin(ctx context.Context, ru storage.Rule, user string, beforeMs, beforeSeq, lookbackMs int64) (*storage.Login, error)
 	CountSourceEvents(ctx context.Context, sourceID, from, to int64) (int64, error)
 	ListSources(ctx context.Context) ([]storage.Source, error)
 	CountRuleEvents(ctx context.Context, ru storage.Rule, groupValue string, startMs, endMs int64) (int64, error)
@@ -59,6 +61,9 @@ type Opened struct {
 	Rule  storage.Rule
 	Group string
 	Count int64
+	// Detail says what happened when the rule has more to tell than a count (the two places of
+	// an improbable travel alert); empty otherwise.
+	Detail string
 }
 
 // SetNotifier makes fn run for every alert that opens, after it is stored. It runs on the
@@ -136,8 +141,15 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 		if ru.IsVolume() { // judged by the clock, not by new events: see checkVolume
 			continue
 		}
+		through := maxID
 		if ru.Enabled && from < maxID {
-			if err := e.checkRule(ctx, ru, from, maxID, now, &res); err != nil {
+			var err error
+			if isTravelRule(ru) {
+				through, err = e.checkTravel(ctx, ru, from, maxID, now, &res)
+			} else {
+				err = e.checkRule(ctx, ru, from, maxID, now, &res)
+			}
+			if err != nil {
 				e.log.Warn("alert rule failed; it will look at these events again", "rule", ru.Name, "err", err)
 				// Pin where it must start again (a new rule would otherwise
 				// start from the overall checkpoint, which moves on).
@@ -149,7 +161,7 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 		}
 		// A switched-off rule moves along too, so switching it back on
 		// doesn't raise alerts for everything that happened meanwhile.
-		if err := e.store.SetSetting(ctx, key, strconv.FormatInt(max(from, maxID), 10)); err != nil {
+		if err := e.store.SetSetting(ctx, key, strconv.FormatInt(max(from, through), 10)); err != nil {
 			return res, err
 		}
 	}

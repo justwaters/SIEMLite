@@ -557,6 +557,7 @@ every 10 seconds.
 | Critical event | any event rated Critical or Fatal, per host |
 | Failed sign-ins to SIEMLite | 5 failed sign-ins to SIEMLite itself from one address within 15 minutes (the audit events with `action=signin.failed`) |
 | Mass ingestion of late logs | 50 or more events more than 30 days old arriving from one source at once (High; the audit events with `action=ingest.late`; see [Keeping events](#keeping-events)) |
+| Improbable travel | the same user signing in from two places too far apart for the time between them (High; see [Improbable travel](#improbable-travel)) |
 
 A rule can instead watch **how much one source sends**: choose "A source sends more than a number of events" or "fewer than a
 number of events" when you make a rule, then the source, the number and the time window ("fewer than 1 event in 15 minutes" is
@@ -580,6 +581,28 @@ count those events.
 While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The [log
 generator](#test-logs)'s attacks raise alerts too.
+
+### Improbable travel
+
+The built-in rule **Improbable travel** raises a High alert for a user when two of their successful sign-ins came from
+places too far apart to travel between in the time that passed. It is added when SIEMLite starts (once; your edits to it
+are kept), and appears in the rules list like the others.
+
+- It needs a GeoIP **City** database with coordinates (`-geoip-city`, see [GeoIP and ASN](#geoip-and-asn)). With a
+  Country-only database, or no GeoIP, it stays quiet: sign-ins without coordinates are left out. Only events stored after
+  GeoIP was switched on carry a location.
+- What counts as a successful sign-in is the rule's search, which you can edit. It starts as
+  `action=auth.success,vpn.login,signin,signin.sso` (SSH and VPN logins from the [log generator](#test-logs), and sign-ins
+  to SIEMLite); change it to the action your own logs use. The event must name a user.
+- Each new sign-in is compared with the same user's previous sign-in (user names compared without regard to case) in the
+  last 24 hours. If the two places are at least 200 km apart (closer than that is the same area, given how approximate
+  GeoIP is) and the speed needed to get from one to the other is above the rule's **fastest believable travel**, the
+  alert opens for that user. The default is 900 km/h; a gap under a minute counts as a minute. The same address never counts.
+- An open alert for the user is updated instead of raising another, and the chat integrations announce it once, with the
+  two places, addresses, distance and speed.
+- It will have false positives where a user's address isn't where the user is: VPNs and proxies, mobile carriers that
+  route traffic through a distant gateway, and cloud sign-ins. Raise the speed or edit the search to leave those out.
+- A sign-in that arrives late is compared with the one before it in time, not the one after.
 
 ## AI agents (MCP)
 

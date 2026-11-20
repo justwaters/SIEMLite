@@ -160,6 +160,12 @@ func (s *Server) handleSaveRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ru.ID = id
+		// The improbable travel rule is found by its name and runs as a match rule: those stay.
+		if cur, err := s.deps.Repo.GetRule(r.Context(), id); err == nil && cur.Builtin && strings.EqualFold(cur.Name, storage.TravelRuleName) &&
+			(ru.Name != cur.Name || ru.Kind != storage.RuleMatch) {
+			writeError(w, http.StatusBadRequest, "the name and kind of the "+cur.Name+" rule can't be changed")
+			return
+		}
 	}
 	id, err := s.deps.Repo.SaveRule(r.Context(), ru, time.Now().UnixMilli())
 	switch {

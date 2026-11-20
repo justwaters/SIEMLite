@@ -202,6 +202,50 @@ func TestRuleValidation(t *testing.T) {
 // A failed sign-in names the account only if it exists (people type
 // passwords into the username field), and a locked-out address can't fill the
 // database by trying again and again.
+// The improbable travel rule is a built-in: it can be switched off or edited, not deleted or renamed.
+func TestTravelRuleIsABuiltIn(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	if err := e.repo.EnsureTravelRule(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var rules []storage.Rule
+	e.call(root, "GET", "/api/v1/rules", nil, &rules, nil)
+	var tr storage.Rule
+	for _, ru := range rules {
+		if ru.Name == storage.TravelRuleName {
+			tr = ru
+		}
+	}
+	if tr.ID == 0 || !tr.Builtin || !tr.Enabled || tr.Severity != 4 || tr.Threshold != 900 {
+		t.Fatalf("rule = %+v", tr)
+	}
+	url := fmt.Sprintf("/api/v1/rules/%d", tr.ID)
+	body := func(mut func(m map[string]any)) map[string]any {
+		m := map[string]any{"name": tr.Name, "enabled": tr.Enabled, "severity": tr.Severity, "query": tr.Query, "group_by": tr.GroupBy,
+			"threshold": tr.Threshold, "window_minutes": tr.WindowMinutes, "kind": tr.Kind, "description": tr.Description}
+		mut(m)
+		return m
+	}
+	var got storage.Rule
+	if c := e.call(root, "PUT", url, body(func(m map[string]any) {
+		m["enabled"], m["severity"], m["threshold"], m["query"] = false, 5, 600, "action=signin"
+	}), &got, nil); c != 200 || got.Enabled || got.Severity != 5 || got.Threshold != 600 || got.Query != "action=signin" || !got.Builtin {
+		t.Errorf("edit = %d %+v", c, got)
+	}
+	if c := e.call(root, "PUT", url, body(func(m map[string]any) { m["name"] = "Something else" }), nil, nil); c != 400 {
+		t.Errorf("rename = %d, want 400", c)
+	}
+	if c := e.call(root, "PUT", url, body(func(m map[string]any) { m["kind"] = "volume_over" }), nil, nil); c != 400 {
+		t.Errorf("kind change = %d, want 400", c)
+	}
+	if c := e.call(root, "DELETE", url, nil, nil, nil); c != 400 {
+		t.Errorf("delete = %d, want 400", c)
+	}
+}
+
 func TestFailedSignInAuditIsSafe(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

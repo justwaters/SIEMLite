@@ -508,6 +508,27 @@ def main(binary, loggen):
             sentence = page.locator("#rules-body tr", has_text="Source went quiet").locator(".rule-sentence").inner_text()
             check("sends fewer than 1 event in 15 minutes" in sentence, f"the rule list reads a volume rule back ({sentence!r})")
 
+            # The built-in "Improbable travel" rule reads as a sentence about speed, and its form asks for a speed.
+            row = page.locator("#rules-body tr", has_text="Improbable travel")
+            row.wait_for()
+            sentence = row.locator(".rule-sentence").inner_text()
+            check("same user signs in from places too far apart" in sentence and "faster than 900 km/h" in sentence,
+                  f"the rule list reads the improbable travel rule ({sentence!r})")
+            check(row.locator("button", has_text="Delete").count() == 0, "the improbable travel rule has no Delete button")
+            row.locator("button", has_text="Edit").click()
+            page.wait_for_selector("#dlg-rule[open]")
+            check("Fastest believable travel (km/h)" in page.inner_text("#r-threshold-label"), "the improbable travel form asks for a speed")
+            check(not page.is_visible("#r-window") and not page.is_visible("#r-group") and not page.is_visible("#r-kind"),
+                  "the improbable travel form hides the window, grouping and kind")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#dlg-rule", state="hidden")
+            page.click("#add-rule")
+            page.wait_for_selector("#dlg-rule[open]")
+            check(page.is_visible("#r-window") and page.is_visible("#r-group") and "At least" in page.inner_text("#r-threshold-label"),
+                  "a new rule's form is unchanged after the improbable travel one")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#dlg-rule", state="hidden")
+
             # System > Software update: the release channel is Stable until Beta is chosen (and confirmed).
             page.goto(url + "#/system")
             page.wait_for_selector("#update-channel")
