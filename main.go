@@ -470,6 +470,9 @@ func run() error {
 	if *updateCheck {
 		updates = update.New(version(), startExe)
 		updates.DataDir = dataDir
+		if ch, err := repo.Setting(ctx, update.ChannelKey, update.Stable); err == nil {
+			updates.SetChannel(ch)
+		}
 	}
 	var autoUpdate *update.Auto
 	if updates != nil {

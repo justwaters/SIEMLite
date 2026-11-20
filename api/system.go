@@ -312,3 +312,33 @@ func dayNames(days []int) string {
 	}
 	return strings.Join(out, ", ")
 }
+
+// handleSaveUpdateChannel chooses the release channel (stable or beta) and checks it right away.
+func (s *Server) handleSaveUpdateChannel(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Updates == nil {
+		writeError(w, http.StatusNotImplemented, "Update checks are turned off on this server.")
+		return
+	}
+	var req struct {
+		Channel string `json:"channel"`
+	}
+	if !decodeJSON(w, r, &req, 1<<10) {
+		return
+	}
+	if !update.ValidChannel(req.Channel) {
+		writeError(w, http.StatusBadRequest, "The channel is Stable or Beta.")
+		return
+	}
+	was := s.deps.Updates.Channel()
+	if err := s.deps.Repo.SetSetting(r.Context(), update.ChannelKey, req.Channel); err != nil {
+		s.internal(w, "save the update channel", err)
+		return
+	}
+	s.deps.Updates.SetChannel(req.Channel)
+	if was != req.Channel {
+		who := auth.FromContext(r.Context()).Name
+		s.audit(r, audit.Entry{Action: "system.update_channel", Severity: 3, Message: fmt.Sprintf("%s moved the update channel from %s to %s", who, was, req.Channel),
+			Fields: map[string]string{"from": was, "to": req.Channel}})
+	}
+	writeJSON(w, http.StatusOK, s.deps.Updates.Check(r.Context(), true))
+}

@@ -1,6 +1,10 @@
 package api_test
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"siemlite/api"
@@ -76,5 +80,67 @@ func TestAutoUpdateOff(t *testing.T) {
 	}
 	if got := e.call(root, "PUT", "/api/v1/system/update/auto", map[string]any{"enabled": false}, nil, nil); got != 501 {
 		t.Errorf("PUT = %d", got)
+	}
+}
+
+// The release channel: Stable by default; an admin picks Beta, it is remembered and audited;
+// anything else is refused; others can't change it.
+func TestUpdateChannel(t *testing.T) {
+	e := newEnvWith(t, func(d *api.Deps) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/latest") {
+				fmt.Fprint(w, `{"tag_name":"v0.33","html_url":"https://example.test/s"}`)
+				return
+			}
+			fmt.Fprint(w, `[{"tag_name":"v0.34-beta.1","html_url":"https://example.test/b","prerelease":true},{"tag_name":"v0.33","html_url":"https://example.test/s"}]`)
+		}))
+		t.Cleanup(srv.Close)
+		c := update.New("v0.32", "/nonexistent/siemlite")
+		c.API, c.ListAPI = srv.URL+"/latest", srv.URL+"/list"
+		d.Updates = c
+	})
+	e.user("root", auth.RoleAdmin)
+	e.user("ann", auth.RoleStandard)
+	root, ann := e.client(), e.client()
+	e.login(root, "root", password)
+	e.login(ann, "ann", password)
+
+	var st update.Status
+	if got := e.call(root, "GET", "/api/v1/system/update?refresh=1", nil, &st, nil); got != 200 || st.Channel != "stable" || st.Latest != "v0.33" {
+		t.Fatalf("default = %d %+v", got, st)
+	}
+	if got := e.call(root, "PUT", "/api/v1/system/update/channel", map[string]any{"channel": "beta"}, &st, nil); got != 200 || st.Channel != "beta" || st.Latest != "v0.34-beta.1" || !st.Prerelease {
+		t.Fatalf("beta = %d %+v", got, st)
+	}
+	if v, _ := e.deps.Repo.Setting(t.Context(), update.ChannelKey, ""); v != "beta" {
+		t.Errorf("saved channel %q", v)
+	}
+	e.call(root, "GET", "/api/v1/system/update", nil, &st, nil)
+	if st.Channel != "beta" {
+		t.Errorf("not kept: %+v", st)
+	}
+	for _, bad := range []any{map[string]any{"channel": "nightly"}, map[string]any{"channel": ""}, map[string]any{"channel": 5}, map[string]any{}} {
+		if got := e.call(root, "PUT", "/api/v1/system/update/channel", bad, nil, nil); got != 400 {
+			t.Errorf("%v = %d, want 400", bad, got)
+		}
+	}
+	if got := e.call(ann, "PUT", "/api/v1/system/update/channel", map[string]any{"channel": "stable"}, nil, nil); got != 403 {
+		t.Errorf("standard user = %d", got)
+	}
+	if got := e.call(e.client(), "PUT", "/api/v1/system/update/channel", map[string]any{"channel": "stable"}, nil, nil); got != 401 {
+		t.Errorf("anonymous = %d", got)
+	}
+	if got := e.call(root, "PUT", "/api/v1/system/update/channel", map[string]any{"channel": "stable"}, &st, nil); got != 200 || st.Latest != "v0.33" {
+		t.Errorf("back to stable = %d %+v", got, st)
+	}
+}
+
+func TestUpdateChannelOff(t *testing.T) {
+	e := newEnvWith(t, nil)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	if got := e.call(root, "PUT", "/api/v1/system/update/channel", map[string]any{"channel": "beta"}, nil, nil); got != 501 {
+		t.Errorf("without a checker = %d", got)
 	}
 }

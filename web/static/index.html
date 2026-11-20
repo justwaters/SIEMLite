@@ -1562,6 +1562,10 @@
       <div class="panel sched" id="update-card">
         <div><h2>Software update</h2><p class="hint" id="update-text">Checking for updates…</p><p class="hint" id="update-why" hidden></p><p class="notice" id="update-msg" role="status" hidden></p></div>
         <div class="sched-fields">
+          <div class="seg" role="group" aria-label="Release channel" id="update-channel">
+            <button type="button" data-channel="stable" aria-pressed="true">Stable</button>
+            <button type="button" data-channel="beta" aria-pressed="false">Beta</button>
+          </div>
           <button class="btn" type="button" id="update-check">Check now</button>
           <a class="btn" id="update-notes" target="_blank" rel="noopener" hidden>Release notes</a>
           <button class="btn btn-primary" type="button" id="update-apply" hidden>Update and restart</button>
@@ -3914,9 +3918,12 @@ async function loadUpdate(refresh) {
   try { u = await apiJSON("/api/v1/system/update" + (refresh ? "?refresh=1" : "")); }
   catch (err) { text.textContent = err.message; return; }
   const cur = u.current || "this build";
-  if (u.available) text.textContent = `You're running ${cur}. ${u.latest} is available.`;
+  for (const b of document.querySelectorAll("[data-channel]")) b.setAttribute("aria-pressed", String(b.dataset.channel === (u.channel || "stable")));
+  const beta = u.channel === "beta";
+  if (u.available) text.textContent = `You're running ${cur}. ${u.latest}${u.prerelease ? " (beta)" : ""} is available.`;
+  else if (!u.error && !beta && /-/.test(cur) && u.latest) text.textContent = `You're running ${cur}, a beta that is ahead of the latest Stable release, ${u.latest}. Updates don't go back; the next Stable release will update you.`;
   else if (u.error) text.textContent = `You're running ${cur}. ${u.error}`;
-  else if (u.latest) text.textContent = `You're running ${cur}, which is the latest release.` + (u.checked_at ? ` Checked ${new Date(u.checked_at).toLocaleTimeString()}.` : "");
+  else if (u.latest) text.textContent = `You're running ${cur}, which is the latest ${beta ? "Beta" : "Stable"} release.` + (u.checked_at ? ` Checked ${new Date(u.checked_at).toLocaleTimeString()}.` : "");
   else text.textContent = `You're running ${cur}.`;
   why.hidden = !(u.available && !u.can_apply && u.why_not) && !(!u.latest && !u.error && u.why_not);
   why.textContent = u.why_not || "";
@@ -3926,6 +3933,20 @@ async function loadUpdate(refresh) {
   if (u.url) notes.href = u.url;
   apply.onclick = () => applyUpdate(u);
 }
+for (const b of document.querySelectorAll("[data-channel]")) b.onclick = async () => {
+  if (b.getAttribute("aria-pressed") === "true") return;
+  const to = b.dataset.channel, msg = $("update-msg");
+  if (to === "beta" && !(await confirmAction("Follow Beta releases?",
+    "Beta releases arrive before they are Stable, so they are less tested and may have rough edges. Make a backup first: a newer version can change the database in ways an older one can't read, and moving back to Stable doesn't go back to an older version.",
+    "Follow Beta"))) return;
+  notice(msg, "");
+  for (const x of document.querySelectorAll("[data-channel]")) x.disabled = true;
+  try { await apiJSON("/api/v1/system/update/channel", { method: "PUT", json: { channel: to } }); }
+  catch (err) { notice(msg, err.message); }
+  for (const x of document.querySelectorAll("[data-channel]")) x.disabled = false;
+  loadUpdate(false);
+  loadAutoUpdate();
+};
 async function applyUpdate(u) {
   if (!(await confirmAction(`Update SIEMLite to ${u.latest}?`,
     (u.in_container

@@ -37,7 +37,21 @@ const (
 	maxNotesSize = 4000
 )
 
-var tagRe = regexp.MustCompile(`^v\d+(\.\d+)*$`)
+// A release tag: v0.33, or a beta such as v0.34-beta.1.
+var tagRe = regexp.MustCompile(`^v\d+(\.\d+)*(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$`)
+
+// The two release channels. Stable is every release not marked as a pre-release on GitHub; Beta
+// also takes the pre-releases, so it gets a new version first.
+const (
+	Stable = "stable"
+	Beta   = "beta"
+)
+
+// ChannelKey is the setting that holds the chosen channel.
+const ChannelKey = "update_channel"
+
+// ValidChannel reports whether ch is a channel name.
+func ValidChannel(ch string) bool { return ch == Stable || ch == Beta }
 
 // ErrNotAvailable means there is no newer release to install.
 var ErrNotAvailable = errors.New("SIEMLite is already up to date")
@@ -55,6 +69,9 @@ type Status struct {
 	// what to do instead.
 	CanApply bool   `json:"can_apply"`
 	WhyNot   string `json:"why_not,omitempty"`
+	// Channel is the release channel being followed, and Prerelease whether Latest is a pre-release.
+	Channel    string `json:"channel"`
+	Prerelease bool   `json:"prerelease,omitempty"`
 	// InContainer is set when SIEMLite runs in a container, where an update is
 	// kept in the data volume instead of replacing the program file.
 	InContainer bool `json:"in_container,omitempty"`
@@ -65,13 +82,15 @@ type Checker struct {
 	Current   string // e.g. "v0.9"
 	Exe       string // the running binary, resolved when SIEMLite started
 	DataDir   string // the folder holding the database; in a container updates are saved under it
-	API       string
+	API       string // the "latest release" endpoint (Stable)
+	ListAPI   string // the list of releases, pre-releases included (Beta); derived from API when empty
 	Downloads string
 	Client    *http.Client
 	// InContainer overrides container detection (for tests).
 	InContainer func() bool
 
 	mu      sync.Mutex
+	channel string
 	cached  Status
 	checked time.Time
 	busy    bool
@@ -106,21 +125,48 @@ func (c *Checker) Check(ctx context.Context, force bool) Status {
 	if !force && !c.checked.IsZero() && time.Since(c.checked) < cacheFor && c.cached.Error == "" {
 		return c.withApply(c.cached)
 	}
-	st := Status{Current: c.Current, CheckedAt: time.Now()}
-	rel, err := c.fetchLatest(ctx)
+	st := Status{Current: c.Current, CheckedAt: time.Now(), Channel: c.channelLocked()}
+	rel, err := c.fetchLatest(ctx, st.Channel)
 	switch {
 	case err != nil:
 		st.Error = "Couldn't check for updates: " + err.Error()
 		if c.cached.Latest != "" { // keep what we knew
-			st.Latest, st.URL, st.Notes = c.cached.Latest, c.cached.URL, c.cached.Notes
+			st.Latest, st.URL, st.Notes, st.Prerelease = c.cached.Latest, c.cached.URL, c.cached.Notes, c.cached.Prerelease
 			st.Available = c.cached.Available
 		}
 	default:
-		st.Latest, st.URL, st.Notes = rel.Tag, rel.URL, rel.Notes
+		st.Latest, st.URL, st.Notes, st.Prerelease = rel.Tag, rel.URL, rel.Notes, rel.Pre
 		st.Available = Newer(rel.Tag, c.Current)
 	}
 	c.cached, c.checked = st, time.Now()
 	return c.withApply(st)
+}
+
+func (c *Checker) channelLocked() string {
+	if c.channel == Beta {
+		return Beta
+	}
+	return Stable
+}
+
+// Channel is the release channel being followed.
+func (c *Checker) Channel() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.channelLocked()
+}
+
+// SetChannel changes the release channel; the next check looks there. Anything but Beta is Stable.
+func (c *Checker) SetChannel(ch string) {
+	if ch != Beta {
+		ch = Stable
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.channel != ch {
+		c.channel = ch
+		c.checked = time.Time{} // the answer for the other channel is not this one's
+	}
 }
 
 func (c *Checker) withApply(st Status) Status {
@@ -129,61 +175,138 @@ func (c *Checker) withApply(st Status) Status {
 	return st
 }
 
-type release struct{ Tag, URL, Notes string }
+type release struct {
+	Tag, URL, Notes string
+	Pre             bool
+}
 
-func (c *Checker) fetchLatest(ctx context.Context) (release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.API, nil)
+type ghRelease struct {
+	Tag   string `json:"tag_name"`
+	URL   string `json:"html_url"`
+	Body  string `json:"body"`
+	Draft bool   `json:"draft"`
+	Pre   bool   `json:"prerelease"`
+}
+
+func (g ghRelease) release() release {
+	notes := g.Body
+	if len(notes) > maxNotesSize {
+		notes = notes[:maxNotesSize] + "…"
+	}
+	return release{g.Tag, g.URL, notes, g.Pre}
+}
+
+func (c *Checker) listURL() string {
+	if c.ListAPI != "" {
+		return c.ListAPI
+	}
+	return strings.TrimSuffix(c.API, "/latest") + "?per_page=30"
+}
+
+func (c *Checker) getJSON(ctx context.Context, url string, v any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return release{}, err
+		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "SIEMLite/"+c.Current)
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		return release{}, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return release{}, fmt.Errorf("GitHub answered %s", resp.Status)
+		return fmt.Errorf("GitHub answered %s", resp.Status)
 	}
-	var body struct {
-		Tag  string `json:"tag_name"`
-		URL  string `json:"html_url"`
-		Body string `json:"body"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
-		return release{}, err
-	}
-	if !tagRe.MatchString(body.Tag) {
-		return release{}, fmt.Errorf("unexpected release name %q", body.Tag)
-	}
-	notes := body.Body
-	if len(notes) > maxNotesSize {
-		notes = notes[:maxNotesSize] + "…"
-	}
-	return release{body.Tag, body.URL, notes}, nil
+	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(v)
 }
 
-// Newer reports whether release a is newer than b ("v0.10" > "v0.9"). A
-// version that isn't a release number (a development build) is never older.
+// fetchLatest finds the newest release on a channel: Stable is what GitHub calls the latest
+// release; Beta is the newest of all the published releases, pre-releases included.
+func (c *Checker) fetchLatest(ctx context.Context, channel string) (release, error) {
+	if channel == Beta {
+		var list []ghRelease
+		if err := c.getJSON(ctx, c.listURL(), &list); err != nil {
+			return release{}, err
+		}
+		var best *ghRelease
+		for i := range list {
+			g := &list[i]
+			if g.Draft || !tagRe.MatchString(g.Tag) {
+				continue
+			}
+			if best == nil || Newer(g.Tag, best.Tag) {
+				best = g
+			}
+		}
+		if best == nil {
+			return release{}, errors.New("GitHub lists no releases")
+		}
+		return best.release(), nil
+	}
+	var g ghRelease
+	if err := c.getJSON(ctx, c.API, &g); err != nil {
+		return release{}, err
+	}
+	if !tagRe.MatchString(g.Tag) {
+		return release{}, fmt.Errorf("unexpected release name %q", g.Tag)
+	}
+	return g.release(), nil
+}
+
+// Newer reports whether release a is newer than b ("v0.10" > "v0.9"). A beta is older than the
+// release it leads up to ("v0.34-beta.2" < "v0.34") and newer than an earlier beta; a version that
+// isn't a release number (a development build) is never older.
 func Newer(a, b string) bool {
 	if !tagRe.MatchString(a) || !tagRe.MatchString(b) {
 		return false
 	}
-	pa, pb := parts(a), parts(b)
-	for i := 0; i < len(pa) || i < len(pb); i++ {
-		var x, y int
-		if i < len(pa) {
-			x = pa[i]
+	na, pa := splitPre(a)
+	nb, pb := splitPre(b)
+	x, y := parts(na), parts(nb)
+	for i := 0; i < len(x) || i < len(y); i++ {
+		var p, q int
+		if i < len(x) {
+			p = x[i]
 		}
-		if i < len(pb) {
-			y = pb[i]
+		if i < len(y) {
+			q = y[i]
 		}
-		if x != y {
-			return x > y
+		if p != q {
+			return p > q
 		}
 	}
-	return false
+	switch {
+	case pa == pb:
+		return false
+	case pa == "":
+		return true // a is the release itself
+	case pb == "":
+		return false
+	}
+	ia, ib := strings.Split(pa, "."), strings.Split(pb, ".")
+	for i := 0; i < len(ia) && i < len(ib); i++ {
+		if ia[i] == ib[i] {
+			continue
+		}
+		na, ea := strconv.Atoi(ia[i])
+		nb, eb := strconv.Atoi(ib[i])
+		switch {
+		case ea == nil && eb == nil:
+			return na > nb
+		case ea == nil:
+			return false // a number is older than a word
+		case eb == nil:
+			return true
+		}
+		return ia[i] > ib[i]
+	}
+	return len(ia) > len(ib)
+}
+
+func splitPre(v string) (num, pre string) {
+	num, pre, _ = strings.Cut(v, "-")
+	return num, pre
 }
 
 func parts(v string) []int {
