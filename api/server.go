@@ -210,6 +210,7 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/v1/system/signin", s.handleSaveSignin)
 	admin("GET /api/v1/system/update", s.handleUpdateStatus)
 	admin("POST /api/v1/system/update", s.handleApplyUpdate)
+	admin("PUT /api/v1/system/update/channel", s.handleSaveUpdateChannel)
 	admin("GET /api/v1/system/update/auto", s.handleGetAutoUpdate)
 	admin("PUT /api/v1/system/update/auto", s.handleSaveAutoUpdate)
 	admin("GET /api/v1/security-audit", s.handleAuditState)

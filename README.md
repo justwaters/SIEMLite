@@ -722,6 +722,15 @@ seconds. Nothing changes if the download or check fails. Updates are recorded in
 first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
 Pass `-update-check=false` (or `SIEMLITE_UPDATE_CHECK=false`) to stop SIEMLite contacting GitHub at all.
 
+**Release channel.** The update card has a **Stable | Beta** selector (admins). **Stable**, the default, follows the
+releases GitHub marks as latest. **Beta** also takes pre-releases, so it gets a new version first; choosing it asks for
+confirmation, because a beta is less tested and a newer version can change the database in ways an older one can't read.
+Switching back to Stable never goes back to an older version: someone running `v0.34-beta.2` is offered nothing until the
+`v0.34` release (a beta is older than the release it leads up to). The choice applies to **Update and restart** and to
+automatic updates alike. To publish a beta, tag it like `v0.34-beta.1` (the `VERSION` file must match the tag) and create
+the GitHub release with `--prerelease`: binaries are attached as for any release, and the Docker image is pushed under its
+own tag but not as `latest`. API: `PUT /api/v1/system/update/channel` with `{"channel": "stable"}` or `"beta"`.
+
 **Automatic updates** (System page, admins) install new releases on a schedule you choose. Each schedule is some days
 (none ticked means every day) and one to four times of day, to the minute, in the server's time zone; add up to seven
 schedules, for example weekdays at 03:00 and weekends at 06:00 and 22:00. At each time SIEMLite checks for a release and,

@@ -508,6 +508,22 @@ def main(binary, loggen):
             sentence = page.locator("#rules-body tr", has_text="Source went quiet").locator(".rule-sentence").inner_text()
             check("sends fewer than 1 event in 15 minutes" in sentence, f"the rule list reads a volume rule back ({sentence!r})")
 
+            # System > Software update: the release channel is Stable until Beta is chosen (and confirmed).
+            page.goto(url + "#/system")
+            page.wait_for_selector("#update-channel")
+            check(page.get_attribute('[data-channel="stable"]', "aria-pressed") == "true" and page.get_attribute('[data-channel="beta"]', "aria-pressed") == "false",
+                  "the release channel starts on Stable")
+            page.click('[data-channel="beta"]')
+            page.wait_for_selector("#dlg-confirm[open]")
+            check("Beta" in page.inner_text("#c-title"), "choosing Beta asks first")
+            page.click("#c-ok")
+            page.wait_for_selector('[data-channel="beta"][aria-pressed="true"]')
+            page.reload()
+            page.wait_for_selector('[data-channel="beta"][aria-pressed="true"]')
+            page.click('[data-channel="stable"]')  # going back to Stable needs no confirmation
+            page.wait_for_selector('[data-channel="stable"][aria-pressed="true"]')
+            check(True, "the release channel is kept, and Stable can be chosen again")
+
             # System > Automatic updates: schedules of days and times, saved and kept.
             page.goto(url + "#/system")
             page.wait_for_selector("#au-rows input")
