@@ -121,9 +121,6 @@
   :root[data-look="glass"] :is(.seg button, .theme button) { border-radius: 9px; }
   :root[data-look="glass"] :is(.seg button[aria-pressed="true"], .seg button[aria-selected="true"], .theme button[aria-pressed="true"],
       .account-grid .theme button[aria-pressed="true"]) { background: var(--g-fill-hi); box-shadow: inset 0 1px 0 var(--g-edge), 0 2px 8px -3px rgba(30, 50, 90, .3); }
-  :root[data-look="glass"] .track { background: var(--g-line); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12); }
-  :root[data-look="glass"] .track::after { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
-  :root[data-look="glass"] .switch input:checked + .track { background: var(--ink); }
   /* Tables sit on the pane; rows are lit on hover. */
   :root[data-look="glass"] tr.ev:hover td, :root[data-look="glass"] tr.ev.open td, :root[data-look="glass"] tr.detail td { background: var(--g-hover); }
   :root[data-look="glass"] :is(pre.raw, pre.example, pre.code) { background: var(--g-fill); box-shadow: inset 0 1px 0 var(--g-edge); }
@@ -204,12 +201,37 @@
   .facts .warn { color: var(--sev-4); }
   .switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; cursor: pointer; user-select: none; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  .track { width: 32px; height: 18px; border-radius: 9px; background: var(--rule); position: relative; flex: none; transition: background .15s; }
-  .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface);
-                  box-shadow: 0 0 0 1px var(--rule); transition: transform .15s; }
-  .switch input:checked + .track { background: var(--ink); }
-  .switch input:checked + .track::after { transform: translateX(14px); box-shadow: none; }
+  /* Switches and tick boxes are drawn here, not by the browser: square-cornered like the rest of the page, outlined when
+     off and filled with the ink colour when on, so the state doesn't depend on a hue. The knob and the tick overshoot a
+     little as they settle (reduced motion turns every transition off, below). */
+  .track { width: 36px; height: 20px; box-sizing: border-box; border: 1.5px solid var(--ink-2); border-radius: 6px; background: transparent;
+           position: relative; flex: none; transition: background .16s, border-color .16s; }
+  .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 3px; background: var(--ink-2);
+                  transition: transform .2s cubic-bezier(.3, 1.4, .5, 1), width .12s, background .16s; }
+  .switch:hover input:not(:disabled) + .track { border-color: var(--ink); }
+  .switch:hover input:not(:disabled) + .track::after { background: var(--ink); }
+  .switch input:checked + .track { background: var(--ink); border-color: var(--ink); }
+  .switch input:checked + .track::after { background: var(--paper); transform: translateX(16px); }
+  .switch:active input:not(:disabled) + .track::after { width: 16px; }
+  .switch:active input:checked:not(:disabled) + .track::after { transform: translateX(13px); }
   .switch input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .switch input:disabled + .track { opacity: .45; }
+  .switch:has(input:disabled) { cursor: not-allowed; }
+  .check input[type="checkbox"], .check input[type="radio"] {
+    -webkit-appearance: none; appearance: none; flex: none; display: inline-grid; place-content: center; width: 18px; height: 18px; margin: 0;
+    border: 1.5px solid var(--ink-2); border-radius: 5px; background: transparent; cursor: pointer; transition: background .14s, border-color .14s; }
+  .check input[type="radio"] { border-radius: 50%; }
+  .check input[type="checkbox"]::after { content: ""; width: 5px; height: 9px; margin-top: -2px; border: solid var(--paper); border-width: 0 2px 2px 0;
+    transform: rotate(45deg) scale(0); transition: transform .18s cubic-bezier(.3, 1.4, .5, 1); }
+  .check input[type="radio"]::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink);
+    transform: scale(0); transition: transform .18s cubic-bezier(.3, 1.4, .5, 1); }
+  .check input[type="checkbox"]:checked { background: var(--ink); border-color: var(--ink); }
+  .check input[type="checkbox"]:checked::after { transform: rotate(45deg) scale(1); }
+  .check input[type="radio"]:checked { border-color: var(--ink); }
+  .check input[type="radio"]:checked::after { transform: scale(1); }
+  .check input:hover:not(:disabled) { border-color: var(--ink); }
+  .check input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .check input:disabled { opacity: .45; cursor: not-allowed; }
   .switch.busy { opacity: .5; pointer-events: none; }
   .note { margin: 0; padding: 0 10px; color: var(--ink-2); }
   .theme { display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px; margin: 0 10px; border: 1px solid var(--rule); border-radius: 7px; }
@@ -488,7 +510,6 @@
   .integ-summary { margin: 0; grid-column: 1; }
   .integ-controls { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 16px; }
   .integ-switch { padding: 0; gap: 8px; font-size: 13.5px; }
-  .integ-switch input:disabled ~ .track { opacity: .45; }
   .integ-body { border-top: 1px solid var(--rule); padding: 18px 20px; }
   .ai-pane { display: grid; gap: 14px; }
   .ai-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }

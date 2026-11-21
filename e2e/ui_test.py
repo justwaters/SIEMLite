@@ -550,6 +550,11 @@ def main(binary, loggen):
             page.wait_for_selector("#au-rows input")
             check(not page.is_checked("#au-enabled") and page.is_checked("#au-backup") and page.is_checked("#au-hold") and page.locator("#au-rows input").count() == 1,
                   "automatic updates start off, with a backup first, holding for alerts, and one time")
+            # Tick boxes and switches are drawn by the page, not the browser.
+            check(page.evaluate("getComputedStyle(document.getElementById('au-enabled')).appearance") == "none",
+                  "tick boxes are the page's own, not the browser's")
+            check(page.evaluate("getComputedStyle(document.querySelector('.switch .track')).borderTopWidth") != "0px",
+                  "switches are the page's own: the track has an outline")
             page.check("#au-enabled")
             page.uncheck("#au-hold")
             row = page.locator(".au-row").nth(0)
