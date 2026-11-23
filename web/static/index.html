@@ -3705,6 +3705,7 @@ async function applyUpdate(u) {
 let auView = null, auRows = [];
 const AU_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const AU_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const auAllDays = () => new Set(AU_ORDER);
 const auDaysText = (days) => !days.length ? "Every day" : [...days].sort((a, b) => AU_ORDER.indexOf(a) - AU_ORDER.indexOf(b)).map((d) => AU_DAYS[d].slice(0, 3)).join(", ");
 function auRender() {
   const box = $("au-rows");
@@ -3757,7 +3758,7 @@ function auStatus(v) {
   const bits = [];
   if (!v.can_apply) bits.push(`This install can't update itself. ${v.why_not || ""}`);
   else if (v.enabled && v.next) bits.push(`Next check ${new Date(v.next).toLocaleString([], { weekday: "long", hour: "numeric", minute: "2-digit" })} (server time, ${v.timezone}).`);
-  else bits.push("Off. When on, SIEMLite checks at the times you pick and installs a newer release, then restarts, which takes a few seconds. Leave the days empty for every day.");
+  else bits.push("Off. When on, SIEMLite checks at the times you pick and installs a newer release, then restarts, which takes a few seconds. Every day is picked until you unpick some.");
   if (v.last) bits.push(`Last check ${new Date(v.last.at).toLocaleString()}: ${v.last.result}`);
   $("au-status").textContent = bits.join(" ");
 }
@@ -3766,7 +3767,7 @@ function auSet(v) {
   $("au-enabled").checked = v.enabled;
   $("au-backup").checked = v.backup_first;
   $("au-hold").checked = v.hold_for_alerts;
-  auRows = (v.schedules && v.schedules.length ? v.schedules : [{ days: [], times: ["03:00"] }]).map((w) => ({ days: new Set(w.days || []), times: w.times.length ? [...w.times] : ["03:00"] }));
+  auRows = (v.schedules && v.schedules.length ? v.schedules : [{ days: [], times: ["03:00"] }]).map((w) => ({ days: w.days && w.days.length ? new Set(w.days) : auAllDays(), times: w.times.length ? [...w.times] : ["03:00"] }));
   auRender();
   auStatus(v);
 }
@@ -3778,9 +3779,10 @@ async function loadAutoUpdate() {
   for (const f of fields) f.hidden = false;
   auSet(v);
 }
-$("au-add").onclick = () => { if (auRows.length < 7) { auRows.push({ days: new Set(), times: ["03:00"] }); auRender(); } };
+$("au-add").onclick = () => { if (auRows.length < 7) { auRows.push({ days: auAllDays(), times: ["03:00"] }); auRender(); } };
 $("au-form").onsubmit = async (e) => {
   e.preventDefault();
+  if (auRows.some((r) => !r.days.size)) { notice($("au-msg"), "Pick at least one day for each schedule."); return; }
   $("au-save").disabled = true;
   try {
     const v = await apiJSON("/api/v1/system/update/auto", { method: "PUT", json: {

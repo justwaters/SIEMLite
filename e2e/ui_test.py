@@ -558,13 +558,14 @@ def main(binary, loggen):
             page.check("#au-enabled")
             page.uncheck("#au-hold")
             row = page.locator(".au-row").nth(0)
-            for d in ("1", "2", "3", "4", "5"):
+            check(all(row.locator(f'[data-day="{d}"]').get_attribute("aria-pressed") == "true" for d in "0123456"), "a new schedule starts with every day picked")
+            for d in ("0", "6"):
                 row.locator(f'[data-day="{d}"]').click()
             row.locator("input").nth(0).fill("04:15")
             page.click("#au-add")
             row2 = page.locator(".au-row").nth(1)
-            row2.locator('[data-day="6"]').click()
-            row2.locator('[data-day="0"]').click()
+            for d in "12345":
+                row2.locator(f'[data-day="{d}"]').click()
             row2.locator("input").nth(0).fill("06:00")
             row2.locator("[data-add-time]").click()
             row2.locator("input").nth(1).fill("22:45")
@@ -582,6 +583,20 @@ def main(binary, loggen):
                   "the update schedule is kept after a reload")
             page.locator(".au-row").nth(1).get_by_text("Remove schedule").click()
             check(page.locator(".au-row").count() == 1, "a schedule can be removed")
+            row.locator('[data-day="1"]').click()
+            row.locator('[data-day="2"]').click()
+            row.locator('[data-day="3"]').click()
+            row.locator('[data-day="4"]').click()
+            row.locator('[data-day="5"]').click()
+            page.click("#au-save")
+            page.wait_for_selector("#au-msg:not([hidden])")
+            check("at least one day" in page.inner_text("#au-msg"), "a schedule with no day picked is refused")
+            for d in "0123456":
+                row.locator(f'[data-day="{d}"]').click()
+            page.click("#au-save")
+            page.wait_for_selector("#au-msg:has-text('Every day')")
+            check(all(page.locator(".au-row").nth(0).locator(f'[data-day="{d}"]').get_attribute("aria-pressed") == "true" for d in "0123456"),
+                  "picking all seven days keeps them all picked after saving")
             page.locator(".au-row").nth(0).locator("[data-add-time]").click()
             page.locator(".au-row").nth(0).locator("[data-add-time]").click()
             check(page.locator(".au-row").nth(0).locator("input").count() == 3, "times can be added to a schedule")
