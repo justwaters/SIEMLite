@@ -65,6 +65,44 @@ func openMMDB(path string) (*mmdb, error) {
 	return &mmdb{path: path, modTime: st.ModTime(), r: r}, nil
 }
 
+// Swap opens the databases at cityPath and asnPath and replaces the loaded ones with them
+// straight away, closing the old ones; lookups in progress finish first. An empty path
+// unloads that database. If either file can't be opened nothing changes.
+func (g *GeoIP) Swap(cityPath, asnPath string) error {
+	var city, asn *mmdb
+	var err error
+	if cityPath != "" {
+		if city, err = openMMDB(cityPath); err != nil {
+			return err
+		}
+	}
+	if asnPath != "" {
+		if asn, err = openMMDB(asnPath); err != nil {
+			if city != nil {
+				city.r.Close()
+			}
+			return err
+		}
+	}
+	g.mu.Lock()
+	oldCity, oldASN := g.city, g.asn
+	g.city, g.asn = city, asn
+	g.mu.Unlock()
+	for _, old := range []*mmdb{oldCity, oldASN} {
+		if old != nil {
+			old.r.Close()
+		}
+	}
+	return nil
+}
+
+// Loaded reports which databases are loaded.
+func (g *GeoIP) Loaded() (city, asn bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.city != nil, g.asn != nil
+}
+
 // Close releases the databases.
 func (g *GeoIP) Close() error {
 	g.mu.Lock()
@@ -112,12 +150,14 @@ func (g *GeoIP) reloadChanged() {
 			continue
 		}
 		g.mu.Lock()
-		old := *slot
+		if *slot != cur { // swapped for a newer file while this one was being opened
+			g.mu.Unlock()
+			next.r.Close()
+			continue
+		}
 		*slot = next
 		g.mu.Unlock()
-		if old != nil {
-			old.r.Close()
-		}
+		cur.r.Close()
 		g.log.Info("geoip database reloaded", "path", cur.path)
 	}
 }

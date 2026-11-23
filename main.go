@@ -40,6 +40,7 @@ import (
 	"siemlite/pkg/email"
 	"siemlite/pkg/enrich"
 	"siemlite/pkg/entra"
+	"siemlite/pkg/geoipdb"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/integrations"
 	"siemlite/pkg/intel"
@@ -119,6 +120,7 @@ func run() error {
 	retentionDays := flag.Int("retention-days", retention.DefaultDays, "keep events this many days (default two years); the System page takes precedence once it is saved there")
 	geoCity := flag.String("geoip-city", "", "MaxMind/DB-IP City or Country .mmdb for IP geolocation")
 	geoASN := flag.String("geoip-asn", "", "MaxMind/DB-IP ASN .mmdb for IP autonomous system lookup")
+	geoURL := flag.String("geoip-download-url", "", "for tests only: an https address to download the DB-IP location files from instead of download.db-ip.com")
 	var feeds feedFlag
 	flag.Var(&feeds, "intel-feed", "threat intel feed to download, as name=https://url (repeatable)")
 	intelRefresh := flag.Duration("intel-refresh", 6*time.Hour, "how often to re-download -intel-feed feeds")
@@ -195,15 +197,20 @@ func run() error {
 		return fmt.Errorf("load threat intel: %w", err)
 	}
 	enrichers := enrich.Chain{}
+	// IP locations: your own -geoip-city/-geoip-asn files win; otherwise SIEMLite downloads the free
+	// DB-IP databases itself (see pkg/geoipdb). The lookup starts empty and picks files up as they appear.
 	var geo *enrich.GeoIP
-	if *geoCity != "" || *geoASN != "" {
-		if geo, err = enrich.OpenGeoIP(*geoCity, *geoASN, nil); err != nil {
-			return err
-		}
-		defer geo.Close()
-		enrichers = append(enrichers, geo)
-		slog.Info("GeoIP enrichment enabled", "city", *geoCity, "asn", *geoASN)
+	if geo, err = enrich.OpenGeoIP(*geoCity, *geoASN, nil); err != nil {
+		return err
 	}
+	defer geo.Close()
+	enrichers = append(enrichers, geo)
+	own := *geoCity != "" || *geoASN != ""
+	if own {
+		slog.Info("GeoIP enrichment enabled with your own database files; nothing is downloaded", "city", *geoCity, "asn", *geoASN)
+	}
+	geoSvc := &geoipdb.Service{Dir: filepath.Join(dataDir, "geoip"), Store: repo, Target: geo, Own: own, Base: *geoURL}
+	geoSvc.Load(ctx)
 	enrichers = append(enrichers, intelSvc.Matcher)
 
 	// The retention period: the System page's, or else -retention-days.
@@ -267,13 +274,18 @@ func run() error {
 		defer wg.Done()
 		intelSvc.Run(bgCtx)
 	}()
-	if geo != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			geo.Run(bgCtx, time.Hour)
-		}()
-	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		geo.Run(bgCtx, time.Hour)
+	}()
+	wg.Add(1)
+	go func() { // at every start, which includes the one after each update; never holds startup up
+		defer wg.Done()
+		if st := geoSvc.Check(bgCtx); st.LastError != "" {
+			slog.Warn("GeoIP databases: " + st.LastError)
+		}
+	}()
 
 	router := sources.New(repo)
 	authn := auth.New(repo, nil)
@@ -479,6 +491,7 @@ func run() error {
 	if *updateCheck {
 		updates = update.New(version(), startExe)
 		updates.DataDir = dataDir
+		updates.OnCheck = func() { geoSvc.Check(bgCtx) } // also look for new location data; independent of the update
 		if ch, err := repo.Setting(ctx, update.ChannelKey, update.Stable); err == nil {
 			updates.SetChannel(ch)
 		}
@@ -502,7 +515,7 @@ func run() error {
 		go func() { defer wg.Done(); autoUpdate.Run(bgCtx) }()
 	}
 	srv := api.NewServer(*addr, api.Deps{
-		DB: db, Repo: repo, Ingest: worker, Search: engine, Retention: cleaner,
+		DB: db, Repo: repo, Ingest: worker, Search: engine, GeoIP: geoSvc, Retention: cleaner,
 		Auth: authn, Intel: intelSvc, Syslog: syslogSrv, Router: router, AI: aiSvc, AIAlerts: aiAlertsSvc, Reports: reportSvc, Slack: slackSvc, Teams: teamsSvc, Notify: notifyChat,
 		Backups: backups, Started: started, Version: version(), Updates: updates, AutoUpdate: autoUpdate, Email: emailSvc, Agents: agentSvc, Integrations: integrations.New(emailSvc, slackSvc, teamsSvc, entraSvc, aiSvc, aiAlertsSvc, agentSvc), Entra: entraSvc, Proxies: proxies, LocalAddr: *localAddr, Certs: certMgr, Audit: auditLog, Alerts: alertEngine,
 		SecAudit: secaudit.New(repo, hostname()), SecConfig: secaudit.Config{

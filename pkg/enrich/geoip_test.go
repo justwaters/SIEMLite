@@ -75,3 +75,29 @@ func TestGeoIP(t *testing.T) {
 		t.Errorf("asn-only lookup = %+v", e)
 	}
 }
+
+func TestGeoIPSwap(t *testing.T) {
+	asn := writeMMDB(t, "GeoLite2-ASN", "8.8.8.0/24", mmdbtype.Map{
+		"autonomous_system_number": mmdbtype.Uint32(15169), "autonomous_system_organization": mmdbtype.String("GOOGLE"),
+	})
+	g, err := OpenGeoIP("", "", nil) // no database yet
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	if c, a := g.Loaded(); c || a || g.Lookup("8.8.8.8") != nil {
+		t.Fatal("empty GeoIP knows something")
+	}
+	if err := g.Swap("", filepath.Join(t.TempDir(), "missing.mmdb")); err == nil {
+		t.Error("a missing file was accepted")
+	}
+	if err := g.Swap("", asn); err != nil {
+		t.Fatal(err)
+	}
+	if e := g.Lookup("8.8.8.8"); e == nil || e.ASN() != 15169 {
+		t.Errorf("after Swap: %+v", e)
+	}
+	if err := g.Swap("", ""); err != nil || g.Lookup("8.8.8.8") != nil {
+		t.Errorf("unload: %v", err)
+	}
+}

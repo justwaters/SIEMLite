@@ -8,7 +8,7 @@ a built-in web UI and a small JSON API.
 
 - **Send any log**: over HTTPS, or native syslog on UDP, TCP or TLS. Syslog, JSON lines or plain text; the parsed event is stored, and the original line is kept for 24 hours after it arrives (or as long as you choose on the System page).
 - **OCSF-normalized**: category, class and severity mean the same thing across sources.
-- **Enrichment**: GeoIP country/city and ASN for public IPs, and threat intel matching against IP, CIDR, domain and hash blocklists.
+- **Enrichment**: GeoIP country/city and ASN for public IPs (free DB-IP data, downloaded by itself), and threat intel matching against IP, CIDR, domain and hash blocklists.
 - **A quiet web UI**: one search field to start, light and dark themes (or follow the system), an optional glass look, and fonts bundled
   in the binary, so the UI never contacts a font service.
 - **Full-text search**: SQLite FTS5 over the message, program, host, user, addresses and parsed fields, combined with time, severity, category, IP, user, source, country, ASN and threat filters.
@@ -134,7 +134,8 @@ missed it, set a new one: `docker compose exec siemlite siemlite users passwd -u
   shell, so use a throwaway container; the volume is named after the checkout folder):
   `docker run --rm -v siemlite_siemlite-data:/data alpine rm /data/siemlite.crt /data/siemlite.key && docker compose restart`.
   To trust the certificate on a client, copy it out with `docker compose cp siemlite:/data/siemlite.crt .`.
-- GeoIP: put the `.mmdb` files in `./geoip/` and set `SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb` (and `_ASN`).
+- GeoIP: nothing to do; SIEMLite downloads the free DB-IP databases into the data volume. Only to use your own, put the
+  `.mmdb` files in `./geoip/` and set `SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb` (and `_ASN`).
 - Management commands run inside the container:
   `docker compose exec siemlite siemlite users create -username alice -role standard`, and the same for `keys`
   and `intel`. To import a feed file, pipe it in: `docker compose exec -T siemlite siemlite intel import -source x -file - < iocs.txt`.
@@ -477,22 +478,42 @@ anything written in it; since a person reviews each proposal, the worst a plante
 
 ## GeoIP and ASN
 
-Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,
-coordinates and autonomous system as it is stored:
+IP locations work with no setup. SIEMLite downloads the free [DB-IP](https://db-ip.com) "lite" City and ASN databases
+itself, and every public source and destination IP then gets a country, city, coordinates and autonomous system as it
+is stored.
+
+- **What is downloaded, and from where.** Two files from `download.db-ip.com` over HTTPS: the City database (about
+  60 MB, 130 MB unpacked) and the ASN database (about 5 MB, 10 MB unpacked). Nothing about your events or your
+  server is sent: it is a plain download.
+- **When.** DB-IP publishes a new edition each month. SIEMLite looks for one at every start (which includes the one
+  after each update) and whenever it checks for updates, by hand or on the automatic update schedule, and swaps it
+  in without a restart. A file is only downloaded when there is a newer month than the one you have; older editions
+  are deleted. A failed download never replaces a working database, and never holds up an update.
+- **Where it is kept.** `geoip/` next to the database (`/data/geoip` in the container), as
+  `dbip-city-lite-YYYY-MM.mmdb` and `dbip-asn-lite-YYYY-MM.mmdb`, about 140 MB together.
+- **The System page** has an **IP locations** panel: a switch (on by default), which editions you have, when it last
+  checked, what went wrong if it did, and **Check now**. Hovering an IP in the Database says why it has no location
+  when it has none.
+- **Turn it off** with that switch. Downloaded files stay on disk but are not used, and nothing is fetched.
+- **Air-gapped, or you want MaxMind?** Turn the switch off and give your own files instead; they win, and nothing
+  is downloaded:
 
 ```sh
 ./siemlite -geoip-city GeoLite2-City.mmdb -geoip-asn GeoLite2-ASN.mmdb
 ```
 
-- Works with MaxMind [GeoLite2](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) (free with an account;
-  keep it fresh with `geoipupdate`) or GeoIP2, and the [DB-IP lite](https://db-ip.com/db/lite.php) databases (free, no
-  account, CC BY 4.0). A Country database works in place of City. Either flag can be used alone.
-- Files are checked hourly and reloaded when they change, so `geoipupdate` needs no restart.
+- Your own files can be MaxMind [GeoLite2](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) (free with
+  an account; keep it fresh with `geoipupdate`) or GeoIP2, or DB-IP files you fetched yourself. A Country database
+  works in place of City. Either flag can be used alone. They are checked hourly and reloaded when they change, so
+  `geoipupdate` needs no restart. The System page then says "Using your own database files."
 - Private, loopback and other non-public addresses are skipped.
 - Search with `country=CN` or `asn=AS4134` (either endpoint). The country code shows next to each IP in the UI; the
   full location and AS name are in the event detail.
+- **Attribution.** The downloaded data is *IP geolocation data by [DB-IP.com](https://db-ip.com)*, licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The page credits DB-IP where it shows it; if you
+  republish the data, keep that credit.
 
-Only events stored after GeoIP is enabled are enriched.
+Only events stored after the databases are in place are enriched; earlier events keep what they had.
 
 ## Threat intel
 
@@ -633,8 +654,8 @@ The built-in rule **Improbable travel** raises a High alert for a user when two 
 places too far apart to travel between in the time that passed. It is added when SIEMLite starts (once; your edits to it
 are kept), and appears in the rules list like the others.
 
-- It needs a GeoIP **City** database with coordinates (`-geoip-city`, see [GeoIP and ASN](#geoip-and-asn)). With a
-  Country-only database, or no GeoIP, it stays quiet: sign-ins without coordinates are left out. Only events stored after
+- It needs a GeoIP **City** database with coordinates: the one SIEMLite downloads by itself works (or your own,
+  `-geoip-city`; see [GeoIP and ASN](#geoip-and-asn)). With a Country-only database, or no GeoIP, it stays quiet: sign-ins without coordinates are left out. Only events stored after
   GeoIP was switched on carry a location.
 - What counts as a successful sign-in is the rule's search, which you can edit. It starts as
   `action=auth.success,vpn.login,signin,signin.sso` (SSH and VPN logins from the [log generator](#test-logs), and sign-ins
@@ -1106,8 +1127,8 @@ by spaces.
 | `-tls-hosts` | | Extra DNS names or IPs for a generated certificate |
 | `-syslog-udp`, `-syslog-tcp`, `-syslog-tls` | | Syslog listen addresses, e.g. `:514`, `:514`, `:6514` (each off when empty) |
 | `-syslog-allow` | loopback and private networks | Comma-separated IPs/CIDRs allowed to send syslog (the Syslog source's Manage dialog overrides it) |
-| `-geoip-city` | | MaxMind or DB-IP City/Country `.mmdb` |
-| `-geoip-asn` | | MaxMind or DB-IP ASN `.mmdb` |
+| `-geoip-city` | | Your own MaxMind or DB-IP City/Country `.mmdb`; optional, SIEMLite downloads DB-IP's itself without it |
+| `-geoip-asn` | | Your own MaxMind or DB-IP ASN `.mmdb`; optional, as above |
 | `-intel-feed` | | Threat intel feed as `name=https://url`; repeat for several |
 | `-intel-refresh` | `6h` | How often to re-download feeds |
 | `-ai-url` | | Ollama server for [AI Parsers](#ai-parsers), e.g. `http://ollama:11434`: turns it on with this server until the Integrations page saves its own settings |
@@ -1145,6 +1166,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 - **`pkg/ingest`**: enriches each event, then a buffered channel and worker pool that flushes in batches.
 - **`pkg/syslogd`**: UDP, TCP and TLS syslog listeners with a sender allowlist.
 - **`pkg/enrich`**: enrichment document and GeoIP/ASN lookups (`.mmdb`, reloaded on change).
+- **`pkg/geoipdb`**: downloads and verifies the DB-IP lite databases, one edition a month.
 - **`pkg/intel`**: feed parsing, the in-memory indicator matcher and feed refresh.
 - **`pkg/search`**: combines time window, OCSF filters and FTS5.
 - **`pkg/retention`**: deletes expired days' files, and older events from the day the cutoff falls in.

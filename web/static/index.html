@@ -1668,6 +1668,18 @@
         <p class="notice" id="ret-msg" role="status" hidden></p>
       </form>
 
+      <section class="panel sched" id="geo-panel" aria-labelledby="geo-title">
+        <div><h2 id="geo-title">IP locations</h2>
+          <p class="hint" id="geo-status">Checking…</p>
+          <p class="hint">Where an address is, and which network it belongs to, comes from the free <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">DB-IP</a> lite databases
+            (CC BY 4.0). SIEMLite only downloads them, once a month and again whenever it checks for updates; nothing about your events is sent. Only events stored afterwards carry a location.</p></div>
+        <div class="sched-fields">
+          <label class="switch"><span>Download DB-IP location data</span><input type="checkbox" id="geo-enabled"><span class="track"></span></label>
+          <button class="btn" type="button" id="geo-check">Check now</button>
+        </div>
+        <p class="notice" id="geo-msg" role="status" hidden></p>
+      </section>
+
       <form class="panel sched" id="raw-form" autocomplete="off">
         <div><h2>Keep original lines</h2>
           <p class="hint" id="raw-status">Checking…</p></div>
@@ -2006,6 +2018,7 @@ const ALIASES = { time: "time", timestamp: "time", ts: "time", "@timestamp": "ti
   app: "app", program: "app", process: "app", service: "app", message: "message", msg: "message",
   severity: "severity", level: "severity", lvl: "severity", priority: "severity" };
 
+let geoipSource = "none"; // where IP locations come from: dbip, own or none (from the session)
 let me = null, isAdmin = false, totalEvents = null, sourcesCache = [];
 
 function el(tag, props = {}, ...kids) {
@@ -2328,6 +2341,7 @@ async function apiJSON(path, opts) {
 }
 function applySession(s) {
   me = s;
+  geoipSource = s.geoip || "none";
   isAdmin = s.role === "admin";
   $("ver").textContent = s.version || "";
   for (const n of document.querySelectorAll(".alerts-nav")) n.hidden = !!s.limited;
@@ -2831,6 +2845,12 @@ function ipCell(ip, cc, enr, intel) {
 const PRIVATE_IP = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/i;
 let ipTip;
 const countryName = (cc) => { try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || cc; } catch { return cc; } };
+// Why an address has no location, which depends on where locations come from.
+function noLocationWhy() {
+  if (geoipSource === "none") return "GeoIP isn't set up. Turn on IP locations under System.";
+  // Either the address isn't in the database, or the event was stored before the data was on: an event doesn't say which.
+  return "Not in the location database, or stored before location data was on.";
+}
 function ipLink(ip, enr, intel) {
   if (!ip) return "";
   const priv = PRIVATE_IP.test(ip);
@@ -2848,8 +2868,8 @@ function ipLink(ip, enr, intel) {
       as && as.name ? el("b", { textContent: as.name }) : el("b", { className: "mono", textContent: ip }),
       place ? el("span", { textContent: place }) : "",
       as && as.number ? el("span", { className: "mono", textContent: "AS" + as.number }) : "",
-      !place && !as ? el("span", { textContent: priv ? "Private address" : "No location data for this address." }) : "",
-      place || as ? el("span", { className: "ip-tip-src", textContent: "IP data by DB-IP" }) : "",
+      !place && !as ? el("span", { textContent: priv ? "Private address" : noLocationWhy() }) : "",
+      place || as ? el("span", { className: "ip-tip-src", textContent: geoipSource === "dbip" ? "IP data by DB-IP" : geoipSource === "own" ? "IP data from your own database" : "" }) : "",
       el("span", { className: "ip-tip-hint", textContent: "Talos Lookup" }));
     ipTip.hidden = false;
     const r = a.getBoundingClientRect(), w = ipTip.offsetWidth, h = ipTip.offsetHeight;
@@ -4052,6 +4072,7 @@ async function openSystem() {
   notice($("au-msg"), "");
   loadTLS(true);
   loadRetention();
+  loadGeoIP();
   loadRawKeep();
   notice($("tls-msg"), "");
   await loadBackups(true);
@@ -5349,6 +5370,49 @@ $("ret-form").onsubmit = async (e) => {
     await loadRetention();
   } catch (err) { notice($("ret-msg"), err.message); }
   $("ret-save").disabled = false;
+};
+
+// --- IP locations (DB-IP download) ---
+const monthName = (ed) => { const [y, m] = String(ed).split("-").map(Number); return y && m ? new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en", { month: "long", year: "numeric", timeZone: "UTC" }) : ed; };
+function geoText(v) {
+  if (v.source === "own") return "Using your own database files.";
+  if (!v.enabled) return "Off. Addresses show no location.";
+  const parts = [];
+  if (v.city.edition) parts.push(`City database from DB-IP, ${monthName(v.city.edition)}.`);
+  if (v.asn.edition) parts.push(`Network (ASN) database from DB-IP, ${monthName(v.asn.edition)}.`);
+  if (!parts.length) parts.push(v.checking ? "Downloading…" : "Not downloaded yet.");
+  if (v.last_checked) parts.push(`Checked ${ago(v.last_checked).toLowerCase()}.`);
+  if (v.last_error) parts.push(v.last_error);
+  return parts.join(" ");
+}
+function showGeo(v) {
+  geoipSource = v.source;
+  $("geo-status").textContent = geoText(v);
+  $("geo-enabled").checked = v.enabled;
+  $("geo-enabled").disabled = v.source === "own";
+  $("geo-check").disabled = v.source === "own" || !v.enabled;
+}
+async function loadGeoIP() {
+  try { showGeo(await apiJSON("/api/v1/system/geoip")); } catch (err) { $("geo-status").textContent = err.message; }
+}
+$("geo-enabled").onchange = async () => {
+  $("geo-enabled").disabled = true; $("geo-check").disabled = true;
+  try {
+    const v = await apiJSON("/api/v1/system/geoip", { method: "PUT", json: { enabled: $("geo-enabled").checked } });
+    showGeo(v);
+    notice($("geo-msg"), v.enabled ? "On. Looking for the location data now." : "Off. Addresses show no location.", true);
+    if (v.enabled) setTimeout(loadGeoIP, 5000);
+  } catch (err) { notice($("geo-msg"), err.message); await loadGeoIP(); }
+};
+$("geo-check").onclick = async () => {
+  $("geo-check").disabled = true;
+  $("geo-status").textContent = "Checking for new location data… the first download takes a minute.";
+  notice($("geo-msg"), "");
+  try {
+    const v = await apiJSON("/api/v1/system/geoip/check", { method: "POST" });
+    showGeo(v);
+    if (v.last_error) notice($("geo-msg"), v.last_error); else notice($("geo-msg"), "Checked. The location data is up to date.", true);
+  } catch (err) { notice($("geo-msg"), err.message); await loadGeoIP(); }
 };
 
 // --- Keep original lines ---

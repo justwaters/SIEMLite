@@ -88,6 +88,10 @@ type Checker struct {
 	Client    *http.Client
 	// InContainer overrides container detection (for tests).
 	InContainer func() bool
+	// OnCheck, when set, is called (in its own goroutine) each time a check really looks for a
+	// release, by hand or on the schedule, whatever the answer. Other housekeeping that should
+	// follow an update check hangs off it; it can't fail or delay the check.
+	OnCheck func()
 
 	mu      sync.Mutex
 	channel string
@@ -139,6 +143,9 @@ func (c *Checker) Check(ctx context.Context, force bool) Status {
 		st.Available = Newer(rel.Tag, c.Current)
 	}
 	c.cached, c.checked = st, time.Now()
+	if c.OnCheck != nil {
+		go c.OnCheck()
+	}
 	return c.withApply(st)
 }
 

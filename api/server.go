@@ -28,6 +28,7 @@ import (
 	"siemlite/pkg/chatnotify"
 	"siemlite/pkg/email"
 	"siemlite/pkg/entra"
+	"siemlite/pkg/geoipdb"
 	"siemlite/pkg/ingest"
 	"siemlite/pkg/integrations"
 	"siemlite/pkg/intel"
@@ -83,6 +84,8 @@ type Deps struct {
 	Proxies *Proxies
 	// Retention deletes old events; the System page sets its period (optional).
 	Retention *retention.Cleaner
+	// GeoIP downloads the IP location databases; the System page controls it (optional).
+	GeoIP *geoipdb.Service
 	// LocalAddr is the local port's address, e.g. localhost:8444 (optional).
 	// Requests on it count as coming from the server itself (see signin.go).
 	LocalAddr string
@@ -216,6 +219,9 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/v1/system/tls/check", s.handleCheckTLS)
 	admin("GET /api/v1/system/retention", s.handleGetRetention)
 	admin("PUT /api/v1/system/retention", s.handleSaveRetention)
+	admin("GET /api/v1/system/geoip", s.handleGetGeoIP)
+	admin("PUT /api/v1/system/geoip", s.handleSaveGeoIP)
+	admin("POST /api/v1/system/geoip/check", s.handleCheckGeoIP)
 	admin("GET /api/v1/system/raw-retention", s.handleGetRawKeep)
 	admin("PUT /api/v1/system/raw-retention", s.handleSaveRawKeep)
 	admin("GET /api/v1/system/signin", s.handleGetSignin)
@@ -660,6 +666,9 @@ type sessionInfo struct {
 	AuthProvider string `json:"auth_provider"`
 	// DisplayName is the name to show (a Microsoft account's display name), or empty.
 	DisplayName string `json:"display_name,omitempty"`
+	// GeoIP is where IP locations come from, so the page can say why an address has none:
+	// "dbip" (downloaded), "own" (the operator's files) or "none".
+	GeoIP string `json:"geoip"`
 }
 
 func (s *Server) session(username, role string, limited bool, sources []int64, provider, displayName string) sessionInfo {
@@ -670,7 +679,7 @@ func (s *Server) session(username, role string, limited bool, sources []int64, p
 		provider = storage.ProviderLocal
 	}
 	return sessionInfo{Username: username, Role: role, Limited: limited && role != auth.RoleAdmin, Sources: sources, AI: s.deps.AI.Status(),
-		Version: s.deps.Version, AuthProvider: provider, DisplayName: displayName}
+		Version: s.deps.Version, AuthProvider: provider, DisplayName: displayName, GeoIP: s.geoipSource()}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

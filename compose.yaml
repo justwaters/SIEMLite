@@ -26,7 +26,8 @@ services:
       - "${SIEMLITE_BIND:-}:${SIEMLITE_SYSLOG_TLS_PORT:-6514}:6514"
     volumes:
       - siemlite-data:/data
-      # Optional GeoIP databases; set SIEMLITE_GEOIP_CITY=/geoip/<file>.mmdb in .env.
+      # Optional: only to use your own GeoIP databases (set SIEMLITE_GEOIP_CITY=/geoip/<file>.mmdb in .env).
+      # Without them SIEMLite downloads the free DB-IP databases into the data volume by itself.
       - ./geoip:/geoip:ro
     # SIEMLite flushes queued events on shutdown; allow time for that.
     stop_grace_period: 20s

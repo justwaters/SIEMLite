@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewer(t *testing.T) {
@@ -209,5 +210,26 @@ func TestCheckFailureIsReported(t *testing.T) {
 	c.API = "http://127.0.0.1:1/none"
 	if st := c.Check(context.Background(), true); st.Error == "" || st.Available {
 		t.Errorf("status = %+v", st)
+	}
+}
+
+func TestOnCheckRunsForRealChecksOnly(t *testing.T) {
+	c := fakeRelease(t, "v0.10", "new program", false)
+	ran := make(chan struct{}, 4)
+	c.OnCheck = func() { ran <- struct{}{} }
+	c.Check(context.Background(), false) // really looks
+	c.Check(context.Background(), false) // cached
+	c.Check(context.Background(), true)  // by hand
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ran:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("OnCheck ran %d times, want 2", i)
+		}
+	}
+	select {
+	case <-ran:
+		t.Error("OnCheck ran for a cached answer")
+	case <-time.After(100 * time.Millisecond):
 	}
 }

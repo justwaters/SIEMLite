@@ -38,7 +38,9 @@ def start(binary, workdir):
     port = free_port()
     log = open(os.path.join(workdir, "server.log"), "w+")
     proc = subprocess.Popen([binary, "-addr", f"127.0.0.1:{port}", "-db", os.path.join(workdir, "siemlite.db")],
-                            stdout=log, stderr=subprocess.STDOUT)
+                            stdout=log, stderr=subprocess.STDOUT,
+                            # IP location data is downloaded from here: nothing listens, so no test reaches the real network
+                            env={**os.environ, "SIEMLITE_GEOIP_DOWNLOAD_URL": "https://127.0.0.1:1/free/"})
     password = None
     for _ in range(300):
         log.seek(0)
@@ -563,6 +565,36 @@ def main(binary, loggen):
             check("source" in page.eval_on_selector_all("#r-group option", "o => o.map(x => x.value)"), "a rule can be counted for each source")
             page.keyboard.press("Escape")
             page.wait_for_selector("#dlg-rule", state="hidden")
+
+            # System > IP locations: on by default; the download address here is unreachable, so it says so and the page works.
+            page.goto(url + "#/system")
+            page.wait_for_selector("#geo-enabled")
+            check(page.is_checked("#geo-enabled") and "Download DB-IP location data" in page.inner_text("#geo-panel"), "IP locations start on, with a DB-IP download switch")
+            check(page.locator('#geo-panel a[href="https://db-ip.com"]').count() == 1, "the IP locations panel credits DB-IP with a link")
+            page.wait_for_selector("#geo-status:has-text('Couldn')", timeout=20000)
+            check("Couldn't download" in page.inner_text("#geo-status") and "Not downloaded yet" in page.inner_text("#geo-status"),
+                  f"with the download unreachable the panel says so ({page.inner_text('#geo-status')!r})")
+            page.click("#geo-check")
+            page.wait_for_selector("#geo-check:not([disabled])", timeout=30000)
+            check("Couldn't download" in page.inner_text("#geo-msg"), "Check now reports the failure in plain words")
+            page.uncheck("#geo-enabled")
+            page.wait_for_selector("#geo-status:text-matches('^Off')")
+            check(page.is_disabled("#geo-check"), "turning IP locations off disables Check now")
+            page.reload()
+            page.wait_for_selector("#geo-status:text-matches('^Off')")
+            check(not page.is_checked("#geo-enabled"), "the IP locations switch is kept")
+            page.check("#geo-enabled")
+            page.wait_for_selector("#geo-status:not(:text-matches('^Off'))")
+            # An address with no location says why.
+            page.goto(url + "#/database")
+            page.locator("tr.ev").first.wait_for()
+            pub = page.locator("tr.ev a.ip-link", has_text=re.compile(r"^(?!10\.|192\.168\.|172\.|127\.)")).first
+            if pub.count():
+                pub.hover()
+                page.wait_for_selector(".ip-tip:not([hidden])")
+                tip = page.inner_text(".ip-tip")
+                check("isn't set up" in tip and "DB-IP" not in tip, f"an address without a location says GeoIP isn't set up ({tip!r})")
+                page.mouse.move(5, 5)
 
             # System > Software update: the release channel is Stable until Beta is chosen (and confirmed).
             page.goto(url + "#/system")
