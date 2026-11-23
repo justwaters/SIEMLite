@@ -1462,6 +1462,7 @@
                   <input class="input" id="ai-cloud-other" placeholder="The model's ID, as the service names it" spellcheck="false" autocapitalize="off">
                 </label>
               </div>
+              <label class="check" id="ai-free-wrap"><input type="checkbox" id="ai-free"> Allow free models <span class="muted">(the companies that run them may keep and train on the lines you send; paid models are not affected)</span></label>
               <label class="check"><input type="checkbox" id="ai-mask" checked> Replace IP, email and MAC addresses and host names before sending <span class="muted">(recommended: the lines keep their shape, and the answer is changed back)</span></label>
             </div>
             <div class="mail-actions">
@@ -4791,6 +4792,7 @@ function aiServiceUI() {
   $("ai-key-link").textContent = svc.key_url.replace(/^https:\/\//, "");
   $("ai-privacy").textContent = `The sample lines you ask about are sent to ${svc.name}. ${svc.privacy}`;
   $("ai-key").placeholder = has ? (aiView.provider === svc.id && aiView.key_unreadable ? "Enter it again" : "Saved. Leave blank to keep it") : "Paste the key";
+  $("ai-free-wrap").hidden = svc.id !== "cloud";
   $("ai-remove-key").hidden = !has;
   $("ai-remove-key").textContent = `Remove the ${svc.name} key`;
 }
@@ -4813,6 +4815,7 @@ function aiFill(v, keepForm) {
     aiPick(cloud ? "cloud" : "local");
     $("ai-ollama").value = v.ollama_url || "";
     $("ai-mask").checked = !v.send_addresses;
+    $("ai-free").checked = !!v.allow_free_models;
     $("ai-key").value = "";
     renderAIModels(v.local_model || v.recommended);
     aiCloudSelect((v.models || {})[aiService] || v.cloud_model);
@@ -4901,7 +4904,7 @@ function aiCloudSelect(chosen) {
   const rec = got.recommended || aiSvc().suggested || [];
   const models = got.models || [];
   const byId = new Map(models.map((m) => [m.id, m]));
-  const price = (m) => m ? (m.free ? " (free)" : m.prompt ? ` ($${m.prompt} / $${m.output} per million tokens)` : "") : "";
+  const price = (m) => m ? (m.free ? " (free, often unavailable)" : m.prompt ? ` ($${m.prompt} / $${m.output} per million tokens)` : "") : "";
   const opt = (id, label) => el("option", { value: id, textContent: label });
   const groups = [];
   if (rec.length) groups.push(el("optgroup", { label: "Recommended: small, fast and inexpensive" }, ...rec.map((id) => opt(id, (byId.get(id) || {}).name ? `${byId.get(id).name}${price(byId.get(id))}` : id))));
@@ -4918,7 +4921,7 @@ function aiCloudSelect(chosen) {
 $("ai-cloud-model").onchange = () => { $("ai-cloud-other-wrap").hidden = $("ai-cloud-model").value !== "__other"; if (!$("ai-cloud-other-wrap").hidden) $("ai-cloud-other").focus(); };
 function aiBody() {
   const b = { provider: aiProvider === "cloud" ? aiService : "local", ollama_url: $("ai-ollama").value.trim(), local_model: aiChosenLocal(),
-    cloud_model: aiCurrentCloud(), send_addresses: !$("ai-mask").checked, key_for: aiService };
+    cloud_model: aiCurrentCloud(), send_addresses: !$("ai-mask").checked, allow_free_models: $("ai-free").checked, key_for: aiService };
   if ($("ai-key").value.trim()) b.api_key = $("ai-key").value.trim();
   return b;
 }
@@ -4927,6 +4930,8 @@ $("ai-form").onsubmit = async (e) => {
   e.preventDefault();
   if (aiProvider === "cloud" && !$("ai-mask").checked &&
       !(await confirmAction("Send addresses as they are?", `IP, email and MAC addresses and host names in the sample lines will be sent to ${aiSvc().name} unchanged.`, "Send them"))) return;
+  if (aiProvider === "cloud" && aiService === "cloud" && $("ai-free").checked && !(aiView && aiView.allow_free_models) &&
+      !(await confirmAction("Allow free models?", "Free models on OpenRouter run on companies that may keep and train on the sample lines you send. Addresses are still replaced first unless you turn that off.", "Allow free models"))) return;
   aiBusy(true);
   try {
     aiFill(await apiJSON("/api/v1/integrations/ai", { method: "PUT", json: aiBody() }));

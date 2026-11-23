@@ -430,7 +430,9 @@ Set it up on the **Integrations** page, choosing where the model runs:
   (`qwen2.5-coder:3b`) takes about 10-40 seconds per suggestion. Any Ollama model that can answer in a JSON shape can be used.
 - **In the cloud**, with your API key for one of these services:
   - [OpenRouter](https://openrouter.ai) (keys at [openrouter.ai/keys](https://openrouter.ai/keys)): hundreds of models from many
-    companies, with prices shown. SIEMLite asks OpenRouter to use only companies that don't keep or train on what they're sent.
+    companies, with prices shown. SIEMLite asks OpenRouter to use only companies that don't keep or train on what they're sent. Free models usually run only on companies that do, so
+    they are refused; turn on **Allow free models** (off by default) to use a free model (an ID ending `:free`) anyway. It
+    applies to free models only, and the lines are still masked unless you turn that off.
   - [Anthropic](https://www.anthropic.com) (keys at [console.anthropic.com](https://console.anthropic.com/settings/keys)): Claude.
   - [Google Gemini](https://ai.google.dev) (keys at [aistudio.google.com](https://aistudio.google.com/apikey)). With a free key,
     Google may use what is sent to improve its products; a key on a paid (billing) project doesn't.
