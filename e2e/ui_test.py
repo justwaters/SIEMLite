@@ -508,6 +508,25 @@ def main(binary, loggen):
             sentence = page.locator("#rules-body tr", has_text="Source went quiet").locator(".rule-sentence").inner_text()
             check("sends fewer than 1 event in 15 minutes" in sentence, f"the rule list reads a volume rule back ({sentence!r})")
 
+            # A rule on repeated events by one user: the form asks what is the same, hides the search and
+            # grouping, and the list reads it back.
+            page.click("#add-rule")
+            page.select_option("#r-kind", "repeat")
+            check(page.is_visible("#r-same") and not page.is_visible("#r-query") and not page.is_visible("#r-group"),
+                  "a repeat rule asks what is the same and hides the search and grouping")
+            check(not page.is_visible("#r-keywords"), "the keywords box is hidden while the same severity is chosen")
+            page.select_option("#r-same", "repeat_keyword")
+            check(page.is_visible("#r-keywords"), "choosing the same keyword shows the keywords box")
+            page.fill("#r-name", "Same keyword again")
+            page.fill("#r-keywords", "denied, failed, blocked")
+            page.fill("#r-threshold", "5")
+            page.fill("#r-window", "10")
+            page.click("#r-save")
+            page.locator("#rules-body tr", has_text="Same keyword again").wait_for()
+            sentence = page.locator("#rules-body tr", has_text="Same keyword again").locator(".rule-sentence").inner_text()
+            check("User has 5+ events with the same keyword in 10 min" in sentence and "denied, failed, blocked" in sentence,
+                  f"the rule list reads a repeat rule back ({sentence!r})")
+
             # The built-in "Improbable travel" rule reads as a sentence about speed, and its form asks for a speed.
             row = page.locator("#rules-body tr", has_text="Improbable travel")
             row.wait_for()

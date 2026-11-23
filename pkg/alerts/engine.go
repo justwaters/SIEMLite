@@ -146,6 +146,8 @@ func (e *Engine) Check(ctx context.Context) (Result, error) {
 			var err error
 			if isTravelRule(ru) {
 				through, err = e.checkTravel(ctx, ru, from, maxID, now, &res)
+			} else if ru.IsRepeat() {
+				err = e.checkRepeat(ctx, ru, from, maxID, now, &res)
 			} else {
 				err = e.checkRule(ctx, ru, from, maxID, now, &res)
 			}

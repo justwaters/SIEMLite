@@ -354,3 +354,73 @@ func TestManagingAnAlertRaisesNoAlerts(t *testing.T) {
 		t.Errorf("after a second ingest.late event: %+v", got)
 	}
 }
+
+// Repeat rules ("the same keyword or severity, again and again, by one user") are checked when saved,
+// always count per user, and are listed back as the kind they were saved as.
+func TestRepeatRuleValidation(t *testing.T) {
+	e := newEnv(t)
+	e.user("root", auth.RoleAdmin)
+	root := e.client()
+	e.login(root, "root", password)
+	with := func(kind, query string, kv ...any) map[string]any {
+		m := map[string]any{"name": "Repeat " + kind + query, "kind": kind, "query": query, "severity": 3, "threshold": 5,
+			"window_minutes": 10, "group_by": "src_ip", "enabled": true}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i].(string)] = kv[i+1]
+		}
+		return m
+	}
+	long := strings.Repeat("x", 101)
+	var many []string
+	for i := 0; i < 21; i++ {
+		many = append(many, fmt.Sprintf("k%d", i))
+	}
+	bad := []struct {
+		name string
+		body map[string]any
+	}{
+		{"threshold 1", with("repeat_keyword", "denied", "threshold", 1)},
+		{"threshold 0", with("repeat_severity", "", "threshold", 0)},
+		{"no window", with("repeat_both", "denied", "window_minutes", 0)},
+		{"window over 7 days", with("repeat_keyword", "denied", "window_minutes", 7*24*60+1)},
+		{"no keywords", with("repeat_keyword", "")},
+		{"only commas", with("repeat_both", " , ,")},
+		{"keyword too long", with("repeat_keyword", "ok, "+long)},
+		{"too many keywords", with("repeat_keyword", strings.Join(many, ","))},
+		{"control character", with("repeat_keyword", "den\x01ied")},
+		{"unknown kind", with("repeat_whatever", "denied")},
+		{"bad search filter", with("repeat_severity", "severity=bogus")},
+		{"stored marker", with("match", "\x1erepeat_keyword\x1ex")},
+	}
+	for _, c := range bad {
+		if got := e.call(root, "POST", "/api/v1/rules", c.body, nil, nil); got != 400 {
+			t.Errorf("%s: status %d, want 400", c.name, got)
+		}
+	}
+	var r storage.Rule
+	if got := e.call(root, "POST", "/api/v1/rules", with("repeat_keyword", "denied,  failed , DENIED,, bad password"), &r, nil); got != 201 ||
+		r.Kind != "repeat_keyword" || r.GroupBy != "user" || r.Query != "denied, failed, bad password" || r.Threshold != 5 {
+		t.Fatalf("keyword rule = %d %+v", got, r)
+	}
+	var s storage.Rule
+	if got := e.call(root, "POST", "/api/v1/rules", with("repeat_severity", "", "threshold", 2), &s, nil); got != 201 || s.Kind != "repeat_severity" || s.GroupBy != "user" {
+		t.Fatalf("severity rule = %d %+v", got, s)
+	}
+	var rules []storage.Rule
+	e.call(root, "GET", "/api/v1/rules", nil, &rules, nil)
+	seen := 0
+	for _, ru := range rules {
+		if ru.ID == r.ID && ru.Kind == "repeat_keyword" && ru.Query == "denied, failed, bad password" {
+			seen++
+		}
+		if ru.ID == s.ID && ru.Kind == "repeat_severity" {
+			seen++
+		}
+	}
+	if seen != 2 {
+		t.Errorf("listed rules = %+v", rules)
+	}
+	if got := e.call(root, "PUT", fmt.Sprintf("/api/v1/rules/%d", r.ID), with("repeat_both", "x", "name", r.Name), &r, nil); got != 200 || r.Kind != "repeat_both" || r.Query != "x" {
+		t.Errorf("edit = %d %+v", got, r)
+	}
+}

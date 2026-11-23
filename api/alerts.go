@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"siemlite/pkg/audit"
 	"siemlite/pkg/auth"
@@ -114,6 +115,9 @@ func (s *Server) validRule(w http.ResponseWriter, r *http.Request, ru *storage.R
 	case len(ru.Description) > 300:
 		return bad("description must be at most 300 characters")
 	}
+	if storage.HasRepeatMark(ru.Query) {
+		return bad("the search has a control character in it")
+	}
 	switch ru.GroupBy {
 	case "", "src_ip", "dst_ip", "user", "host":
 	default:
@@ -122,9 +126,10 @@ func (s *Server) validRule(w http.ResponseWriter, r *http.Request, ru *storage.R
 	switch ru.Kind {
 	case "":
 		ru.Kind = storage.RuleMatch
-	case storage.RuleMatch, storage.RuleVolumeOver, storage.RuleVolumeUnder:
+	case storage.RuleMatch, storage.RuleVolumeOver, storage.RuleVolumeUnder,
+		storage.RuleRepeatSeverity, storage.RuleRepeatKeyword, storage.RuleRepeatBoth:
 	default:
-		return bad("kind must be match, volume_over or volume_under")
+		return bad("kind must be match, volume_over, volume_under, repeat_severity, repeat_keyword or repeat_both")
 	}
 	if ru.IsVolume() {
 		// A volume rule counts everything one source sends, so it has no
@@ -134,12 +139,40 @@ func (s *Server) validRule(w http.ResponseWriter, r *http.Request, ru *storage.R
 		}
 		ru.Query, ru.MinSeverity, ru.ThreatOnly, ru.GroupBy = "", nil, false, ""
 	}
+	if ru.IsRepeat() {
+		// A repeat rule counts one user's events, so it is always grouped by user.
+		ru.GroupBy = "user"
+		if ru.Threshold < 2 {
+			return bad("a repeat rule needs at least 2 events")
+		}
+		if ru.Kind != storage.RuleRepeatSeverity {
+			if strings.IndexFunc(ru.Query, unicode.IsControl) >= 0 {
+				return bad("keywords can't contain line breaks or control characters")
+			}
+			kw := storage.RepeatKeywords(ru.Query)
+			switch {
+			case len(kw) == 0:
+				return bad("give at least one keyword, separated by commas")
+			case len(kw) > 20:
+				return bad("give at most 20 keywords")
+			}
+			for _, k := range kw {
+				if len([]rune(k)) > 100 {
+					return bad("each keyword must be at most 100 characters")
+				}
+				if _, err := s.deps.Search.Search(r.Context(), searchProbe(storage.KeywordPhrase(k))); err != nil {
+					return bad(fmt.Sprintf("the keyword %q doesn't work: %v", k, err))
+				}
+			}
+			ru.Query = strings.Join(kw, ", ")
+		}
+	}
 	if ru.SourceID != nil {
 		if _, err := s.deps.Repo.GetSource(r.Context(), *ru.SourceID); err != nil {
 			return bad("that source doesn't exist")
 		}
 	}
-	if ru.Query != "" {
+	if ru.Query != "" && (!ru.IsRepeat() || ru.Kind == storage.RuleRepeatSeverity) {
 		if _, err := s.deps.Search.Search(r.Context(), searchProbe(ru.Query)); err != nil {
 			return bad("the search doesn't work: " + err.Error())
 		}

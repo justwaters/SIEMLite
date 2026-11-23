@@ -1638,7 +1638,14 @@
       <option value="match">Matching events arrive</option>
       <option value="volume_over">A source sends more than a number of events</option>
       <option value="volume_under">A source sends fewer than a number of events</option>
+      <option value="repeat">Repeated by user</option>
     </select></label>
+    <label class="field-label" data-repeat>Same <select class="select" id="r-same">
+      <option value="repeat_severity">Severity</option>
+      <option value="repeat_keyword">Keyword</option>
+      <option value="repeat_both">Keyword and severity</option>
+    </select></label>
+    <label class="field-label" id="r-kw-label" data-repeat>Keywords <input class="input mono" id="r-keywords" maxlength="2000" placeholder="denied, failed, blocked"></label>
     <label class="field-label" data-match>Events that match the search <input class="input mono" id="r-query" placeholder='"failed password" or action=ingest.late (leave empty for any event)'></label>
     <div class="two">
       <label class="field-label"><span id="r-source-label">From source</span> <select class="select" id="r-source"></select></label>
@@ -3440,6 +3447,12 @@ function ruleSentence(r) {
     return el("span", { className: "rule-sentence" }, "Alerts when the same user signs in from places too far apart to travel between: faster than ",
       `${nf.format(r.threshold)} km/h`, r.query ? el("span", {}, ", for sign-ins matching ", el("code", { textContent: r.query })) : "");
   }
+  if (String(r.kind).startsWith("repeat_")) {
+    const same = { repeat_severity: "severity", repeat_keyword: "keyword", repeat_both: "keyword and severity" }[r.kind];
+    const out = el("span", { className: "rule-sentence" }, `User has ${nf.format(r.threshold)}+ events with the same ${same} in ${r.window_minutes} min`);
+    if (r.query) out.append(r.kind === "repeat_severity" ? " matching " : " (", el("code", { textContent: r.query }), r.kind === "repeat_severity" ? "" : ")");
+    return out;
+  }
   if (r.kind === "volume_over" || r.kind === "volume_under") {
     const src = r.source_id ? ((sourcesCache.find((x) => x.id === r.source_id) || {}).name || "a source that was removed") : "a source that was removed";
     return el("span", { className: "rule-sentence" }, `${src} sends ${r.kind === "volume_over" ? "more" : "fewer"} than ` +
@@ -3503,7 +3516,10 @@ function alertRow(a) {
 function alertLink(a) {
   const r = rulesCache.find((x) => x.id === a.rule_id) || {};
   const p = new URLSearchParams();
-  if (r.query) p.set("q", r.query);
+  if (String(r.kind).startsWith("repeat_") && r.kind !== "repeat_severity") {
+    // The events with any of the rule's keywords, as phrases.
+    p.set("q", r.query.split(",").map((k) => k.replace(/"/g, " ").trim().replace(/\s+/g, " ")).filter(Boolean).map((k) => `"${k}"`).join(" OR "));
+  } else if (r.query) p.set("q", r.query);
   if (r.threat_only) p.set("threat", "1");
   if (r.source_id) p.set("source", String(r.source_id));
   const key = { src_ip: "src_ip", dst_ip: "dst_ip", user: "user", host: "host" }[a.group_by];
@@ -3534,7 +3550,9 @@ function renderRules() {
 function ruleDialog(r) {
   const editing = !!r;
   r = r || { name: "", description: "", kind: "match", severity: 3, query: "", threat_only: false, group_by: "src_ip", threshold: 10, window_minutes: 5, enabled: true };
-  const kind = r.kind || "match";
+  const kind = String(r.kind).startsWith("repeat_") ? "repeat" : (r.kind || "match");
+  $("r-same").value = String(r.kind).startsWith("repeat_") ? r.kind : "repeat_severity";
+  $("r-keywords").value = r.kind === "repeat_keyword" || r.kind === "repeat_both" ? r.query || "" : "";
   $("rule-dlg-title").textContent = editing ? `Edit ${r.name}` : "New rule";
   $("r-name").value = r.name; $("r-desc").value = r.description || ""; $("r-query").value = r.query || "";
   $("r-severity").replaceChildren(...[1, 2, 3, 4, 5].map((n) => el("option", { value: String(n), textContent: SEV[n], selected: n === r.severity })));
@@ -3545,7 +3563,7 @@ function ruleDialog(r) {
   const fillSources = () => {
     const keep = firstFill ? (r.source_id ? String(r.source_id) : "") : $("r-source").value;
     firstFill = false;
-    const volume = $("r-kind").value !== "match";
+    const volume = $("r-kind").value.startsWith("volume_");
     $("r-source").replaceChildren(...(volume ? [] : [el("option", { value: "", textContent: "Any source" })]),
       ...sourcesCache.map((x) => el("option", { value: String(x.id), textContent: x.name })));
     $("r-source").value = keep;
@@ -3554,12 +3572,18 @@ function ruleDialog(r) {
   const showKind = () => {
     const k = $("r-kind").value;
     for (const n of document.querySelectorAll("#rule-form [data-match]")) n.hidden = k !== "match";
+    for (const n of document.querySelectorAll("#rule-form [data-repeat]")) n.hidden = k !== "repeat";
+    $("r-kw-label").hidden = k !== "repeat" || $("r-same").value === "repeat_severity";
+    $("r-source").closest("label").hidden = k === "repeat";
     $("r-intro").textContent = k === "match"
       ? "An alert opens when at least the given number of matching events arrive within the time window. Rules apply to events stored from now on."
+      : k === "repeat"
+      ? "An alert opens for a user who is involved in at least the given number of events within the time window that have the same " +
+        "severity, the same keyword, or both. Events with no user are left out. Keywords are matched with the search index. Rules apply to events stored from now on."
       : `An alert opens when the source has sent ${k === "volume_over" ? "more" : "fewer"} than the number of events within the last time window, counted by when the events happened. ` +
         (k === "volume_under" ? "It waits a whole window after the rule is saved, or SIEMLite starts, before it says the source went quiet." : "It stays open while the source is still over, and keeps the highest count.");
     $("r-source-label").textContent = k === "match" ? "From source" : "Source to watch";
-    $("r-threshold-label").textContent = k === "match" ? "At least" : k === "volume_over" ? "More than" : "Fewer than";
+    $("r-threshold-label").textContent = k === "match" ? "At least" : k === "repeat" ? "At least (events)" : k === "volume_over" ? "More than" : "Fewer than";
     if (isTravelRule(r)) { // a speed, not a count: the window and grouping are not the rule's to choose
       $("r-intro").textContent = "An alert opens when the same user signs in from two places too far apart to travel between in the time that passed. " +
         "The search says what counts as a successful sign-in. It needs a GeoIP City database; sign-ins without a location are left out.";
@@ -3570,6 +3594,7 @@ function ruleDialog(r) {
     fillSources();
   };
   $("r-kind").onchange = showKind;
+  $("r-same").onchange = showKind;
   $("r-threat").checked = !!r.threat_only; $("r-threshold").value = String(r.threshold); $("r-window").value = String(r.window_minutes);
   $("r-group").value = r.group_by || ""; $("r-enabled").checked = r.enabled;
   showKind();
@@ -3579,11 +3604,14 @@ function ruleDialog(r) {
     if (e.submitter && e.submitter.value === "cancel") return;
     e.preventDefault();
     await withBusy($("rule-form"), async () => {
-    const body = { name: $("r-name").value.trim(), description: $("r-desc").value.trim(), severity: Number($("r-severity").value), kind: $("r-kind").value,
-      query: $("r-query").value.trim(), threat_only: $("r-threat").checked, group_by: $("r-group").value,
+    const repeat = $("r-kind").value === "repeat";
+    const body = { name: $("r-name").value.trim(), description: $("r-desc").value.trim(), severity: Number($("r-severity").value),
+      kind: repeat ? $("r-same").value : $("r-kind").value,
+      query: repeat ? ($("r-same").value === "repeat_severity" ? "" : $("r-keywords").value.trim()) : $("r-query").value.trim(),
+      threat_only: !repeat && $("r-threat").checked, group_by: repeat ? "user" : $("r-group").value,
       threshold: Number($("r-threshold").value), window_minutes: Number($("r-window").value), enabled: $("r-enabled").checked };
     if ($("r-minsev").value && body.kind === "match") body.min_severity = Number($("r-minsev").value);
-    if ($("r-source").value) body.source_id = Number($("r-source").value);
+    if ($("r-source").value && !repeat) body.source_id = Number($("r-source").value);
     try {
       await apiJSON(editing ? "/api/v1/rules/" + r.id : "/api/v1/rules", { method: editing ? "PUT" : "POST", json: body });
       d.close();

@@ -31,7 +31,74 @@ const (
 	RuleMatch       = "match"
 	RuleVolumeOver  = "volume_over"
 	RuleVolumeUnder = "volume_under"
+	// The repeat kinds raise one alert per user when the user is involved in at least Threshold events
+	// within WindowMinutes that share a severity level (repeat_severity), a keyword (repeat_keyword)
+	// or both (repeat_both). The keywords are the comma-separated list in Query (see RepeatKeywords);
+	// for repeat_severity Query is an ordinary search filter, usually empty.
+	RuleRepeatSeverity = "repeat_severity"
+	RuleRepeatKeyword  = "repeat_keyword"
+	RuleRepeatBoth     = "repeat_both"
 )
+
+// IsRepeat reports whether the rule counts repeated events of one user.
+func (r Rule) IsRepeat() bool {
+	return r.Kind == RuleRepeatSeverity || r.Kind == RuleRepeatKeyword || r.Kind == RuleRepeatBoth
+}
+
+// The alert_rules.kind column only accepts match, volume_over and volume_under (a CHECK made when the
+// column was added), and changing that takes a schema migration. A repeat rule is therefore stored as a
+// match rule whose query starts with repeatMark, its kind and repeatMark again; SaveRule writes it that
+// way and scanRule reads it back, so nothing else sees the difference. A version that doesn't know
+// repeat rules reads the query as a search it can't run, and the rule does nothing.
+const repeatMark = "\x1e"
+
+// HasRepeatMark reports whether a search text would be taken for a stored repeat rule: no rule's own
+// query may contain the mark.
+func HasRepeatMark(query string) bool { return strings.Contains(query, repeatMark) }
+
+func encodeRepeat(kind, query string) string { return repeatMark + kind + repeatMark + query }
+
+func decodeRepeat(query string) (kind, rest string, ok bool) {
+	after, found := strings.CutPrefix(query, repeatMark)
+	if !found {
+		return "", query, false
+	}
+	kind, rest, found = strings.Cut(after, repeatMark)
+	if !found || !(Rule{Kind: kind}).IsRepeat() {
+		return "", query, false
+	}
+	return kind, rest, true
+}
+
+// RepeatKeywords reads the keyword list of a repeat rule: items separated by commas, each a word or a
+// phrase, trimmed, with inner runs of white space made one space, double quotes dropped (they would
+// only be punctuation to the search index), empty items left out and repeats (in any case) kept once.
+func RepeatKeywords(list string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, item := range strings.Split(list, ",") {
+		item = strings.Join(strings.Fields(strings.ReplaceAll(item, `"`, " ")), " ")
+		if k := strings.ToLower(item); item != "" && !seen[k] {
+			seen[k] = true
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// KeywordPhrase is a keyword as a full-text phrase that matches the words in it, in order, and can
+// never be read as search syntax (RepeatKeywords has taken the quotes out).
+func KeywordPhrase(keyword string) string { return `"` + strings.ReplaceAll(keyword, `"`, "") + `"` }
+
+// RepeatSearch is the search that finds the events with any of the keywords (for the events behind an
+// alert), or "" when the rule has none.
+func RepeatSearch(list string) string {
+	var ph []string
+	for _, k := range RepeatKeywords(list) {
+		ph = append(ph, KeywordPhrase(k))
+	}
+	return strings.Join(ph, " OR ")
+}
 
 // IsVolume reports whether the rule watches a source's volume.
 func (r Rule) IsVolume() bool { return r.Kind == RuleVolumeOver || r.Kind == RuleVolumeUnder }
@@ -58,7 +125,16 @@ type Rule struct {
 	// Conds are field terms read out of Query (action=ingest.late), set by the alert
 	// engine before it asks for a rule's events; they are never stored.
 	Conds []Cond `json:"-"`
+
+	// BySeverity and NeedGroup are set by the alert engine for a repeat rule's counts, never stored.
+	// BySeverity splits each group by the event's exact severity (the group value is the group, a
+	// unit separator, then the severity). NeedGroup leaves out events that have no value to group by.
+	BySeverity bool `json:"-"`
+	NeedGroup  bool `json:"-"`
 }
+
+// GroupSep separates the group from the severity in a BySeverity group value.
+const GroupSep = "\x1f"
 
 // Alert is a rule that fired, for one group value.
 type Alert struct {
@@ -86,6 +162,9 @@ func scanRule(row interface{ Scan(...any) error }) (*Rule, error) {
 	if err := row.Scan(&r.ID, &r.Name, &r.Description, &r.Enabled, &r.Severity, &r.Query, &minSev, &r.ThreatOnly, &src,
 		&r.GroupBy, &r.Threshold, &r.WindowMinutes, &r.Builtin, &r.CreatedAt, &r.UpdatedAt, &r.Kind); err != nil {
 		return nil, err
+	}
+	if kind, rest, ok := decodeRepeat(r.Query); ok && r.Kind == RuleMatch {
+		r.Kind, r.Query = kind, rest
 	}
 	if minSev.Valid {
 		v := int(minSev.Int64)
@@ -136,6 +215,10 @@ func (r *Repository) SaveRule(ctx context.Context, ru Rule, nowMs int64) (int64,
 	}
 	if ru.IsVolume() { // a volume rule counts all of one source's events: no search or grouping, whoever calls
 		ru.Query, ru.MinSeverity, ru.ThreatOnly, ru.GroupBy = "", nil, false, ""
+	}
+	if ru.IsRepeat() { // a repeat rule is always about one user; see repeatMark for how it is stored
+		ru.GroupBy = "user"
+		ru.Query, ru.Kind = encodeRepeat(ru.Kind, ru.Query), RuleMatch
 	}
 	if ru.ID == 0 {
 		res, err = r.db.Write.ExecContext(ctx, `INSERT INTO alert_rules (name, description, enabled, severity, query, min_severity,
@@ -218,6 +301,15 @@ func (r *Repository) internalSourceID(ctx context.Context) (int64, error) {
 	return id, nil
 }
 
+// ruleGroupExpr is the SQL for the group a rule counts events in.
+func ruleGroupExpr(ru Rule) string {
+	g := groupExpr(ru.GroupBy)
+	if ru.BySeverity {
+		return g + " || '" + GroupSep + "' || COALESCE(e.severity_id, 0)"
+	}
+	return g
+}
+
 // ruleConds are the conditions on events (e) that a rule puts besides its search: severity, threat
 // intel, source, field terms, and the guard below. ruleFrom and ruleWhere both start from these, so a
 // rule's events are the same whichever way they are read.
@@ -241,6 +333,9 @@ func (r *Repository) ruleConds(ctx context.Context, ru Rule) ([]string, []any, e
 	if ru.SourceID != nil {
 		where = append(where, "e.source_id = ?")
 		args = append(args, *ru.SourceID)
+	}
+	if ru.NeedGroup && ru.GroupBy != "" {
+		where = append(where, groupExpr(ru.GroupBy)+" <> ''")
 	}
 	for _, c := range ru.Conds {
 		cond, a := condSQL(c)
@@ -335,7 +430,7 @@ func (r *Repository) NewMatches(ctx context.Context, ru Rule, afterSeq, maxSeq i
 		if lw, la := d.legacyWhere(s); lw != "" {
 			where, args = append(where, lw), append(args, la...)
 		}
-		rows, err := db.QueryContext(ctx, `SELECT `+groupExpr(ru.GroupBy)+`, MIN(e.timestamp), MAX(e.timestamp), COUNT(*) FROM `+from+
+		rows, err := db.QueryContext(ctx, `SELECT `+ruleGroupExpr(ru)+`, MIN(e.timestamp), MAX(e.timestamp), COUNT(*) FROM `+from+
 			whereSQL(where)+` GROUP BY 1`, args...)
 		if err != nil {
 			return nil, fmt.Errorf("rule %q: %w", ru.Name, err)
@@ -434,7 +529,7 @@ func (r *Repository) WindowCounts(ctx context.Context, ru Rule, groups []RuleGro
 		if lw, la := d.legacyWhere(s); lw != "" {
 			where, args = append(where, lw), append(args, la...)
 		}
-		rows, err := db.QueryContext(ctx, `SELECT `+groupExpr(ru.GroupBy)+`, e.timestamp, COALESCE(`+s.seqCol()+`, 0) FROM `+from+whereSQL(where), args...)
+		rows, err := db.QueryContext(ctx, `SELECT `+ruleGroupExpr(ru)+`, e.timestamp, COALESCE(`+s.seqCol()+`, 0) FROM `+from+whereSQL(where), args...)
 		if err != nil {
 			return nil, fmt.Errorf("rule %q window: %w", ru.Name, err)
 		}

@@ -604,6 +604,31 @@ are kept), and appears in the rules list like the others.
   route traffic through a distant gateway, and cloud sign-ins. Raise the speed or edit the search to leave those out.
 - A sign-in that arrives late is compared with the one before it in time, not the one after.
 
+### Repeated events by one user
+
+A rule can look for **a user involved in the same kind of event again and again**: choose "Repeated by user" when you make
+a rule, say what must be the same, and give the number of events and the time window. One alert opens per user and rule.
+
+- **Severity**: at least N events of the user, all with the same severity level (for example 10 High events in 5 minutes).
+- **Keyword**: the keywords box takes a comma-separated list such as `denied, failed, blocked`, each a word or a phrase
+  (`bad password`). Events are counted per keyword: 2 "denied" and 3 "failed" with a threshold of 5 does not alert, 5
+  "failed" does. An event with two keywords counts for both.
+- **Keyword and severity**: the same, counted per keyword and severity level together (5 "failed" events, all High).
+
+For example, "5 events with the same keyword in 10 minutes" with `denied, failed` alerts for a user with 5 events saying
+"failed" within 10 minutes. The alert says which keyword (and level) it was, how many events and over how long, and
+View events shows that user's events with any of the keywords.
+
+- The user is the event's user field. Events with no user are left out, never counted together. Users are compared as
+  written, so `Alice` and `alice` are two users.
+- Keywords are matched with the search index, as the Database search matches words: whole words, without regard to case,
+  anywhere in the event's text. A keyword that is part of a longer word does not match, and one of only punctuation
+  matches nothing. A rule takes at most 20 keywords of 100 characters each, and needs at least 2 events.
+- A user with an open alert is updated while more of the same pile up, instead of getting another alert. Close the alert
+  to be told again.
+- Expect false positives from noisy accounts (service accounts that fail all day); choose a higher number, a shorter
+  window, or a keyword that is more specific. Older events that arrive late count by when they happened.
+
 ## AI agents (MCP)
 
 AI agents can connect to SIEMLite through the [Model Context Protocol](https://modelcontextprotocol.io): the endpoint is
