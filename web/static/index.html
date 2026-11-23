@@ -558,6 +558,12 @@
   .integ-switch { padding: 0; gap: 8px; font-size: 13.5px; }
   .integ-body { border-top: 1px solid var(--rule); padding: 18px 20px; }
   .intel-head { align-items: center; justify-content: flex-start; gap: 28px; }
+  .int-tabs { grid-auto-columns: 1fr; min-width: min(400px, 100%); padding: 2px; }
+  .int-tabs button { font-size: 14px; padding: 6px 16px; }
+  .int-search { margin-bottom: 16px; }
+  .int-search .input { width: 100%; max-width: 420px; }
+  .int-empty { text-align: center; padding: 40px 0; }
+  .integ[data-group="discover"] .integ-switch { display: none; }
   .intel-tabs { grid-auto-columns: 1fr; min-width: min(560px, 100%); padding: 3px; }
   .intel-tabs button { font-size: 16px; padding: 9px 26px; }
   .soon { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 56px 24px; }
@@ -1229,10 +1235,19 @@
 
     <!-- Integrations -->
     <section id="view-integrations" class="page" aria-labelledby="integrations-title" hidden>
-      <div class="page-head">
-        <div><h1 id="integrations-title">Integrations</h1><p>Connect SIEMLite to other services. Set one up, then turn it on.</p></div>
+      <div class="page-head intel-head">
+        <div><h1 id="integrations-title">Integrations</h1><p>Connect SIEMLite to other services. Install one, then turn it on.</p></div>
+        <div class="seg int-tabs" role="tablist" aria-label="Integrations">
+          <button type="button" role="tab" id="gtab-active" data-tab="active">Active</button>
+          <button type="button" role="tab" id="gtab-deactivated" data-tab="deactivated">Deactivated</button>
+          <button type="button" role="tab" id="gtab-discover" data-tab="discover">Discover</button>
+        </div>
       </div>
       <p class="notice" id="integrations-msg" role="status" hidden></p>
+      <div class="int-search" id="int-search-bar" hidden>
+        <input class="input" id="int-search" type="search" placeholder="Search integrations" aria-label="Search integrations" autocomplete="off">
+      </div>
+      <p class="hint int-empty" id="int-empty" hidden></p>
       <section class="panel integ" id="int-email" data-integration="email" aria-labelledby="int-email-title">
         <div class="integ-head">
           <div class="integ-title"><h2 id="int-email-title">Email</h2><span class="pill integ-state">…</span></div>
@@ -2361,7 +2376,7 @@ function route() {
   setMenu(false);
   const params = new URLSearchParams(query || "");
   ({ dashboard: openDashboard, database: () => openDatabase(params), users: openUsers, sources: openSources, intel: () => openIntel(arg),
-     parsers: openParsers, parser: () => openParserEditor(arg), reports: openReports, integrations: openIntegrations, system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
+     parsers: openParsers, parser: () => openParserEditor(arg), reports: openReports, integrations: () => openIntegrations(arg), system: openSystem, security: openAudit, account: openAccount, alerts: () => openAlerts(params) })[view]();
   document.title = `${({ dashboard: "Dashboard", database: "Database", users: "Users", sources: "Sources", intel: "Intel", parsers: "Parsers", parser: "Parser", reports: "Reports", integrations: "Integrations", system: "System", security: "Security audit", account: "Account", alerts: "Alerts" })[view]} · SIEMLite`;
 }
 window.addEventListener("hashchange", () => { if (me) route(); });
@@ -4283,6 +4298,32 @@ for (const b of document.querySelectorAll("[data-audit-filter]")) b.onclick = ()
 
 // --- Integrations ---
 const INTEGRATION_STATE = { on: "On", off: "Off", needs_setup: "Not set up", error: "Problem" };
+const INTEGRATION_TABS = { active: "Active", deactivated: "Deactivated", discover: "Discover" };
+let integrationTab = "", movedIntegration = "";
+// Shows the cards that belong to the chosen tab (and, in Discover, match the search).
+function showIntegrationTab() {
+  const q = $("int-search").value.trim().toLowerCase();
+  let shown = 0;
+  for (const card of document.querySelectorAll("#view-integrations .integ")) {
+    const inTab = card.dataset.group === integrationTab;
+    const text = (card.querySelector("h2").textContent + " " + card.querySelector(".integ-summary").textContent).toLowerCase();
+    // A card being worked in (its settings are open) stays where it is until the tab is left, even if
+    // saving its settings or switching it on or off moves it to another tab.
+    const show = card.dataset.pin ? !card.querySelector(".integ-body").hidden : inTab && (integrationTab !== "discover" || !q || text.includes(q));
+    card.hidden = !show;
+    if (show) shown++;
+  }
+  $("int-search-bar").hidden = integrationTab !== "discover";
+  const empty = $("int-empty");
+  empty.hidden = shown > 0;
+  empty.textContent = integrationTab === "active" ? "Nothing is active. Install one from Discover, or turn one on under Deactivated."
+    : integrationTab === "deactivated" ? "Nothing is turned off."
+    : $("int-search").value.trim() ? "No integration matches that search." : "Everything is installed.";
+  for (const t of Object.keys(INTEGRATION_TABS)) {
+    const b = $("gtab-" + t);
+    b.setAttribute("aria-selected", String(t === integrationTab)); b.tabIndex = t === integrationTab ? 0 : -1;
+  }
+}
 // The word beside a switch says what the switch is: On when it is checked, Off when it is not.
 function syncSwitchLabel(input) {
   const word = input.closest(".integ-switch").querySelector("span");
@@ -4299,23 +4340,45 @@ function renderIntegration(it) {
   sw.checked = !!it.enabled && it.configured; sw.disabled = !it.configured;
   syncSwitchLabel(sw);
   sw.title = it.configured ? "" : "Set it up first";
-  root.querySelector(".integ-toggle").textContent = it.configured ? "Settings" : "Set up";
+  root.querySelector(".integ-toggle").textContent = it.configured ? "Settings" : "Install";
+  // Where it is listed: configured and on, configured and off, or not set up yet (Discover).
+  const group = !it.configured ? "discover" : it.enabled ? "active" : "deactivated";
+  const was = root.dataset.group;
+  root.dataset.group = group;
+  if (was && was !== group) movedIntegration = `${root.querySelector("h2").textContent} is now under ${INTEGRATION_TABS[group]}.`;
 }
 async function refreshIntegrationCards() {
   try { for (const it of (await apiJSON("/api/v1/integrations")).integrations) renderIntegration(it); }
   catch (err) { notice($("integrations-msg"), err.message); }
+  if (integrationTab) {
+    showIntegrationTab();
+    if (movedIntegration) { notice($("integrations-msg"), movedIntegration, true); movedIntegration = ""; }
+  }
   await loadSignin(); // Microsoft-only sign-in depends on whether Entra is on
 }
-async function openIntegrations() {
+async function openIntegrations(tab) {
   notice($("integrations-msg"), "");
+  movedIntegration = "";
+  for (const card of document.querySelectorAll("#view-integrations .integ")) delete card.dataset.pin;
   await refreshIntegrationCards();
+  movedIntegration = "";
+  if (!INTEGRATION_TABS[tab]) { // no tab asked for: the first one that has something
+    const has = (g) => document.querySelector(`#view-integrations .integ[data-group="${g}"]`);
+    tab = has("active") ? "active" : has("deactivated") ? "deactivated" : "discover";
+  }
+  integrationTab = tab;
+  showIntegrationTab();
   await Promise.all([loadMail(), loadEntra(), loadAI(), loadAIAlerts(), loadMCP(), loadChat("slack"), loadChat("teams")]);
 }
+for (const b of document.querySelectorAll(".int-tabs button")) b.onclick = () => { location.hash = "#/integrations/" + b.dataset.tab; };
+$("int-search").oninput = showIntegrationTab;
 function toggleIntegration(btn, open) {
   const body = $(btn.getAttribute("aria-controls"));
   open = open === undefined ? body.hidden : open;
   body.hidden = !open;
   btn.setAttribute("aria-expanded", String(open));
+  const card = btn.closest(".integ");
+  if (open) card.dataset.pin = "1"; else delete card.dataset.pin;
 }
 for (const btn of document.querySelectorAll(".integ-toggle")) btn.onclick = () => toggleIntegration(btn);
 document.addEventListener("change", (ev) => { if (ev.target.matches(".integ-switch input")) syncSwitchLabel(ev.target); });

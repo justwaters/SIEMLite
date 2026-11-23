@@ -721,6 +721,28 @@ def main(binary, loggen):
             page.click("#dlg-agent .btn-primary")
             page.locator("#mcp-body tr", has_text="e2e agent").wait_for()
             check("Analyst" in page.locator("#mcp-body tr", has_text="e2e agent").inner_text(), "the token is listed with its level")
+            # Integrations are listed by state: the agent card has a token, so it is installed and on.
+            check(page.is_visible("#int-mcp"), "a card stays on screen while its settings are open after it moves")
+            page.goto(url + "#/integrations/active")
+            page.wait_for_selector("#gtab-active[aria-selected=true]")
+            page.wait_for_selector("#int-mcp:not([hidden])")
+            check(page.is_visible("#int-mcp") and page.is_hidden("#int-email") and page.is_hidden("#int-slack"), "Active lists only what is installed and on")
+            page.goto(url + "#/integrations/deactivated")
+            page.wait_for_selector("#gtab-deactivated[aria-selected=true]")
+            page.wait_for_selector("#int-empty:not([hidden])")
+            check(page.is_hidden("#int-mcp") and "Nothing is turned off" in page.inner_text("#int-empty"), "Deactivated is empty until one is turned off")
+            page.click("#gtab-discover")
+            page.wait_for_selector("#int-search")
+            check(page.is_visible("#int-email") and page.is_hidden("#int-mcp") and page.inner_text("#int-email .integ-toggle") == "Install",
+                  "Discover lists what isn't installed, each with an Install button")
+            page.fill("#int-search", "slack")
+            check(page.is_visible("#int-slack") and page.is_hidden("#int-email") and page.is_hidden("#int-teams"), "the Discover search narrows the list")
+            page.fill("#int-search", "zzzz")
+            check("No integration matches" in page.inner_text("#int-empty"), "a search with no match says so")
+            page.goto(url + "#/integrations/active")
+            page.wait_for_selector("#int-mcp:not([hidden])")
+            if page.is_hidden("#mcp-body"):
+                page.click("#int-mcp .integ-toggle")
             import json as _json, ssl as _ssl, urllib.request as _rq
             def mcp_call(method, params=None):
                 body = _json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}).encode()

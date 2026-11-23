@@ -850,10 +850,12 @@ used **Update and restart** is told why when the sign-in page comes back.
 
 ## Integrations
 
-The **Integrations** page lists the services SIEMLite can connect to. Each is built in, and appears as a card with a state
-(**Not set up**, **Off**, **On**, or **Problem**), an **On** switch, and a **Settings** button that opens its settings. Set an
-integration up first; the switch then turns it on or off without losing its settings. Only admins see the page, and
-turning one on or off is recorded in the [audit log](#audit-log).
+The **Integrations** page lists the services SIEMLite can connect to, in three tabs. **Active** has the ones that are set up
+and on, **Deactivated** the ones that are set up but off, and **Discover** the ones not set up yet, with a search box and an
+**Install** button that opens the integration's settings. Each is built in and appears as a card with a state
+(**Not set up**, **Off**, **On**, or **Problem**), an **On** switch, and a **Settings** button. Once an integration is set up,
+the switch turns it on or off without losing its settings, and it moves between **Active** and **Deactivated**. Only admins see
+the page, and turning one on or off is recorded in the [audit log](#audit-log).
 
 ## Sign in with Microsoft (Entra ID)
 
