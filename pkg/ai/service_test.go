@@ -306,6 +306,17 @@ func TestCloudModelWithMaskedAddresses(t *testing.T) {
 		t.Error("unmasked lines weren't sent as they are")
 	}
 
+	// Allowing free models is kept, and off unless asked for.
+	if v, err := s.Get(ctx); err != nil || v.AllowFree {
+		t.Errorf("free models allowed by default: %v %v", v.AllowFree, err)
+	}
+	if err := s.Save(ctx, Settings{Provider: ProviderCloud, CloudModel: "~anthropic/claude-haiku-latest", SendAddresses: true, AllowFree: true}, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := s.Get(ctx); err != nil || !v.AllowFree {
+		t.Errorf("allow free models wasn't kept: %v %v", v.AllowFree, err)
+	}
+
 	// Test checks the key; a wrong key is explained.
 	if r, err := s.Test(ctx, Settings{Provider: ProviderCloud, CloudModel: "~anthropic/claude-haiku-latest"}, nil); err != nil || r.KeyLabel == "" || r.CreditLeft == nil || r.ModelKnown == nil || !*r.ModelKnown {
 		t.Errorf("test = %+v %v", r, err)

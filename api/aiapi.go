@@ -75,7 +75,8 @@ func (s *Server) handleSaveAI(w http.ResponseWriter, r *http.Request) {
 	msg := fmt.Sprintf("%s set AI Parsers to run on this server with Ollama at %s, model %s", who, req.OllamaURL, req.LocalModel)
 	if svc, ok := cloudServiceNamed(req.Provider); ok {
 		msg = fmt.Sprintf("%s set AI Parsers to run in the cloud with %s, model %s, addresses %s", who, svc, req.CloudModel,
-			map[bool]string{false: "replaced before sending", true: "sent as they are"}[req.SendAddresses])
+			map[bool]string{false: "replaced before sending", true: "sent as they are"}[req.SendAddresses]) +
+			map[bool]string{false: "", true: ", free models allowed"}[req.AllowFree]
 	}
 	if key != nil {
 		if keyFor == "" {

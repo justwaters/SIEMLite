@@ -39,6 +39,10 @@ type Settings struct {
 	// SendAddresses sends IP, email and MAC addresses and host names to a
 	// cloud model as they are. Off (the default, and when left out) replaces them first.
 	SendAddresses bool `json:"send_addresses"`
+	// AllowFree lets OpenRouter's free models (IDs ending ":free") be used. The companies that run
+	// them may keep and train on what they are sent, so SIEMLite's usual refusal of those is lifted
+	// for them only. Off by default.
+	AllowFree bool `json:"allow_free_models"`
 }
 
 type stored struct {
@@ -664,6 +668,9 @@ func (s *Service) chatterFor(ctx context.Context, evenIfOff bool) (chatter, erro
 			return nil, InputError("The saved " + svc.Name + " key can't be read on this server; enter it again on the Integrations page.")
 		}
 		var ch chatter = s.cloudChatter(svc, key, st.Models[svc.ID])
+		if o, ok := ch.(*openRouter); ok {
+			o.allowFree = st.AllowFree
+		}
 		if !st.SendAddresses {
 			ch = newMasker(ch)
 		}

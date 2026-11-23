@@ -241,6 +241,15 @@ const DefaultOpenRouter = "https://openrouter.ai/api/v1"
 type openRouter struct {
 	base, key, model string
 	http             *http.Client
+	allowFree        bool // a ":free" model may go to companies that keep what is sent
+}
+
+// dataCollection is what OpenRouter is told about companies that keep or train on what they are sent.
+func (o *openRouter) dataCollection() string {
+	if o.allowFree && strings.HasSuffix(o.model, ":free") {
+		return "allow"
+	}
+	return "deny"
 }
 
 func (o *openRouter) chat(ctx context.Context, msgs []map[string]string, schema any) (string, error) {
@@ -255,7 +264,7 @@ func (o *openRouter) chat(ctx context.Context, msgs []map[string]string, schema 
 		"model": o.model, "messages": msgs, "temperature": 0.1,
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "parser", "schema": schema}},
 		// Only providers that honour the JSON shape, and none that keep what is sent.
-		"provider": map[string]any{"require_parameters": true, "data_collection": "deny"},
+		"provider": map[string]any{"require_parameters": true, "data_collection": o.dataCollection()},
 	}, &out)
 	if err != nil {
 		return "", err
@@ -330,7 +339,7 @@ func (o *openRouter) call(ctx context.Context, method, path string, in, out any)
 		if strings.Contains(strings.ToLower(msg), "data policy") {
 			return errors.New("OpenRouter has no company that can run " + o.model + " under SIEMLite's rule of only using " +
 				"companies that don't keep or train on what they are sent. Free models usually run only on companies that do. " +
-				"Pick a model that isn't free. (OpenRouter said: " + msg + ")")
+				"Pick a model that isn't free, or allow free models under Integrations > AI Parsers. (OpenRouter said: " + msg + ")")
 		}
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
