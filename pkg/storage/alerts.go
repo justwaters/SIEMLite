@@ -285,35 +285,47 @@ func groupExpr(groupBy string) string {
 	return "''"
 }
 
+// sourceGroupLabel is the name to show for a "source" group's value (a source id). names is nil when the
+// names could not be read: the label is then "source <id>", the same for every alert, rather than
+// claiming the source was deleted.
+func sourceGroupLabel(names map[int64]string, value string) string {
+	if names == nil {
+		return "source " + value
+	}
+	id, _ := strconv.ParseInt(value, 10, 64)
+	return SourceLabel(names, id)
+}
+
 // GroupDisplay is how to show a group's value to people: the source's name for a
 // "source" group (whose value is the source's id), and the value itself otherwise.
 func (r *Repository) GroupDisplay(ctx context.Context, groupBy, value string) string {
 	if groupBy != "source" || value == "" {
 		return value
 	}
-	id, _ := strconv.ParseInt(value, 10, 64)
 	names, err := r.sourceNames(ctx)
 	if err != nil {
-		return "source " + value
+		names = nil
 	}
-	return SourceLabel(names, id)
+	return sourceGroupLabel(names, value)
 }
 
-// labelAlerts fills in GroupLabel for the alerts grouped by source.
+// labelAlerts fills in GroupLabel for the alerts grouped by source. The names are read once, and
+// only if some alert needs them.
 func (r *Repository) labelAlerts(ctx context.Context, list []Alert) {
 	var names map[int64]string
+	read := false
 	for i := range list {
 		if list[i].GroupBy != "source" || list[i].GroupValue == "" {
 			continue
 		}
-		if names == nil {
+		if !read {
+			read = true
 			var err error
 			if names, err = r.sourceNames(ctx); err != nil {
-				names = map[int64]string{}
+				names = nil
 			}
 		}
-		id, _ := strconv.ParseInt(list[i].GroupValue, 10, 64)
-		list[i].GroupLabel = SourceLabel(names, id)
+		list[i].GroupLabel = sourceGroupLabel(names, list[i].GroupValue)
 	}
 }
 

@@ -400,6 +400,8 @@ func (s *Service) payload(a Alert) []byte {
 
 var sevColor = map[int]string{1: "#8a94a0", 2: "#2fa36b", 3: "#d9a21a", 4: "#e8742a", 5: "#d93b3b", 6: "#a31515"}
 
+// who says what an alert is about. GroupValue is what to show: for a rule counted for each source the
+// caller passes the source's name there, not its id.
 func who(a Alert) string {
 	if a.GroupValue == "" {
 		return ""
