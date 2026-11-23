@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -87,7 +89,7 @@ means all of them apply, and quotes hold a value with spaces:</p>
 </tr>
 <tr>
 <td><code>user="Jonathan Martinez",bob</code></td>
-<td>the user is one of those</td>
+<td>the user is one of those (single quotes work too: <code>user='Jonathan Martinez'</code>)</td>
 </tr>
 <tr>
 <td><code>host=web1</code> · <code>program=sshd</code></td>
@@ -121,10 +123,14 @@ words beside them can use AND, OR and NOT as usual. Searching by a parser's fiel
 the database is large.</p>
 <p>Full-text search covers the parsed event: its message, program, host, user, source and destination addresses and the
 <strong>values</strong> of the extra fields a parser picked out, not their names (so <code>failed</code> doesn't find an event that merely has a
-field called <code>failed</code>; use <code>failed=...</code> to ask about that field). The original line is kept for 24 hours after it arrives (shown in an event's details),
+field called <code>failed</code>; use <code>failed=...</code> to ask about that field). The original line is kept for 24 hours after it arrives, unless you change that on the System page (<strong>Keep original lines</strong>: any number of hours, or 0 to keep it as long as the event). It is shown in an event's details,
 then removed; the parsed event stays for the whole retention period and is what the Database page shows. Searching works
 the same before and after the original goes, so search for what the parser understood rather than for a stray piece of
 the raw text.</p>
+<p>A JSON line sent without a custom parser keeps every value, not only the message, time and level: the rest are stored as extra fields
+(nested objects as dotted names such as <code>meta.reason</code>), up to 100 values per event, each cut at 2,048 characters. An OCSF-style line
+keeps what the event has no column for, such as ports and the activity. A syslog line's header (priority, process id, message id,
+structured data) is not kept: if you need it, give that source a custom parser.</p>
 <h2 id="filters">Filters</h2>
 <p>Beyond the text query, the Database page and the search API filter by time range (<code>start</code>, <code>end</code>), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000) and <code>offset</code>. Results are newest first. See the <a href="api-reference.html">API reference</a>.</p>
   </main>

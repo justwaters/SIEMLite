@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -81,7 +83,7 @@
 <tr>
 <td><code>GET /api/v1/search</code></td>
 <td>any signed-in user</td>
-<td><code>q</code>, <code>start</code>, <code>end</code> (RFC3339 or epoch ms), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000), <code>offset</code>. Newest first. Each event includes its parsed <code>message</code>, its <code>source_name</code>, extra parsed <code>fields</code> and <code>enrichment</code>, and <code>raw_data</code>, the original line (empty once it has been removed, 24 hours after the event arrived).</td>
+<td><code>q</code>, <code>start</code>, <code>end</code> (RFC3339 or epoch ms), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000), <code>offset</code>. Newest first. Each event includes its parsed <code>message</code>, its <code>source_name</code>, extra parsed <code>fields</code> and <code>enrichment</code>, and <code>raw_data</code>, the original line (empty once it has been removed, by default 24 hours after the event arrived).</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/stats?hours=24</code></td>
@@ -92,6 +94,11 @@
 <td><code>GET /api/v1/sources</code></td>
 <td>any signed-in user</td>
 <td>Admins get every source; others get the names of the sources they can see.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/sources/{id}/token</code></td>
+<td>admin</td>
+<td>Give an access token a new token, returned once as <code>{"source", "token"}</code>. The old token stops working at once; the source, its settings and its logs stay, and a disabled source stays disabled. <code>400</code> for built-in sources, <code>404</code> for a missing one.</td>
 </tr>
 <tr>
 <td><code>POST /api/v1/sources</code>, <code>PATCH</code>/<code>DELETE /api/v1/sources/{id}</code></td>
@@ -112,6 +119,11 @@
 <td><code>GET /api/v1/alerts?status=open</code></td>
 <td>any signed-in user not limited to some sources</td>
 <td>Alerts (<code>open</code>, <code>acknowledged</code>, <code>closed</code> or <code>all</code>) and the count in each state.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/alerts</code></td>
+<td>same</td>
+<td>Open an alert no rule raised: <code>{"title", "severity" (1-6), "group_by" (</code>src_ip<code>,</code>dst_ip<code>,</code>user<code>or</code>host<code>, optional), "group_value", "count", "note"}</code>. An open alert with the same title and group is updated instead (<code>200</code>; a new one is <code>201</code>). It is audited.</td>
 </tr>
 <tr>
 <td><code>PATCH /api/v1/alerts/{id}</code></td>
@@ -174,6 +186,21 @@
 <td>Download or delete a backup; restore it (SIEMLite restarts).</td>
 </tr>
 <tr>
+<td><code>GET</code>/<code>PUT /api/v1/intel/feeds</code>, <code>POST .../intel/feeds/refresh</code></td>
+<td>admin</td>
+<td>The <a href="threat-intel.html">threat feeds</a> on offer with their state, choosing them (<code>{"feeds": ["feodo", "ipsum3"]}</code>), and a download now (<code>202</code>).</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>POST /api/v1/intel/friendly</code>, <code>PATCH</code>/<code>DELETE .../friendly/{id}</code>, <code>POST</code>/<code>DELETE .../friendly/{id}/entries</code></td>
+<td>admin</td>
+<td>The friendly address lists: list them with their entries, create (<code>{"name", "description"}</code>), rename, delete, add addresses and ranges as text (<code>{"values": "203.0.113.7, 198.51.100.0/24", "note"}</code>; anything unreadable refuses the whole request) and remove one (<code>?value=</code>).</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/integrations/aialerts</code>, <code>POST .../aialerts/run</code>, <code>GET .../aialerts/proposals?status=pending</code>, <code>POST .../aialerts/proposals/{id}/accept</code> and <code>.../dismiss</code></td>
+<td>admin</td>
+<td>The <a href="parsers.html#ai-alerts">AI Alerts</a> settings (<code>{"interval_hours": 1/6/24, "lookback_hours": 1/6/24/168}</code>; on and off is <code>POST /api/v1/integrations/aialerts/enabled</code>) with the last look's result, a look now (<code>202</code>, it runs in the background), the proposed rules, and accepting (makes the rule, switched on) or dismissing one.</td>
+</tr>
+<tr>
 <td><code>GET</code>/<code>PUT /api/v1/integrations/ai</code>, <code>POST /api/v1/integrations/ai/test</code>, <code>GET /api/v1/integrations/ai/cloud-models</code></td>
 <td>admin</td>
 <td>The <a href="parsers.html#ai-parsers">AI Parsers</a> settings (<code>{"provider": "local"/"openrouter"/"anthropic"/"google"/"openai"/"nvidia", "ollama_url", "local_model", "cloud_model", "send_addresses", "api_key", "key_for"}</code>; <code>api_key</code> is write-only and is for the service <code>key_for</code> (or <code>provider</code>): leaving it out keeps the saved one and <code>""</code> removes it; <code>openrouter_key</code> from v0.19 still works), with this server's hardware, the recommended model and the download's progress; a connection test (the same fields); and a service's models with the ones recommended (<code>GET ?provider=</code> uses the saved key, <code>POST {"provider", "api_key"}</code> the one given).</td>
@@ -192,6 +219,11 @@
 <td><code>GET</code>/<code>PUT /api/v1/system/retention</code></td>
 <td>admin</td>
 <td>How long events are kept: <code>{"days"}</code> (1 to 3650). The answer also gives the default, whether the page has set it, and the late-ingestion thresholds; shortening it deletes the events now too old, at once.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/system/raw-retention</code></td>
+<td>admin</td>
+<td>How long an event's original line is kept after it arrives: <code>{"hours"}</code> (0 to 87600; 0 keeps it as long as the event; 24 until saved). The answer also gives the default and whether it has been saved; shortening it removes the lines now too old, at once.</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>PUT /api/v1/system/signin</code></td>

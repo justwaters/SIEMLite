@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slack and Microsoft Teams · SIEMLite docs</title>
+<meta name="description" content="Two integrations post a message to a chat channel whenever SIEMLite opens an alert (an alert that gains more events">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a aria-current="page" href="slack-and-teams.html">Slack and Teams</a></li>
+<li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="slack-and-microsoft-teams">Slack and Microsoft Teams</h1>
+<p>Two integrations post a message to a chat channel whenever SIEMLite <strong>opens</strong> an alert (an alert that gains more events
+is not posted again), including alerts an AI agent raises with <code>create_alert</code>. Each has its own card on the Integrations
+page, a <strong>Post alerts of</strong> choice (Low, Medium, High or Critical and above; High is the default) and a <strong>Send a test message</strong> button.</p>
+<ul>
+<li><strong>Slack</strong>: create an app with an <a href="https://api.slack.com/messaging/webhooks">incoming webhook</a>, choose the channel and
+  paste the address (<code>https://hooks.slack.com/services/...</code>).</li>
+<li><strong>Microsoft Teams</strong>: in the channel, choose <strong>Workflows</strong> and pick the template <em>Send webhook alerts to a channel</em>
+  (search for "webhook"). Set the team and channel in both of its branches, save, then open the first step, <em>When a
+  Teams webhook request is received</em>, and copy its <strong>HTTP POST URL</strong> (<code>...logic.azure.com</code>, <code>...webhook.office.com</code> or
+  <code>...powerplatform.com</code>) into the card. The message is an Adaptive Card, which the template posts from the request.
+  Building the workflow by hand from a blank one also works, but the simple editor has no expression box, so the card
+  field can't be filled in there; use the template, or finish the workflow in Power Automate with the card set to
+  <code>triggerBody()?['attachments']?[0]?['content']</code>. Teams adds a line under each card saying it came from a workflow
+  template; SIEMLite can't remove it.</li>
+</ul>
+<p>The webhook address works like a password, so it is saved sealed (like the email password), never shown again, and left
+out of error messages. Only each service's own addresses are accepted, over HTTPS. At most 10 messages go out a minute (alerts raised by hand, such as an AI agent's <code>create_alert</code>, have their own
+budget of 3 a minute so they can't crowd out detected ones); if more alerts open, the next message says how many were
+held back. Redirects are not followed, text from logs is escaped so it can't make links or channel pings, and what
+the far end replies isn't repeated back. A failed post shows on the card. The messages name
+the rule, severity, who or what it was about, and how many events; they link nowhere, since SIEMLite doesn't know the
+address you reach it by. API: <code>GET</code>/<code>PUT /api/v1/integrations/slack</code> (or <code>teams</code>) with <code>{"webhook", "min_severity"}</code>
+(leave <code>webhook</code> out to keep the saved one; <code>""</code> removes it) and <code>POST .../test</code>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

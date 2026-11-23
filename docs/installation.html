@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -111,7 +113,7 @@ SIEMLite can't swap the program that an admin later runs with <code>sudo</code>.
 <code>/usr/local/bin</code>; update with <code>sudo ./siemlite install</code> instead. The System page still tells you when a release is out.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.28.2</code> in <code>.env</code> to use it, or leave it out to build from the
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.33</code> in <code>.env</code> to use it, or leave it out to build from the
 checkout. Either way, start and update with <code>./update.sh</code>:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
@@ -157,7 +159,7 @@ missed it, set a new one: <code>docker compose exec siemlite siemlite users pass
 <h3 id="from-v08">From v0.8</h3>
 <p>Each day file is upgraded once, when the server (or a command) first opens it: the stored line
 becomes the event's message and the search index is rebuilt over the parsed event, which can take a little while on a
-large history. Original lines from before the upgrade are removed about 24 hours later, like any other. Backups made
+large history. Original lines from before the upgrade are removed about 24 hours later (or after the time set on the System page), like any other. Backups made
 before the upgrade can still be restored; backups made after it can't be restored by 0.8.</p>
 <h3 id="from-v07-or-earlier">From v0.7 or earlier</h3>
 <p>Sample data is gone: its events, alerts and source are deleted, and the <a href="test-logs.html">log

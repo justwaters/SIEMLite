@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reports · SIEMLite docs</title>
+<meta name="description" content="The Reports page (admins) makes a security summary of a period: the number of events, high-severity events, threat intel">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="docs.css">
+<script src="docs.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="wordmark" href="../">SIEMLite</a>
+    <nav aria-label="Main">
+      <a href="./">Docs</a>
+      <a href="../#quickstart">Quick start</a>
+      <a href="https://github.com/justwaters/SIEMLite">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap layout">
+  <aside class="side" aria-label="Documentation"><p><strong><a href="./">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="installation.html">Installation</a></li>
+<li><a href="web-ui.html">The web UI</a></li>
+<li><a href="sending-logs.html">Sending logs</a></li>
+<li><a href="run-on-the-internet.html">Run on the internet</a></li>
+</ul>
+<p><strong>Using SIEMLite</strong></p>
+<ul>
+<li><a href="sources-and-tokens.html">Sources and tokens</a></li>
+<li><a href="parsers.html">Parsers</a></li>
+<li><a href="search.html">Search</a></li>
+<li><a href="alerts.html">Alerts</a></li>
+<li><a href="audit-log.html">Audit log</a></li>
+<li><a href="geoip-and-asn.html">GeoIP and ASN</a></li>
+<li><a href="threat-intel.html">Threat intel</a></li>
+<li><a href="users-and-security.html">Users and security</a></li>
+<li><a href="integrations.html">Integrations</a></li>
+<li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
+<li><a href="security-audit.html">Security audit</a></li>
+<li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
+<li><a href="email.html">Email</a></li>
+<li><a aria-current="page" href="reports.html">Reports</a></li>
+<li><a href="backups-and-updates.html">Backups and updates</a></li>
+<li><a href="test-logs.html">Test logs</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="api-reference.html">API reference</a></li>
+<li><a href="troubleshooting.html">Troubleshooting</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="performance.html">Performance</a></li>
+<li><a href="development.html">Development</a></li>
+</ul></aside>
+  <main class="doc">
+<h1 id="reports">Reports</h1>
+<p>The <strong>Reports</strong> page (admins) makes a security summary of a period: the number of events, high-severity events, threat intel
+matches and alerts opened; events over time; events by severity; the busiest sources, countries and threat-listed
+addresses; the alerts opened (the most serious 40, with the rest counted); and the threat feeds in use.</p>
+<ul>
+<li><strong>Make a report</strong>: choose the last 24 hours, 7 days or 30 days, or a date range (up to 366 days). <strong>Preview</strong> shows it on
+  the page; <strong>Download PDF</strong> makes the PDF, downloads it and keeps a copy under <strong>Past reports</strong> (the newest 100 are kept,
+  and are included in backups).</li>
+<li><strong>Scheduled reports</strong>: daily, weekly (a day of the week) or monthly (a day from 1 to 28) at an hour, covering the last
+  24 hours, 7 days or 30 days, emailed to up to 10 addresses with the PDF attached. It uses the <a href="email.html">Email</a>
+  integration; without it the report is still made and kept, and the schedule says it wasn't sent. <strong>Run now</strong> makes one at
+  once without moving the next run. Times are the server's; a schedule that came due while SIEMLite was off runs once when
+  it starts. Making and scheduling reports is recorded in the <a href="audit-log.html">audit log</a>.</li>
+</ul>
+<p>The PDF is drawn by SIEMLite itself (no extra software): A4, standard fonts, no external requests.</p>
+<p>API (admin): <code>GET /api/v1/reports/summary?days=7</code> (or <code>from=</code> and <code>to=</code> in milliseconds), <code>POST /api/v1/reports/runs</code>
+(<code>{"days": 7}</code> or <code>{"from", "to"}</code>) makes and keeps a PDF, <code>GET /api/v1/reports/runs</code>, <code>GET</code>/<code>DELETE
+/api/v1/reports/runs/{id}</code> (<code>/pdf</code> to download), <code>GET</code>/<code>POST /api/v1/reports/schedules</code>, <code>PUT</code>/<code>DELETE
+/api/v1/reports/schedules/{id}</code>, and <code>POST .../schedules/{id}/run</code>.</p>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>SIEMLite is free and open-source software under the <a href="https://github.com/justwaters/SIEMLite/blob/main/LICENSE">GNU AGPL-3.0</a>.
+       <a href="https://github.com/justwaters/SIEMLite/wiki">These pages also live in the project wiki.</a></p>
+  </div>
+</footer>
+</body>
+</html>

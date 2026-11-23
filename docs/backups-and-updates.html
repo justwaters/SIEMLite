@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a aria-current="page" href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -98,6 +100,23 @@ checks it against the release's <code>SHA256SUMS</code>, swaps it in for the run
 seconds. Nothing changes if the download or check fails. Updates are recorded in the audit log. Make a backup
 first if you might want to go back: a newer version can upgrade the database in ways older versions can't read.
 Pass <code>-update-check=false</code> (or <code>SIEMLITE_UPDATE_CHECK=false</code>) to stop SIEMLite contacting GitHub at all.</p>
+<p><strong>Release channel.</strong> The update card has a <strong>Stable | Beta</strong> selector (admins). <strong>Stable</strong>, the default, follows the
+releases GitHub marks as latest. <strong>Beta</strong> also takes pre-releases, so it gets a new version first; choosing it asks for
+confirmation, because a beta is less tested and a newer version can change the database in ways an older one can't read.
+Switching back to Stable never goes back to an older version: someone running <code>v0.34-beta.2</code> is offered nothing until the
+<code>v0.34</code> release (a beta is older than the release it leads up to). The choice applies to <strong>Update and restart</strong> and to
+automatic updates alike. To publish a beta, tag it like <code>v0.34-beta.1</code> (the <code>VERSION</code> file must match the tag) and create
+the GitHub release with <code>--prerelease</code>: binaries are attached as for any release, and the Docker image is pushed under its
+own tag but not as <code>latest</code>. API: <code>PUT /api/v1/system/update/channel</code> with <code>{"channel": "stable"}</code> or <code>"beta"</code>.</p>
+<p><strong>Automatic updates</strong> (System page, admins) install new releases on a schedule you choose. Each schedule is some days
+(none ticked means every day) and one to four times of day, to the minute, in the server's time zone; add up to seven
+schedules, for example weekdays at 03:00 and weekends at 06:00 and 22:00. At each time SIEMLite checks for a release and,
+if there is a newer one, installs it and restarts, which takes a few seconds. Two options are on by default: <strong>Make a
+backup first</strong> (if the backup fails nothing is installed) and <strong>Wait while a High or Critical alert is open</strong> (it looks
+again every half hour until they are closed, and also holds back if it can't tell). The card shows the next check and
+what the last one did. A time that passed while SIEMLite was off, or before you changed the schedule, is not run late.
+It works wherever <strong>Update and restart</strong> works, and each automatic update is recorded in the audit log.
+API: <code>GET</code>/<code>PUT /api/v1/system/update/auto</code>.</p>
 <p><strong>Everyone is signed out when SIEMLite changes version</strong>, however it was updated (the button, <code>docker compose pull</code>, a new
 binary, or going back to an older one), so people sign in again on the new version. Restarting the same version keeps
 sessions. The audit log records it ("SIEMLite changed from v0.25 to v0.26: everyone was signed out"), and the person who

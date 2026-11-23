@@ -337,7 +337,7 @@
           <h3>Understand<span>Making sense of them</span></h3>
           <dl>
             <div><dt>Parsers</dt><dd>Describe a log format once, with <code>{field}</code> placeholders, JSON keys or key=value pairs, and every line from that source is read the same way. Start from a template, or upload and export them.</dd></div>
-            <div><dt>AI help</dt><dd>A local model suggests a parser from a few sample lines. SIEMLite checks that it reads every one before offering it.</dd></div>
+            <div><dt>AI help</dt><dd>A local model suggests a parser from a few sample lines. SIEMLite checks that it reads every one before offering it. AI Alerts does the same for alert rules: it looks over recent logs and proposes rules, kept only if their searches run and find events.</dd></div>
             <div><dt>Threat intel</dt><dd>Every event is checked against IP, IP range, domain and file hash blocklists, from feeds like abuse.ch and Spamhaus or your own lists.</dd></div>
             <div><dt>GeoIP and networks</dt><dd>Public IPs get a country, city and network owner from a free MaxMind or DB-IP database.</dd></div>
           </dl>
@@ -346,8 +346,10 @@
           <h3>Investigate<span>Finding answers</span></h3>
           <dl>
             <div><dt>Dashboard</dt><dd>Events, threat matches and severity over the last day, week or month, and the sources and IPs behind them.</dd></div>
-            <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in milliseconds. A search with dates opens only the days it needs.</dd></div>
-            <div><dt>Alerts</dt><dd>Rules count matching events per address, user or host and open an alert when there are too many. Four are built in, including SSH brute force and threat intel matches.</dd></div>
+            <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in milliseconds. Field terms such as <code>src_ip=10.0.0.1,10.0.0.2</code> or <code>user="Jane Doe"</code> narrow it further. A search with dates opens only the days it needs.</dd></div>
+            <div><dt>Alerts</dt><dd>Rules count matching events per address, user or host and open an alert when there are too many, or when a source sends more or fewer events than expected. Built-in rules cover SSH brute force, threat intel matches, failed sign-ins and improbable travel. Alerts can also be posted to Slack or Microsoft Teams.</dd></div>
+            <div><dt>Reports</dt><dd>A summary of the last day, week, month or any date range: events, threats and alerts. Preview it, download a PDF, or schedule it to be emailed.</dd></div>
+            <div><dt>AI agents</dt><dd>Claude Code, the Gemini CLI, OpenCode and other AI agents can connect over MCP with their own tokens to search logs, review alerts and, if allowed, manage sources and parsers. Everything they do is in the audit log.</dd></div>
             <div><dt>Test logs</dt><dd><code>loggen</code> sends realistic logs with attacks in them, 1 to a million events a second, so there is something to search and alert on from the first minute.</dd></div>
           </dl>
         </div>
@@ -365,6 +367,7 @@
           <dl>
             <div><dt>Users and roles</dt><dd>Admins and Standard users; Standard users can be limited to chosen sources.</dd></div>
             <div><dt>Audit log</dt><dd>Sign-ins, failed sign-ins and every change, from the web or the command line, are recorded as searchable events.</dd></div>
+            <div><dt>Automatic updates</dt><dd>Update in place from the System page, or on a schedule you choose, with a backup first and a pause while a serious alert is open. Choose the Stable or Beta channel.</dd></div>
             <div><dt>Backups</dt><dd>Consistent backups while it runs, on a schedule or on demand, as one <code>.tar.gz</code> of every file. Download them, upload them elsewhere, restore in seconds.</dd></div>
             <div><dt>HTTPS only</dt><dd>No plain-HTTP port to forget to close. A certificate is generated on first start, or bring your own.</dd></div>
             <div><dt>Retention</dt><dd>Events are stored one file per day, so those older than your window, 30 days by default, are deleted a day at a time and the disk space is given back.</dd></div>

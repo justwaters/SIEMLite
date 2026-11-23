@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -65,6 +67,11 @@
 snippet that sends a log in curl, Python, Go, JavaScript or React, with the address and token already filled in. The
 address starts as the one in your browser; change it to the address your apps use to reach SIEMLite if that differs.
 Tokens can only send logs; they can't search or sign in.</p>
+<p>To replace a token without losing the source, choose <strong>Manage</strong> on its row, then <strong>New token</strong>. The old token stops
+working at once, so anything still sending with it gets a <code>401</code> until you give it the new one. The source keeps its name,
+parser and logs (and stays disabled if it was), and the new token is shown once, like the first. Use this when a token
+is lost or may have leaked. After replacing the Log generator's token, save the new one over <code>siemlite-loggen.token</code> or
+pass it with <code>-token</code>.</p>
 <p>The snippets trust <code>siemlite.crt</code>, since the certificate is self-signed unless you supplied your own. Copy it next to
 the code (<code>docker compose cp siemlite:/data/siemlite.crt .</code> with Docker) and remove those lines if your certificate is
 already trusted. A log sent returns <code>202</code> when accepted, <code>401</code> if the token is wrong or the source is disabled, and

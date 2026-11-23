@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -61,8 +63,22 @@
 <p>SIEMLite checks every event against a list of indicators: IP addresses, CIDR ranges, domains (which also match
 subdomains) and MD5/SHA-1/SHA-256 hashes. It looks at the source and destination IPs and at IPv4 addresses, domain
 names and hashes anywhere in the raw log. A hit marks the event as a threat (red bar and <strong>INTEL</strong> badge in the UI,
-<code>threat=true</code> in search) and records which indicator, source and field matched.</p>
-<p>Download feeds automatically (refreshed every <code>-intel-refresh</code>, default 6h):</p>
+<code>threat=true</code> in search) and records which indicator, source and field matched, plus what each list says about it:
+the list's name, the kind of threat it tracks (botnet C2, Tor exit node, brute-force attacker…), how far to trust it
+(high, medium or low), a link to read about it, and the feed's own note for that line (for example "Possible
+Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an underlined IP in the Database to see its lists.</p>
+<p>The easy way: the <strong>Intel</strong> page (admins). Its <strong>Threat feeds</strong> section lists free IP blocklists that need no account
+(Feodo Tracker, C2IntelFeeds, IPsum, two from Blocklist.de, and the Tor exit nodes). Tick the ones you want and save: they download right
+away, refresh every 6 hours, and are removed again if you untick them. Each has a link to its provider's terms;
+whether you may use a list where you work is your call. Nothing is downloaded until you choose it. Events show the
+feed's name as the source of a match. Tor exit nodes aren't malicious in themselves, but they are flagged like any
+other listed address, so the built-in <strong>Threat intel match</strong> rule raises a High alert for each address that hits (traffic
+from or to a Tor exit; put your own exits on a friendly list to leave them alone).</p>
+<p><strong>Friendly addresses</strong> (same page) are lists of addresses and ranges you trust, such as your office, a partner or a
+scanner you run. Make a list, then paste addresses (one per line, or separated by commas; <code>203.0.113.7</code> or
+<code>198.51.100.0/24</code>; <code>#</code> starts a comment). A friendly address is never marked as a threat, even when a feed lists it.
+It applies to events stored from then on; events already in the database keep their marks.</p>
+<p>Or download feeds from the command line (refreshed every <code>-intel-refresh</code>, default 6h; these show on the Intel page too, read-only):</p>
 <pre><code class="language-sh">./siemlite \
   -intel-feed feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt \
   -intel-feed drop=https://www.spamhaus.org/drop/drop.txt \

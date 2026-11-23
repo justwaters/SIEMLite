@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Performance · SIEMLite docs</title>
-<meta name="description" content="Measured with the load tests in `loadtest` (SIEMLITE_LOAD=hard) on one small machine: an AMD Ryzen">
+<meta name="description" content="A newer, smaller set of figures (ingest rate, search time and memory at 100,000 and 1,000,000 events, with the benchmarks that produce them) is in docs/performance.md; the older load tests follow.">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -58,6 +60,7 @@
 </ul></aside>
   <main class="doc">
 <h1 id="performance">Performance</h1>
+<p>A newer, smaller set of figures (ingest rate, search time and memory at 100,000 and 1,000,000 events, with the benchmarks that produce them) is in <a href="docs/performance.md">docs/performance.md</a>; the older load tests follow.</p>
 <p>Measured with the load tests in <a href="https://github.com/justwaters/SIEMLite/blob/main/loadtest/doc.go"><code>loadtest</code></a> (<code>SIEMLITE_LOAD=hard</code>) on one small machine: an AMD Ryzen
 Embedded R2544 (4 cores, 8 threads), 14 GB of memory and an SSD, with the database on that SSD. Each figure is the 95th
 percentile with many clients working at once.</p>
