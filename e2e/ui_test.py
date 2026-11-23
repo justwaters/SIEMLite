@@ -644,6 +644,13 @@ def main(binary, loggen):
             check(page.is_disabled("#int-aialerts .integ-switch input"), "AI Alerts can't be switched on without a model")
             page.click("#int-aialerts .integ-toggle")
             check("No model yet" in page.inner_text("#aia-model") and page.is_disabled("#aia-run"), "AI Alerts says it needs a model, and can't look")
+            # AI Parsers in the cloud: "Allow free models" shows for OpenRouter only, off until chosen.
+            page.click("#int-ai .integ-toggle")
+            page.click('#int-ai [data-ai-provider="cloud"]')
+            check(page.input_value("#ai-service") == "openrouter" and page.is_visible("#ai-free") and not page.is_checked("#ai-free"),
+                  "OpenRouter shows 'Allow free models', off by default")
+            page.select_option("#ai-service", "anthropic")
+            check(not page.is_visible("#ai-free"), "'Allow free models' is not shown for other cloud services")
             check(page.locator("#int-threatfeeds").count() == 0, "Threat feeds is no longer an integration")
             # The Intel page: pick threat feeds, and keep lists of friendly addresses.
             page.click('a[data-nav="intel"]')

@@ -4792,7 +4792,7 @@ function aiServiceUI() {
   $("ai-key-link").textContent = svc.key_url.replace(/^https:\/\//, "");
   $("ai-privacy").textContent = `The sample lines you ask about are sent to ${svc.name}. ${svc.privacy}`;
   $("ai-key").placeholder = has ? (aiView.provider === svc.id && aiView.key_unreadable ? "Enter it again" : "Saved. Leave blank to keep it") : "Paste the key";
-  $("ai-free-wrap").hidden = svc.id !== "cloud";
+  $("ai-free-wrap").hidden = svc.id !== "openrouter";
   $("ai-remove-key").hidden = !has;
   $("ai-remove-key").textContent = `Remove the ${svc.name} key`;
 }
@@ -4930,7 +4930,7 @@ $("ai-form").onsubmit = async (e) => {
   e.preventDefault();
   if (aiProvider === "cloud" && !$("ai-mask").checked &&
       !(await confirmAction("Send addresses as they are?", `IP, email and MAC addresses and host names in the sample lines will be sent to ${aiSvc().name} unchanged.`, "Send them"))) return;
-  if (aiProvider === "cloud" && aiService === "cloud" && $("ai-free").checked && !(aiView && aiView.allow_free_models) &&
+  if (aiProvider === "cloud" && aiService === "openrouter" && $("ai-free").checked && !(aiView && aiView.allow_free_models) &&
       !(await confirmAction("Allow free models?", "Free models on OpenRouter run on companies that may keep and train on the sample lines you send. Addresses are still replaced first unless you turn that off.", "Allow free models"))) return;
   aiBusy(true);
   try {
