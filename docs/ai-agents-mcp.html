@@ -43,7 +43,9 @@
 <li><a aria-current="page" href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -76,7 +78,7 @@ time (the agent using it is refused straight away). The switch on the card keeps
 </tr>
 <tr>
 <td><strong>Analyst</strong></td>
-<td>the above, and <code>set_alert_status</code> (acknowledge, close or reopen an alert)</td>
+<td>the above, and <code>set_alert_status</code> (acknowledge, close or reopen an alert) and <code>create_alert</code> (open an alert for something found in the logs that no rule describes, with a severity, what it is about and a note saying why; raising it again adds to the open one)</td>
 </tr>
 <tr>
 <td><strong>Admin</strong></td>
@@ -87,7 +89,9 @@ time (the agent using it is refused straight away). The switch on the card keeps
 <p>Agents can't reach users, passwords, sign-in settings, Microsoft sign-in, certificates, email, backups, retention or alert rules
 (they can read rules). A tool the token's level doesn't allow isn't listed, and calling it by name is refused. The tools run the
 same checks as the web pages, so a bad search, a missing name or a parser that doesn't compile comes back as a message the agent
-can act on. To connect Claude Code:</p>
+can act on. Everything an agent does is audited: each tool call, searches and other reads included, is recorded in the audit log
+(the INTERNAL source) under the token's name (<code>agent:&lt;name&gt;</code>) with the tool, its arguments and whether it worked, and a call the token's
+level refuses is recorded as <code>mcp.denied</code> at medium severity. To connect Claude Code:</p>
 <pre><code>claude mcp add --transport http siemlite https://siemlite.example.com/mcp --header &quot;Authorization: Bearer slmcp_...&quot;
 </code></pre>
 <p>For the Gemini CLI: <code>gemini mcp add --transport http --header "Authorization: Bearer slmcp_..." siemlite https://siemlite.example.com/mcp</code>

@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -109,7 +111,9 @@ sample line.</p>
   (<code>qwen2.5-coder:3b</code>) takes about 10-40 seconds per suggestion. Any Ollama model that can answer in a JSON shape can be used.</li>
 <li><strong>In the cloud</strong>, with your API key for one of these services:</li>
 <li><a href="https://openrouter.ai">OpenRouter</a> (keys at <a href="https://openrouter.ai/keys">openrouter.ai/keys</a>): hundreds of models from many
-    companies, with prices shown. SIEMLite asks OpenRouter to use only companies that don't keep or train on what they're sent.</li>
+    companies, with prices shown. SIEMLite asks OpenRouter to use only companies that don't keep or train on what they're sent. Free models usually run only on companies that do, so
+    they are refused; turn on <strong>Allow free models</strong> (off by default) to use a free model (an ID ending <code>:free</code>) anyway. It
+    applies to free models only, and the lines are still masked unless you turn that off.</li>
 <li><a href="https://www.anthropic.com">Anthropic</a> (keys at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a>): Claude.</li>
 <li><a href="https://ai.google.dev">Google Gemini</a> (keys at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>). With a free key,
     Google may use what is sent to improve its products; a key on a paid (billing) project doesn't.</li>
@@ -130,6 +134,21 @@ sample line.</p>
 <p>Turning the integration off hides the button; its settings are kept. Asking for a suggestion is recorded in the
 <a href="audit-log.html">audit log</a> (<code>parser.suggest</code>), and so are changes to the settings (<code>system.ai.save</code>). Before v0.19 this was
 set with <code>SIEMLITE_AI_URL</code>; that still works, as the starting settings, until the page saves its own.</p>
+<h2 id="ai-alerts">AI Alerts</h2>
+<p>The <strong>AI Alerts</strong> integration suggests alert rules. Every so often (every hour, 6 hours or day, as you choose) it gives a model a
+summary of the logs from the last hour, 6 hours, day or week, together with the rules you already have, and asks what is worth
+catching that they don't. The summary is counts (by severity, program, host, user and address) and the commonest kinds of message
+with one example each; SIEMLite's own audit events are left out. The model's answers are kept only if they hold up: the search
+must run, find events in the logs it read, and not repeat an existing or earlier rule, and at most 5 are kept per look.</p>
+<p>Proposals wait on the card, with the rule in plain words, why the model suggested it and how many events its search matched.
+<strong>Accept and turn on</strong> makes an ordinary rule (checked like one made by hand, and editable on the Alerts page); <strong>Dismiss</strong> keeps
+it from being proposed again. <strong>Nothing is raised, closed or changed by the model</strong>: a proposal does nothing until a person
+accepts it. Past 25 waiting proposals it stops looking until some are decided.</p>
+<p>It uses the model chosen on the <strong>AI Parsers</strong> card, on this server or in the cloud, with the same masking of addresses and
+host names; set that up first, then switch AI Alerts on (it is off until you do). <strong>Look now</strong> runs a look at once. Every look is
+recorded in the audit log: which model, how many events, how many rules it proposed, and whether a summary left this server.
+Log lines are written by whatever sent them, so the prompt tells the model to treat the summary as data and never follow
+anything written in it; since a person reviews each proposal, the worst a planted line can do is suggest a rule.</p>
 <h2 id="automatic-parsing">Automatic parsing</h2>
 <p><code>/api/v1/logs</code> converts each line into an OCSF event: syslog (RFC 3164 and 5424) headers give the time and hostname,
 the first two IPv4 addresses become source and destination, a user is picked up from patterns like <code>for user alice</code>,

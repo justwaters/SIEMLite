@@ -43,7 +43,9 @@
 <li><a href="ai-agents-mcp.html">AI agents (MCP)</a></li>
 <li><a href="security-audit.html">Security audit</a></li>
 <li><a href="sign-in-with-microsoft.html">Sign in with Microsoft</a></li>
+<li><a href="slack-and-teams.html">Slack and Teams</a></li>
 <li><a href="email.html">Email</a></li>
+<li><a href="reports.html">Reports</a></li>
 <li><a href="backups-and-updates.html">Backups and updates</a></li>
 <li><a href="test-logs.html">Test logs</a></li>
 </ul>
@@ -90,6 +92,10 @@ every 10 seconds.</p>
 <td>Mass ingestion of late logs</td>
 <td>50 or more events more than 30 days old arriving from one source at once (High; the audit events with <code>action=ingest.late</code>; see <a href="backups-and-updates.html#keeping-events">Keeping events</a>)</td>
 </tr>
+<tr>
+<td>Improbable travel</td>
+<td>the same user signing in from two places too far apart for the time between them (High; see <a href="alerts.html#improbable-travel">Improbable travel</a>)</td>
+</tr>
 </tbody>
 </table></div>
 <p>A rule can instead watch <strong>how much one source sends</strong>: choose "A source sends more than a number of events" or "fewer than a
@@ -112,6 +118,51 @@ count those events.</p>
 <p>While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The <a href="test-logs.html">log
 generator</a>'s attacks raise alerts too.</p>
+<h2 id="improbable-travel">Improbable travel</h2>
+<p>The built-in rule <strong>Improbable travel</strong> raises a High alert for a user when two of their successful sign-ins came from
+places too far apart to travel between in the time that passed. It is added when SIEMLite starts (once; your edits to it
+are kept), and appears in the rules list like the others.</p>
+<ul>
+<li>It needs a GeoIP <strong>City</strong> database with coordinates (<code>-geoip-city</code>, see <a href="geoip-and-asn.html">GeoIP and ASN</a>). With a
+  Country-only database, or no GeoIP, it stays quiet: sign-ins without coordinates are left out. Only events stored after
+  GeoIP was switched on carry a location.</li>
+<li>What counts as a successful sign-in is the rule's search, which you can edit. It starts as
+  <code>action=auth.success,vpn.login,signin,signin.sso</code> (SSH and VPN logins from the <a href="test-logs.html">log generator</a>, and sign-ins
+  to SIEMLite); change it to the action your own logs use. The event must name a user.</li>
+<li>Each new sign-in is compared with the same user's previous sign-in (user names compared without regard to case) in the
+  last 24 hours. If the two places are at least 200 km apart (closer than that is the same area, given how approximate
+  GeoIP is) and the speed needed to get from one to the other is above the rule's <strong>fastest believable travel</strong>, the
+  alert opens for that user. The default is 900 km/h; a gap under a minute counts as a minute. The same address never counts.</li>
+<li>An open alert for the user is updated instead of raising another, and the chat integrations announce it once, with the
+  two places, addresses, distance and speed.</li>
+<li>It will have false positives where a user's address isn't where the user is: VPNs and proxies, mobile carriers that
+  route traffic through a distant gateway, and cloud sign-ins. Raise the speed or edit the search to leave those out.</li>
+<li>A sign-in that arrives late is compared with the one before it in time, not the one after.</li>
+</ul>
+<h2 id="repeated-events-by-one-user">Repeated events by one user</h2>
+<p>A rule can look for <strong>a user involved in the same kind of event again and again</strong>: choose "Repeated by user" when you make
+a rule, say what must be the same, and give the number of events and the time window. One alert opens per user and rule.</p>
+<ul>
+<li><strong>Severity</strong>: at least N events of the user, all with the same severity level (for example 10 High events in 5 minutes).</li>
+<li><strong>Keyword</strong>: the keywords box takes a comma-separated list such as <code>denied, failed, blocked</code>, each a word or a phrase
+  (<code>bad password</code>). Events are counted per keyword: 2 "denied" and 3 "failed" with a threshold of 5 does not alert, 5
+  "failed" does. An event with two keywords counts for both.</li>
+<li><strong>Keyword and severity</strong>: the same, counted per keyword and severity level together (5 "failed" events, all High).</li>
+</ul>
+<p>For example, "5 events with the same keyword in 10 minutes" with <code>denied, failed</code> alerts for a user with 5 events saying
+"failed" within 10 minutes. The alert says which keyword (and level) it was, how many events and over how long, and
+View events shows that user's events with any of the keywords.</p>
+<ul>
+<li>The user is the event's user field. Events with no user are left out, never counted together. Users are compared as
+  written, so <code>Alice</code> and <code>alice</code> are two users.</li>
+<li>Keywords are matched with the search index, as the Database search matches words: whole words, without regard to case,
+  anywhere in the event's text. A keyword that is part of a longer word does not match, and one of only punctuation
+  matches nothing. A rule takes at most 20 keywords of 100 characters each, and needs at least 2 events.</li>
+<li>A user with an open alert is updated while more of the same pile up, instead of getting another alert. Close the alert
+  to be told again.</li>
+<li>Expect false positives from noisy accounts (service accounts that fail all day); choose a higher number, a shorter
+  window, or a keyword that is more specific. Older events that arrive late count by when they happened.</li>
+</ul>
   </main>
 </div>
 <footer>
