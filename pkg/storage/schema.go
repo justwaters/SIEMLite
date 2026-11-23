@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 23
+const schemaVersion = 24
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -395,6 +395,37 @@ var upgrades = map[int][]string{
 	// events it already counted can't open the same alert again.
 	21: {
 		`ALTER TABLE alerts ADD COLUMN closed_seq INTEGER NOT NULL DEFAULT 0`,
+	},
+	// v24: a rule can be counted for each source (group_by 'source'). The column's CHECK lists the groups,
+	// and SQLite can only change a CHECK by rebuilding the table, so alert_rules is rebuilt as it is,
+	// with the one more group allowed.
+	23: {
+		`CREATE TABLE alert_rules_new (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			name           TEXT NOT NULL UNIQUE COLLATE NOCASE,
+			description    TEXT NOT NULL DEFAULT '',
+			enabled        INTEGER NOT NULL DEFAULT 1,
+			severity       INTEGER NOT NULL,
+			query          TEXT NOT NULL DEFAULT '',
+			min_severity   INTEGER,
+			threat_only    INTEGER NOT NULL DEFAULT 0,
+			source_id      INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+			group_by       TEXT NOT NULL DEFAULT '' CHECK (group_by IN ('', 'src_ip', 'dst_ip', 'user', 'host', 'source')),
+			threshold      INTEGER NOT NULL CHECK (threshold >= 1),
+			window_minutes INTEGER NOT NULL CHECK (window_minutes >= 1),
+			builtin        INTEGER NOT NULL DEFAULT 0,
+			created_at     INTEGER NOT NULL,
+			updated_at     INTEGER NOT NULL,
+			kind           TEXT NOT NULL DEFAULT 'match' CHECK (kind IN ('match', 'volume_over', 'volume_under'))
+		)`,
+		`INSERT INTO alert_rules_new (id, name, description, enabled, severity, query, min_severity, threat_only, source_id, group_by,
+				threshold, window_minutes, builtin, created_at, updated_at, kind)
+			SELECT id, name, description, enabled, severity, query, min_severity, threat_only, source_id, group_by,
+				threshold, window_minutes, builtin, created_at, updated_at, kind FROM alert_rules`,
+		// Keep the numbering of rules deleted long ago, so their ids are not given out again.
+		`UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'alert_rules'), 0)) WHERE name = 'alert_rules_new'`,
+		`DROP TABLE alert_rules`,
+		`ALTER TABLE alert_rules_new RENAME TO alert_rules`,
 	},
 }
 

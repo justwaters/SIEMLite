@@ -404,7 +404,7 @@ func who(a Alert) string {
 	if a.GroupValue == "" {
 		return ""
 	}
-	label := map[string]string{"src_ip": "Source IP", "dst_ip": "Destination IP", "user": "User", "host": "Host"}[a.GroupBy]
+	label := map[string]string{"src_ip": "Source IP", "dst_ip": "Destination IP", "user": "User", "host": "Host", "source": "Source"}[a.GroupBy]
 	if label == "" {
 		label = "For"
 	}

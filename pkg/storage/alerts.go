@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -115,7 +116,7 @@ type Rule struct {
 	MinSeverity   *int   `json:"min_severity,omitempty"`
 	ThreatOnly    bool   `json:"threat_only"`
 	SourceID      *int64 `json:"source_id,omitempty"`
-	GroupBy       string `json:"group_by"` // "", src_ip, dst_ip, user or host
+	GroupBy       string `json:"group_by"` // "", src_ip, dst_ip, user, host or source
 	Threshold     int    `json:"threshold"`
 	WindowMinutes int    `json:"window_minutes"`
 	Builtin       bool   `json:"builtin"`
@@ -144,6 +145,9 @@ type Alert struct {
 	Severity   int    `json:"severity"`
 	GroupBy    string `json:"group_by"`
 	GroupValue string `json:"group_value"`
+	// GroupLabel is what to show for GroupValue when that is not readable as it is: the
+	// name of the source whose id a "source" group holds. Empty when GroupValue reads fine.
+	GroupLabel string `json:"group_label,omitempty"`
 	Status     string `json:"status"`
 	Count      int64  `json:"count"`
 	FirstSeen  int64  `json:"first_seen"`
@@ -273,8 +277,44 @@ func groupExpr(groupBy string) string {
 		return "COALESCE(e.user_name, '')"
 	case "host":
 		return "COALESCE(e.host, '')"
+	case "source":
+		// The source's id: events carry the id, and the sources' names live in another
+		// database. GroupDisplay and labelAlerts turn it back into a name for people.
+		return "COALESCE(CAST(e.source_id AS TEXT), '')"
 	}
 	return "''"
+}
+
+// GroupDisplay is how to show a group's value to people: the source's name for a
+// "source" group (whose value is the source's id), and the value itself otherwise.
+func (r *Repository) GroupDisplay(ctx context.Context, groupBy, value string) string {
+	if groupBy != "source" || value == "" {
+		return value
+	}
+	id, _ := strconv.ParseInt(value, 10, 64)
+	names, err := r.sourceNames(ctx)
+	if err != nil {
+		return "source " + value
+	}
+	return SourceLabel(names, id)
+}
+
+// labelAlerts fills in GroupLabel for the alerts grouped by source.
+func (r *Repository) labelAlerts(ctx context.Context, list []Alert) {
+	var names map[int64]string
+	for i := range list {
+		if list[i].GroupBy != "source" || list[i].GroupValue == "" {
+			continue
+		}
+		if names == nil {
+			var err error
+			if names, err = r.sourceNames(ctx); err != nil {
+				names = map[int64]string{}
+			}
+		}
+		id, _ := strconv.ParseInt(list[i].GroupValue, 10, 64)
+		list[i].GroupLabel = SourceLabel(names, id)
+	}
 }
 
 // selfAlertAction is the start of the action of the audit events SIEMLite writes
@@ -899,6 +939,8 @@ func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) (
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+	rows.Close()
+	r.labelAlerts(ctx, out)
 	counts := map[string]int64{AlertOpen: 0, AlertAcknowledged: 0, AlertClosed: 0}
 	crow, err := r.db.Read.QueryContext(ctx, `SELECT status, COUNT(*) FROM alerts GROUP BY status`)
 	if err != nil {
@@ -944,6 +986,11 @@ func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by st
 		&a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count, &a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note)
 	if rid.Valid {
 		a.RuleID = &rid.Int64
+	}
+	if err == nil {
+		one := []Alert{a}
+		r.labelAlerts(ctx, one)
+		a = one[0]
 	}
 	return &a, err
 }
@@ -1031,6 +1078,8 @@ func (r *Repository) AlertsInRange(ctx context.Context, fromMs, toMs int64, limi
 	if err := rows.Err(); err != nil {
 		return nil, 0, nil, nil, err
 	}
+	rows.Close()
+	r.labelAlerts(ctx, list)
 	bySeverity, byStatus = map[int]int64{}, map[string]int64{}
 	crow, err := r.db.Read.QueryContext(ctx, `SELECT severity, status, COUNT(*) FROM alerts WHERE created_at >= ? AND created_at < ? GROUP BY severity, status`, fromMs, toMs)
 	if err != nil {

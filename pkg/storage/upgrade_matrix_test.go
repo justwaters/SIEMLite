@@ -21,6 +21,29 @@ import (
 // So v = 0, 1, 2 and 3 all start from the same base schema, which is the
 // oldest shape this code can reproduce.
 var downgrades = map[int][]string{
+	23: {
+		`CREATE TABLE alert_rules_old (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			name           TEXT NOT NULL UNIQUE COLLATE NOCASE,
+			description    TEXT NOT NULL DEFAULT '',
+			enabled        INTEGER NOT NULL DEFAULT 1,
+			severity       INTEGER NOT NULL,
+			query          TEXT NOT NULL DEFAULT '',
+			min_severity   INTEGER,
+			threat_only    INTEGER NOT NULL DEFAULT 0,
+			source_id      INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+			group_by       TEXT NOT NULL DEFAULT '' CHECK (group_by IN ('', 'src_ip', 'dst_ip', 'user', 'host')),
+			threshold      INTEGER NOT NULL CHECK (threshold >= 1),
+			window_minutes INTEGER NOT NULL CHECK (window_minutes >= 1),
+			builtin        INTEGER NOT NULL DEFAULT 0,
+			created_at     INTEGER NOT NULL,
+			updated_at     INTEGER NOT NULL,
+			kind           TEXT NOT NULL DEFAULT 'match' CHECK (kind IN ('match', 'volume_over', 'volume_under'))
+		)`,
+		`INSERT INTO alert_rules_old SELECT * FROM alert_rules WHERE group_by <> 'source'`,
+		`DROP TABLE alert_rules`,
+		`ALTER TABLE alert_rules_old RENAME TO alert_rules`,
+	},
 	22: {`DROP TABLE report_runs`, `DROP TABLE report_schedules`},
 	21: {`ALTER TABLE alerts DROP COLUMN closed_seq`},
 	20: {`DROP TABLE friendly_entries`, `DROP TABLE friendly_lists`},

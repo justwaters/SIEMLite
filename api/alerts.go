@@ -77,7 +77,9 @@ func (s *Server) handleSetAlertStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	verb := map[string]string{storage.AlertOpen: "reopened", storage.AlertAcknowledged: "acknowledged", storage.AlertClosed: "closed"}[req.Status]
 	what := a.RuleName
-	if a.GroupValue != "" {
+	if a.GroupLabel != "" {
+		what += " (" + a.GroupLabel + ")"
+	} else if a.GroupValue != "" {
 		what += " (" + a.GroupValue + ")"
 	}
 	s.audit(r, audit.Entry{Action: "alert." + req.Status, Message: fmt.Sprintf("%s %s the alert %s", by, verb, what),
@@ -120,9 +122,9 @@ func (s *Server) validRule(w http.ResponseWriter, r *http.Request, ru *storage.R
 		return bad("the search has a control character in it")
 	}
 	switch ru.GroupBy {
-	case "", "src_ip", "dst_ip", "user", "host":
+	case "", "src_ip", "dst_ip", "user", "host", "source":
 	default:
-		return bad("group by must be src_ip, dst_ip, user, host or nothing")
+		return bad("group by must be src_ip, dst_ip, user, host, source or nothing")
 	}
 	switch ru.Kind {
 	case "":
@@ -308,7 +310,9 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	what := a.RuleName
-	if a.GroupValue != "" {
+	if a.GroupLabel != "" {
+		what += " (" + a.GroupLabel + ")"
+	} else if a.GroupValue != "" {
 		what += " (" + a.GroupValue + ")"
 	}
 	verb, action, status := "raised", "alert.create", http.StatusCreated

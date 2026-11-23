@@ -335,7 +335,7 @@ func run() error {
 		teamsSvc.Notify(ctx, a)
 	}
 	alertEngine.SetNotifier(func(_ context.Context, o alerts.Opened) {
-		a := chatnotify.Alert{Title: o.Rule.Name, Description: o.Rule.Description, Severity: o.Rule.Severity, GroupBy: o.Rule.GroupBy, GroupValue: o.Group, Count: o.Count, Note: o.Detail, At: time.Now()}
+		a := chatnotify.Alert{Title: o.Rule.Name, Description: o.Rule.Description, Severity: o.Rule.Severity, GroupBy: o.Rule.GroupBy, GroupValue: repo.GroupDisplay(context.Background(), o.Rule.GroupBy, o.Group), Count: o.Count, Note: o.Detail, At: time.Now()}
 		go func() { // chat can be slow; the alert engine must not wait for it
 			cctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()

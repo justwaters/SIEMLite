@@ -379,7 +379,7 @@ func (l *layout) threats(d *Data) {
 	l.y = l.ranked(marginX, contW, rows, l.y)
 }
 
-var groupLabels = map[string]string{"src_ip": "Source IP", "dst_ip": "Destination IP", "user": "User", "host": "Host"}
+var groupLabels = map[string]string{"src_ip": "Source IP", "dst_ip": "Destination IP", "user": "User", "host": "Host", "source": "Source"}
 
 func (l *layout) alerts(d *Data) {
 	a := d.Alerts
@@ -456,11 +456,15 @@ func (l *layout) alerts(d *Data) {
 			l.newPage()
 			header()
 		}
-		who := al.GroupValue
+		value := al.GroupValue
+		if al.GroupLabel != "" {
+			value = al.GroupLabel
+		}
+		who := value
 		if lab, ok := groupLabels[al.GroupBy]; ok {
-			who = lab + ": " + al.GroupValue
+			who = lab + ": " + value
 		} else if al.GroupBy != "" {
-			who = al.GroupBy + ": " + al.GroupValue
+			who = al.GroupBy + ": " + value
 		}
 		rule := al.RuleName
 		if rule == "" {
