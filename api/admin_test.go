@@ -53,6 +53,7 @@ func TestAdminPagesNeedAdmin(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/api/v1/users"}, {"POST", "/api/v1/users"}, {"DELETE", "/api/v1/users/1"},
 		{"POST", "/api/v1/sources"}, {"PATCH", "/api/v1/sources/1"}, {"DELETE", "/api/v1/sources/1"},
+		{"GET", "/api/v1/syslog/allow"}, {"PUT", "/api/v1/syslog/allow"},
 		{"GET", "/api/v1/parsers"}, {"POST", "/api/v1/parsers"}, {"POST", "/api/v1/parsers/test"},
 		{"GET", "/api/v1/system"}, {"GET", "/api/v1/system/email"}, {"PUT", "/api/v1/system/email"}, {"POST", "/api/v1/system/email/test"},
 		{"GET", "/api/v1/integrations"}, {"POST", "/api/v1/integrations/email/enabled"}, {"GET", "/api/v1/integrations/email"},

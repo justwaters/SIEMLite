@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -167,5 +169,33 @@ func TestOversizedLineSkipped(t *testing.T) {
 	}
 	if srv.Stats().Rejected != 1 {
 		t.Errorf("stats = %+v", srv.Stats())
+	}
+}
+
+func TestParseAllowAndLiveChange(t *testing.T) {
+	got, err := ParseAllow("203.0.113.7, 198.51.100.77/24\n::ffff:192.0.2.9;2001:db8::/32")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "203.0.113.7/32 198.51.100.0/24 192.0.2.9/32 2001:db8::/32"
+	var s []string
+	for _, p := range got {
+		s = append(s, p.String())
+	}
+	if strings.Join(s, " ") != want {
+		t.Errorf("got %v, want %s", s, want)
+	}
+	if _, err := ParseAllow("10.0.0.1 nope"); err == nil {
+		t.Error("a bad entry was accepted")
+	}
+
+	srv := &Server{cfg: Config{Logger: slog.Default()}}
+	srv.SetAllow(nil)
+	if !srv.allowed(netip.MustParseAddr("10.1.2.3")) || srv.allowed(netip.MustParseAddr("203.0.113.7")) {
+		t.Error("the default list is wrong")
+	}
+	srv.SetAllow(got[:1])
+	if srv.allowed(netip.MustParseAddr("10.1.2.3")) || !srv.allowed(netip.MustParseAddr("203.0.113.7")) {
+		t.Error("the new list did not take effect")
 	}
 }
