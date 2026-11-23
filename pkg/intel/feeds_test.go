@@ -288,3 +288,71 @@ func TestFailedFeedIsNotRetriedAtOnce(t *testing.T) {
 		t.Errorf("a failing feed was tried %d times, want 1", net.hits[tor.URL])
 	}
 }
+
+// Choosing another feed doesn't retry one that just failed, and a feed taken off the list is forgotten.
+func TestChoosingAFeedLeavesAFailedOneAlone(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tor, _ := PresetByID("tor-exit")
+	feodo, _ := PresetByID("feodo")
+	net := &countNet{fakeNet: fakeNet{tor.URL: "", feodo.URL: "203.0.113.7\n"}, hits: map[string]int{}}
+	svc := NewService(storage.NewRepository(db), Config{FeedInterval: time.Hour, HTTPClient: &http.Client{Transport: net}})
+	choose := func(ids ...string) {
+		t.Helper()
+		if err := svc.SetFeeds(ctx, ids); err != nil {
+			t.Fatal(err)
+		}
+		for svc.refreshing.Load() {
+		}
+	}
+	choose("tor-exit")
+	choose("tor-exit", "feodo")
+	if net.hits[tor.URL] != 1 || net.hits[feodo.URL] != 1 {
+		t.Errorf("Tor (failing) %d, Feodo %d downloads, want 1 and 1", net.hits[tor.URL], net.hits[feodo.URL])
+	}
+	// Taken off and chosen again, a feed is tried at once.
+	choose("feodo")
+	svc.refreshFeeds(ctx, refreshDue) // prunes what is no longer chosen
+	svc.triedMu.Lock()
+	_, kept := svc.tried[tor.Name]
+	svc.triedMu.Unlock()
+	if kept {
+		t.Error("a feed taken off the list is still remembered")
+	}
+	choose("tor-exit", "feodo")
+	if net.hits[tor.URL] != 2 {
+		t.Errorf("a feed chosen again was tried %d times in all, want 2", net.hits[tor.URL])
+	}
+}
+
+// A scheduled check doesn't start while a round (the Refresh button, choosing a feed) is running.
+func TestScheduledRoundWaitsForARunningOne(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tor, _ := PresetByID("tor-exit")
+	net := &countNet{fakeNet: fakeNet{tor.URL: "171.25.193.25\n"}, hits: map[string]int{}}
+	svc := NewService(storage.NewRepository(db), Config{FeedInterval: time.Hour, HTTPClient: &http.Client{Transport: net}})
+	if err := svc.SetFeeds(ctx, []string{"tor-exit"}); err != nil {
+		t.Fatal(err)
+	}
+	for svc.refreshing.Load() {
+	}
+	svc.refreshing.Store(true) // a round is running
+	svc.refreshRound(ctx, refreshAll)
+	if net.hits[tor.URL] != 1 {
+		t.Errorf("a round started while another ran: %d downloads", net.hits[tor.URL])
+	}
+	svc.refreshing.Store(false)
+	svc.refreshRound(ctx, refreshAll)
+	if net.hits[tor.URL] != 2 || svc.refreshing.Load() {
+		t.Errorf("the round did not run, or did not release the guard: %d downloads", net.hits[tor.URL])
+	}
+}

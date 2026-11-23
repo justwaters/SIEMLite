@@ -109,11 +109,21 @@ func (s *Service) SetFeeds(ctx context.Context, ids []string) error {
 		return err
 	}
 	var removed []string
+	was := map[string]bool{}
 	for _, id := range st.Selected {
+		was[id] = true
 		if !seen[id] {
 			removed = append(removed, id)
 		}
 	}
+	// A feed chosen now starts afresh: an earlier failed try of it doesn't hold it back.
+	s.triedMu.Lock()
+	for _, id := range keep {
+		if p, ok := PresetByID(id); ok && !was[id] {
+			delete(s.tried, p.Name)
+		}
+	}
+	s.triedMu.Unlock()
 	st.Selected = keep
 	err = s.saveFeedSettings(ctx, st)
 	s.feedMu.Unlock()

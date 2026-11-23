@@ -147,13 +147,13 @@ func (s *Service) Run(ctx context.Context) {
 	feeds := time.NewTicker(min(s.cfg.FeedInterval, 15*time.Minute))
 	defer feeds.Stop()
 
-	s.refreshFeeds(ctx, refreshDue)
+	s.refreshRound(ctx, refreshDue)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-feeds.C:
-			s.refreshFeeds(ctx, refreshDue)
+			s.refreshRound(ctx, refreshDue)
 		case <-poll.C:
 		}
 		if err := s.Load(ctx); err != nil && ctx.Err() == nil {
@@ -168,8 +168,19 @@ type refreshMode int
 const (
 	refreshAll refreshMode = iota // every chosen feed (the Refresh button)
 	refreshDue                    // the feeds last downloaded more than FeedInterval ago, which didn't fail to download in the last FeedInterval
-	refreshNew                    // the feeds with nothing downloaded yet (after a feed is chosen)
+	refreshNew                    // the feeds with nothing downloaded yet, which didn't fail to download in the last FeedInterval (after a feed is chosen)
 )
+
+// refreshRound is refreshFeeds, unless a round is already running (one started by the Refresh button
+// or by choosing a feed): rounds never overlap, so two don't download the same feed at once. The
+// next check picks up whatever this one skipped.
+func (s *Service) refreshRound(ctx context.Context, mode refreshMode) {
+	if !s.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.refreshing.Store(false)
+	s.refreshFeeds(ctx, mode)
+}
 
 // pending picks the feeds a round downloads.
 func (s *Service) pending(ctx context.Context, feeds []Feed, mode refreshMode) []Feed {
@@ -188,19 +199,24 @@ func (s *Service) pending(ctx context.Context, feeds []Feed, mode refreshMode) [
 	cutoff := now.Add(-s.cfg.FeedInterval).UnixMilli()
 	s.triedMu.Lock()
 	defer s.triedMu.Unlock()
+	// Forget feeds that are no longer chosen, so the record holds only the feeds in use.
+	chosen := make(map[string]bool, len(feeds))
+	for _, f := range feeds {
+		chosen[f.Name] = true
+	}
+	for name := range s.tried {
+		if !chosen[name] {
+			delete(s.tried, name)
+		}
+	}
 	var out []Feed
 	for _, f := range feeds {
 		at, have := updated[f.Name]
-		recentTry := now.Sub(s.tried[f.Name]) < s.cfg.FeedInterval
-		switch {
-		case mode == refreshNew:
-			if !have {
-				out = append(out, f)
-			}
-		case !have || at <= cutoff:
-			if !recentTry {
-				out = append(out, f)
-			}
+		if now.Sub(s.tried[f.Name]) < s.cfg.FeedInterval {
+			continue // downloaded or failed a moment ago
+		}
+		if (mode == refreshNew && !have) || (mode == refreshDue && (!have || at <= cutoff)) {
+			out = append(out, f)
 		}
 	}
 	return out
