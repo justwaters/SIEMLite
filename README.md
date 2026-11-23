@@ -262,8 +262,9 @@ Point rsyslog, syslog-ng, firewalls, switches or anything else that speaks syslo
 - **UDP** (RFC 5426), **TCP** (RFC 6587; octet-counted or newline-delimited frames) and **TLS** (RFC 5425, using the same
   certificate as the web UI). Each listener is off unless its flag is set.
 - Syslog has no authentication, so only senders on loopback and private networks (10/8, 172.16/12, 192.168/16,
-  100.64/10, fc00::/7, link-local) are accepted by default. Set `-syslog-allow 192.0.2.0/24,198.51.100.4` to choose
-  exactly who may send; refused senders are counted and logged once a minute.
+  100.64/10, fc00::/7, link-local) are accepted by default. To choose exactly who may send, open **Manage** on the
+  Syslog source (Sources page) and list the IP addresses or networks, one per line; the change applies at once, and a
+  list saved there replaces `-syslog-allow 192.0.2.0/24,198.51.100.4`. Refused senders are counted and logged once a minute.
 - The syslog hostname becomes the event's **host** and the app name or tag (`sshd[311]:`) its **source**. The
   sender's address is kept as `device.ip`.
 - Messages over 64 KiB are dropped. With UDP, messages are dropped when the ingest queue is full; TCP waits briefly.
@@ -1104,7 +1105,7 @@ by spaces.
 | `-tls-cert`, `-tls-key` | `<db dir>/siemlite.crt`, `.key` | Certificate and key; a self-signed pair is generated if both are missing |
 | `-tls-hosts` | | Extra DNS names or IPs for a generated certificate |
 | `-syslog-udp`, `-syslog-tcp`, `-syslog-tls` | | Syslog listen addresses, e.g. `:514`, `:514`, `:6514` (each off when empty) |
-| `-syslog-allow` | loopback and private networks | Comma-separated IPs/CIDRs allowed to send syslog |
+| `-syslog-allow` | loopback and private networks | Comma-separated IPs/CIDRs allowed to send syslog (the Syslog source's Manage dialog overrides it) |
 | `-geoip-city` | | MaxMind or DB-IP City/Country `.mmdb` |
 | `-geoip-asn` | | MaxMind or DB-IP ASN `.mmdb` |
 | `-intel-feed` | | Threat intel feed as `name=https://url`; repeat for several |

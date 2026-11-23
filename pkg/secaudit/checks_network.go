@@ -94,10 +94,10 @@ func checkSyslog(_ context.Context, e *Env) Outcome {
 	switch {
 	case len(wide) > 0:
 		return Outcome{Status: Fail, Detail: "Syslog (" + strings.Join(on, ", ") + ") accepts messages from anywhere (" + strings.Join(wide, ", ") + "). Syslog has no sign-in, so anyone can inject fake events or flood the database.",
-			Fix: "Set -syslog-allow to only the networks that send logs, or drop it to use the default private ranges."}
+			Fix: "On the Sources page, open Manage on the Syslog source and list only the networks that send logs (or clear the list to use the default private ranges)."}
 	case len(open) > 0:
 		return Outcome{Status: Warn, Detail: "Syslog (" + strings.Join(on, ", ") + ") accepts messages from public networks: " + strings.Join(open, ", ") + ". Syslog has no sign-in.",
-			Fix: "Narrow -syslog-allow to the exact addresses of your devices, and prefer syslog over TLS for anything crossing the internet."}
+			Fix: "On the Sources page, open Manage on the Syslog source and narrow the list to the exact addresses of your devices, and prefer syslog over TLS for anything crossing the internet."}
 	}
 	return Outcome{Status: Pass, Detail: "Syslog (" + strings.Join(on, ", ") + ") only accepts messages from loopback and private networks, or the networks you listed."}
 }

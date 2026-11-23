@@ -188,6 +188,11 @@ type View struct {
 
 // Get returns the settings and what the last look found.
 func (s *Service) Get(ctx context.Context) (View, error) {
+	// Ask whether a look is running before reading what it saved: a look saves its
+	// result and then stops, so "not running" guarantees the saved result is its own.
+	s.mu.Lock()
+	running := s.running
+	s.mu.Unlock()
 	st, err := s.load(ctx)
 	if err != nil {
 		return View{}, err
@@ -201,9 +206,7 @@ func (s *Service) Get(ctx context.Context) (View, error) {
 	if m.Configured {
 		v.Model, v.Cloud = s.model.Using(ctx)
 	}
-	s.mu.Lock()
-	v.Running = s.running
-	s.mu.Unlock()
+	v.Running = running
 	v.Pending, _ = s.repo.CountPendingProposals(ctx)
 	return v, nil
 }

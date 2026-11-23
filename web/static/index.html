@@ -1876,6 +1876,24 @@
   </form>
 </dialog>
 
+<dialog id="dlg-syslog" class="wide">
+  <form method="dialog" id="syslog-form">
+    <h2 id="syslog-title">Manage Syslog</h2>
+    <p>Syslog has no sign-in, so SIEMLite only takes messages from the addresses listed here. List one IP address or network
+      (like <code>192.0.2.0/24</code>) per line. A change applies at once; a sender already connected over TCP is let go when it reconnects.</p>
+    <label class="field-label" for="syslog-allow">Allowed senders
+      <textarea id="syslog-allow" rows="8" spellcheck="false" placeholder="192.0.2.10&#10;198.51.100.0/24"></textarea>
+    </label>
+    <p class="muted" id="syslog-state"></p>
+    <p class="notice bad" id="syslog-err" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" type="button" id="syslog-default">Use default</button>
+      <button class="btn" type="button" value="cancel">Cancel</button>
+      <button class="btn btn-primary" id="syslog-save" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-logs" class="wide">
   <form method="dialog" id="logs-form">
     <h2>Add logs</h2>
@@ -3103,6 +3121,7 @@ async function openSources() {
           s.kind === "upload" || (s.kind === "token" && !s.revoked_at) ? el("button", { className: "btn btn-small", textContent: "Rename", onclick: () => sourceDialog(s) }) : el("span", { className: "slot-empty" }),
           s.kind === "upload" ? el("button", { className: "btn btn-small", textContent: "Add logs", onclick: logsDialog })
             : s.kind === "token" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => manageDialog(s) })
+            : s.kind === "syslog" ? el("button", { className: "btn btn-small", textContent: "Manage", onclick: () => syslogDialog(s) })
             : el("span", { className: "slot-empty" }))));
     }));
   } catch (err) { if (my === sourcesSeq) notice($("sources-msg"), err.message); }
@@ -3399,6 +3418,41 @@ function manageDialog(s) {
   $("manage-delete-ok").onclick = () => act($("manage-confirm-err"),
     () => apiJSON(`/api/v1/sources/${s.id}`, { method: "DELETE" }), `Deleted ${s.name}.`);
   d.showModal(); $("manage-close").focus();
+}
+
+// Manage the Syslog source: who may send syslog to SIEMLite.
+async function syslogDialog(s) {
+  const d = $("dlg-syslog");
+  $("syslog-title").textContent = `Manage ${s.name}`;
+  notice($("syslog-err"), "");
+  $("syslog-allow").value = "";
+  $("syslog-save").disabled = true; $("syslog-default").disabled = true;
+  const show = (v) => {
+    $("syslog-allow").value = v.allow.join("\n");
+    $("syslog-state").textContent =
+      (v.default ? "Using the default: loopback and private networks. " : "") +
+      (v.listening ? "" : "No syslog listener is running, so this takes effect once one is started (-syslog-udp, -syslog-tcp or -syslog-tls). ") +
+      (v.denied ? `${nf.format(v.denied)} ${v.denied === 1 ? "message was" : "messages were"} refused since SIEMLite started.` : "");
+  };
+  d.showModal();
+  try { show(await apiJSON("/api/v1/syslog/allow")); } catch (err) { notice($("syslog-err"), err.message); }
+  $("syslog-save").disabled = false; $("syslog-default").disabled = false;
+  const save = async (list) => {
+    notice($("syslog-err"), "");
+    $("syslog-save").disabled = true; $("syslog-default").disabled = true;
+    try {
+      const v = await apiJSON("/api/v1/syslog/allow", { method: "PUT", json: { allow: list } });
+      d.close(); show(v);
+      notice($("sources-msg"), v.default ? "Syslog now accepts loopback and private networks." : `Syslog now accepts ${v.allow.length} ${v.allow.length === 1 ? "network" : "networks"}.`, true);
+    } catch (err) { notice($("syslog-err"), err.message); }
+    $("syslog-save").disabled = false; $("syslog-default").disabled = false;
+  };
+  $("syslog-form").onsubmit = (e) => {
+    if (e.submitter && e.submitter.value === "cancel") return;
+    e.preventDefault();
+    save($("syslog-allow").value.split(/[\s,;]+/).filter(Boolean));
+  };
+  $("syslog-default").onclick = () => save([]);
 }
 
 // --- Add logs ---

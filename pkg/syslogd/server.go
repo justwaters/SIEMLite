@@ -11,14 +11,17 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/parser"
@@ -78,6 +81,8 @@ type Stats struct {
 // Server is a running set of syslog listeners.
 type Server struct {
 	cfg Config
+	// allow is the live allowlist; SetAllow swaps it without a restart.
+	allow atomic.Pointer[[]netip.Prefix]
 
 	udp       net.PacketConn
 	listeners []net.Listener
@@ -99,9 +104,6 @@ func Start(cfg Config) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	if len(cfg.Allow) == 0 {
-		cfg.Allow = DefaultAllow
-	}
 	if cfg.Submit == nil {
 		return nil, errors.New("syslogd: Submit is required")
 	}
@@ -111,6 +113,7 @@ func Start(cfg Config) (*Server, error) {
 		}
 	}
 	s := &Server{cfg: cfg, conns: map[net.Conn]struct{}{}, slots: make(chan struct{}, maxConns)}
+	s.SetAllow(cfg.Allow)
 
 	fail := func(err error) (*Server, error) {
 		s.Close()
@@ -203,9 +206,45 @@ func (s *Server) Stats() Stats {
 	}
 }
 
+// SetAllow replaces the networks allowed to send, taking effect at once for
+// new datagrams and connections. An empty list means DefaultAllow. Senders
+// already connected over TCP are not cut off until they reconnect.
+func (s *Server) SetAllow(allow []netip.Prefix) {
+	if len(allow) == 0 {
+		allow = DefaultAllow
+	}
+	cp := append([]netip.Prefix(nil), allow...)
+	s.allow.Store(&cp)
+}
+
+// Allow returns the networks currently allowed to send.
+func (s *Server) Allow() []netip.Prefix { return *s.allow.Load() }
+
+// ParseAllow parses comma-, space- or newline-separated CIDRs and bare IPs.
+func ParseAllow(list string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ';' || unicode.IsSpace(r) }) {
+		if !strings.Contains(part, "/") {
+			a, err := netip.ParseAddr(part)
+			if err != nil {
+				return nil, fmt.Errorf("%q is not an IP address or network", part)
+			}
+			a = a.Unmap()
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+			continue
+		}
+		p, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not an IP address or network", part)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
+}
+
 func (s *Server) allowed(addr netip.Addr) bool {
 	addr = addr.Unmap()
-	for _, p := range s.cfg.Allow {
+	for _, p := range *s.allow.Load() {
 		if p.Contains(addr) {
 			return true
 		}
@@ -214,7 +253,7 @@ func (s *Server) allowed(addr netip.Addr) bool {
 	// Log at most once a minute so a flood cannot fill the log.
 	now := time.Now().Unix()
 	if last := s.lastDenyLog.Load(); now-last >= 60 && s.lastDenyLog.CompareAndSwap(last, now) {
-		s.cfg.Logger.Warn("syslog sender not in allowlist; dropping (see -syslog-allow)", "sender", addr)
+		s.cfg.Logger.Warn("syslog sender not in allowlist; dropping (see Manage on the Syslog source)", "sender", addr)
 	}
 	return false
 }

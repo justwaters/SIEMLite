@@ -419,6 +419,12 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		// The allowlist saved from the Syslog source's Manage dialog wins over -syslog-allow.
+		if saved, _ := repo.Setting(ctx, api.SyslogAllowSetting, ""); strings.TrimSpace(saved) != "" {
+			if p, err := syslogd.ParseAllow(saved); err == nil && len(p) > 0 {
+				allow = p
+			}
+		}
 		cfg := syslogd.Config{
 			UDPAddr: *syslogUDP, TCPAddr: *syslogTCP, TLSAddr: *syslogTLS, Allow: allow,
 			Parse: func(ctx context.Context, line string) (*ocsf.Event, map[string]string, error) {
@@ -1013,29 +1019,7 @@ func (f *feedFlag) Set(v string) error {
 }
 
 // parsePrefixes parses comma-separated CIDRs or bare IPs.
-func parsePrefixes(s string) ([]netip.Prefix, error) {
-	var out []netip.Prefix
-	for _, part := range strings.Split(s, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if !strings.Contains(part, "/") {
-			a, err := netip.ParseAddr(part)
-			if err != nil {
-				return nil, fmt.Errorf("%q is not an IP or CIDR", part)
-			}
-			out = append(out, netip.PrefixFrom(a, a.BitLen()))
-			continue
-		}
-		p, err := netip.ParsePrefix(part)
-		if err != nil {
-			return nil, fmt.Errorf("%q is not an IP or CIDR", part)
-		}
-		out = append(out, p.Masked())
-	}
-	return out, nil
-}
+func parsePrefixes(s string) ([]netip.Prefix, error) { return syslogd.ParseAllow(s) }
 
 // runIntel implements `siemlite intel import|add|list|delete`.
 func runIntel(args []string) error {

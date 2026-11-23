@@ -12,6 +12,7 @@ import (
 	"siemlite/pkg/certs"
 	"siemlite/pkg/ocsf"
 	"siemlite/pkg/secaudit"
+	"siemlite/pkg/syslogd"
 )
 
 // The Security audit page: repeatable checks of SIEMLite and the server it
@@ -33,6 +34,12 @@ func (s *Server) auditEnv(ctx context.Context) (*secaudit.Env, error) {
 	cfg.EnabledAdmins = 0
 	cfg.Version = s.deps.Version
 	cfg.TrustedProxies = s.deps.Proxies.Configured()
+	if sv := s.deps.Syslog; sv != nil { // the list in force now, which Manage may have changed since start
+		cfg.SyslogAllow = nil
+		if live := sv.Allow(); !prefixesEqual(live, syslogd.DefaultAllow) {
+			cfg.SyslogAllow = prefixStrings(live)
+		}
+	}
 	users, err := s.deps.Repo.ListUsers(ctx)
 	if err != nil {
 		return nil, err
