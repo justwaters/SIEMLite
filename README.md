@@ -589,7 +589,7 @@ Binaries for loggen come with every release, next to `siemlite`. To build it: `g
 
 A rule counts matching events and raises an alert when there are enough of them within a time window. Matching events
 can be narrowed by a search (the same syntax as the Database, including field terms such as `action=ingest.late`), a minimum severity, threat intel matches and a source,
-and counted separately for each source address, destination address, user or host. The alert engine checks new events
+and counted separately for each source address, destination address, user, host or log source (shown by its name). The alert engine checks new events
 every 10 seconds.
 
 | Built-in rule | Raises an alert for |
