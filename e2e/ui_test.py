@@ -560,6 +560,7 @@ def main(binary, loggen):
             page.wait_for_selector("#dlg-rule[open]")
             check(page.is_visible("#r-window") and page.is_visible("#r-group") and "At least" in page.inner_text("#r-threshold-label"),
                   "a new rule's form is unchanged after the improbable travel one")
+            check("source" in page.eval_on_selector_all("#r-group option", "o => o.map(x => x.value)"), "a rule can be counted for each source")
             page.keyboard.press("Escape")
             page.wait_for_selector("#dlg-rule", state="hidden")
 
