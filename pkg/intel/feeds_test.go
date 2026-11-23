@@ -47,7 +47,7 @@ func TestThreatFeedsCard(t *testing.T) {
 	}
 	for svc.refreshing.Load() { // SetFeeds started a download in the background
 	}
-	svc.refreshFeeds(ctx, false)
+	svc.refreshFeeds(ctx, refreshAll)
 	if err := svc.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestTorExitFeedIsLabelled(t *testing.T) {
 	}
 	for svc.refreshing.Load() {
 	}
-	svc.refreshFeeds(ctx, false)
+	svc.refreshFeeds(ctx, refreshAll)
 	if err := svc.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -193,5 +193,166 @@ func TestFeedDownloadsReportProgress(t *testing.T) {
 	}
 	if _, _, total := svc.Activity(); total != 0 {
 		t.Error("still reporting a download after it finished")
+	}
+}
+
+// countNet counts the downloads of each address.
+type countNet struct {
+	fakeNet
+	hits map[string]int
+}
+
+func (c *countNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.hits[r.URL.String()]++
+	return c.fakeNet.RoundTrip(r)
+}
+
+// A feed already downloaded is not downloaded again by a restart (an update), or by choosing another
+// feed. Only a feed whose last download is older than FeedInterval, or one never downloaded, is fetched.
+func TestFeedsAlreadyHereAreNotDownloadedAgain(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := storage.NewRepository(db)
+	tor, _ := PresetByID("tor-exit")
+	feodo, _ := PresetByID("feodo")
+	net := &countNet{fakeNet: fakeNet{tor.URL: "171.25.193.25\n", feodo.URL: "203.0.113.7\n"}, hits: map[string]int{}}
+	newSvc := func() *Service {
+		return NewService(repo, Config{FeedInterval: time.Hour, HTTPClient: &http.Client{Transport: net}})
+	}
+	svc := newSvc()
+	if err := svc.SetFeeds(ctx, []string{"tor-exit"}); err != nil {
+		t.Fatal(err)
+	}
+	for svc.refreshing.Load() {
+	}
+	if net.hits[tor.URL] != 1 {
+		t.Fatalf("the Tor list was downloaded %d times, want 1", net.hits[tor.URL])
+	}
+
+	// A restart straight away (a new service, as after an update) downloads nothing.
+	svc = newSvc()
+	svc.refreshFeeds(ctx, refreshDue)
+	if net.hits[tor.URL] != 1 {
+		t.Errorf("a restart downloaded the Tor list again (%d)", net.hits[tor.URL])
+	}
+
+	// Choosing one more feed downloads only that one.
+	if err := svc.SetFeeds(ctx, []string{"tor-exit", "feodo"}); err != nil {
+		t.Fatal(err)
+	}
+	for svc.refreshing.Load() {
+	}
+	if net.hits[tor.URL] != 1 || net.hits[feodo.URL] != 1 {
+		t.Errorf("after choosing a second feed: Tor %d, Feodo %d downloads, want 1 and 1", net.hits[tor.URL], net.hits[feodo.URL])
+	}
+
+	// Once a feed is older than the interval it is due, whenever SIEMLite was started.
+	svc = NewService(repo, Config{FeedInterval: time.Nanosecond, HTTPClient: &http.Client{Transport: net}})
+	time.Sleep(5 * time.Millisecond)
+	svc.refreshFeeds(ctx, refreshDue)
+	if net.hits[tor.URL] != 2 || net.hits[feodo.URL] != 2 {
+		t.Errorf("stale feeds: Tor %d, Feodo %d downloads, want 2 and 2", net.hits[tor.URL], net.hits[feodo.URL])
+	}
+	// The Refresh button downloads everything whatever its age.
+	before := net.hits[feodo.URL]
+	svc.refreshFeeds(ctx, refreshAll)
+	if net.hits[feodo.URL] != before+1 {
+		t.Errorf("Refresh did not download every feed")
+	}
+}
+
+// A feed that fails to download is not tried again until FeedInterval has passed, so the
+// regular check doesn't hammer a mirror that is down.
+func TestFailedFeedIsNotRetriedAtOnce(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tor, _ := PresetByID("tor-exit")
+	net := &countNet{fakeNet: fakeNet{tor.URL: ""}, hits: map[string]int{}}
+	svc := NewService(storage.NewRepository(db), Config{FeedInterval: time.Hour, HTTPClient: &http.Client{Transport: net}})
+	if err := svc.SetFeeds(ctx, []string{"tor-exit"}); err != nil {
+		t.Fatal(err)
+	}
+	for svc.refreshing.Load() {
+	}
+	svc.refreshFeeds(ctx, refreshDue)
+	svc.refreshFeeds(ctx, refreshDue)
+	if net.hits[tor.URL] != 1 {
+		t.Errorf("a failing feed was tried %d times, want 1", net.hits[tor.URL])
+	}
+}
+
+// Choosing another feed doesn't retry one that just failed, and a feed taken off the list is forgotten.
+func TestChoosingAFeedLeavesAFailedOneAlone(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tor, _ := PresetByID("tor-exit")
+	feodo, _ := PresetByID("feodo")
+	net := &countNet{fakeNet: fakeNet{tor.URL: "", feodo.URL: "203.0.113.7\n"}, hits: map[string]int{}}
+	svc := NewService(storage.NewRepository(db), Config{FeedInterval: time.Hour, HTTPClient: &http.Client{Transport: net}})
+	choose := func(ids ...string) {
+		t.Helper()
+		if err := svc.SetFeeds(ctx, ids); err != nil {
+			t.Fatal(err)
+		}
+		for svc.refreshing.Load() {
+		}
+	}
+	choose("tor-exit")
+	choose("tor-exit", "feodo")
+	if net.hits[tor.URL] != 1 || net.hits[feodo.URL] != 1 {
+		t.Errorf("Tor (failing) %d, Feodo %d downloads, want 1 and 1", net.hits[tor.URL], net.hits[feodo.URL])
+	}
+	// Taken off and chosen again, a feed is tried at once.
+	choose("feodo")
+	svc.refreshFeeds(ctx, refreshDue) // prunes what is no longer chosen
+	svc.triedMu.Lock()
+	_, kept := svc.tried[tor.Name]
+	svc.triedMu.Unlock()
+	if kept {
+		t.Error("a feed taken off the list is still remembered")
+	}
+	choose("tor-exit", "feodo")
+	if net.hits[tor.URL] != 2 {
+		t.Errorf("a feed chosen again was tried %d times in all, want 2", net.hits[tor.URL])
+	}
+}
+
+// A scheduled check doesn't start while a round (the Refresh button, choosing a feed) is running.
+func TestScheduledRoundWaitsForARunningOne(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tor, _ := PresetByID("tor-exit")
+	net := &countNet{fakeNet: fakeNet{tor.URL: "171.25.193.25\n"}, hits: map[string]int{}}
+	svc := NewService(storage.NewRepository(db), Config{FeedInterval: time.Hour, HTTPClient: &http.Client{Transport: net}})
+	if err := svc.SetFeeds(ctx, []string{"tor-exit"}); err != nil {
+		t.Fatal(err)
+	}
+	for svc.refreshing.Load() {
+	}
+	svc.refreshing.Store(true) // a round is running
+	svc.refreshRound(ctx, refreshAll)
+	if net.hits[tor.URL] != 1 {
+		t.Errorf("a round started while another ran: %d downloads", net.hits[tor.URL])
+	}
+	svc.refreshing.Store(false)
+	svc.refreshRound(ctx, refreshAll)
+	if net.hits[tor.URL] != 2 || svc.refreshing.Load() {
+		t.Errorf("the round did not run, or did not release the guard: %d downloads", net.hits[tor.URL])
 	}
 }

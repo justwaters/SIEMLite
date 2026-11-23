@@ -70,6 +70,9 @@ type Service struct {
 	errs       map[string]string // the last error of each feed that failed, by id
 	refreshing atomic.Bool
 
+	triedMu sync.Mutex
+	tried   map[string]time.Time // when each feed was last downloaded or tried in this run, by name
+
 	actMu    sync.Mutex
 	actNow   string // the feed being downloaded
 	actDone  int    // feeds finished in this round
@@ -104,7 +107,7 @@ func NewService(store Store, cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	s := &Service{cfg: cfg, store: store, Matcher: NewMatcher(), errs: map[string]string{}}
+	s := &Service{cfg: cfg, store: store, Matcher: NewMatcher(), errs: map[string]string{}, tried: map[string]time.Time{}}
 	s.version.Store(-1)
 	return s
 }
@@ -133,21 +136,24 @@ func (s *Service) Load(ctx context.Context) error {
 	return nil
 }
 
-// Run refreshes feeds (immediately, then every FeedInterval) and picks up
-// indicator changes until ctx is done.
+// Run keeps the feeds up to date, and picks up indicator changes, until ctx is done. A feed is
+// downloaded again only when its last download is older than FeedInterval, so a restart (an
+// update, say) does not download again what is already here.
 func (s *Service) Run(ctx context.Context) {
 	poll := time.NewTicker(s.cfg.ReloadPoll)
 	defer poll.Stop()
-	feeds := time.NewTicker(s.cfg.FeedInterval)
+	// Look often for feeds that have come due: the schedule follows each feed's last download,
+	// not when SIEMLite started.
+	feeds := time.NewTicker(min(s.cfg.FeedInterval, 15*time.Minute))
 	defer feeds.Stop()
 
-	s.refreshFeeds(ctx, true)
+	s.refreshRound(ctx, refreshDue)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-feeds.C:
-			s.refreshFeeds(ctx, false)
+			s.refreshRound(ctx, refreshDue)
 		case <-poll.C:
 		}
 		if err := s.Load(ctx); err != nil && ctx.Err() == nil {
@@ -156,40 +162,82 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-// refreshFeeds downloads every feed. At startup, feeds refreshed less than
-// FeedInterval ago are skipped so frequent restarts do not hammer providers.
-func (s *Service) refreshFeeds(ctx context.Context, startup bool) {
-	feeds := s.activeFeeds(ctx)
-	if len(feeds) == 0 {
+// How much a round of downloads covers.
+type refreshMode int
+
+const (
+	refreshAll refreshMode = iota // every chosen feed (the Refresh button)
+	refreshDue                    // the feeds last downloaded more than FeedInterval ago, which didn't fail to download in the last FeedInterval
+	refreshNew                    // the feeds with nothing downloaded yet, which didn't fail to download in the last FeedInterval (after a feed is chosen)
+)
+
+// refreshRound is refreshFeeds, unless a round is already running (one started by the Refresh button
+// or by choosing a feed): rounds never overlap, so two don't download the same feed at once. The
+// next check picks up whatever this one skipped.
+func (s *Service) refreshRound(ctx context.Context, mode refreshMode) {
+	if !s.refreshing.CompareAndSwap(false, true) {
 		return
 	}
-	fresh := map[string]bool{}
-	if startup {
-		if srcs, err := s.store.ListIntelSources(ctx); err == nil {
-			cutoff := time.Now().Add(-s.cfg.FeedInterval).UnixMilli()
-			for _, src := range srcs {
-				fresh[src.Source] = src.UpdatedAt > cutoff
-			}
-		}
+	defer s.refreshing.Store(false)
+	s.refreshFeeds(ctx, mode)
+}
+
+// pending picks the feeds a round downloads.
+func (s *Service) pending(ctx context.Context, feeds []Feed, mode refreshMode) []Feed {
+	if mode == refreshAll {
+		return feeds
 	}
-	todo := 0
+	updated := map[string]int64{}
+	if srcs, err := s.store.ListIntelSources(ctx); err == nil {
+		for _, src := range srcs {
+			updated[src.Source] = src.UpdatedAt
+		}
+	} else {
+		return feeds // can't tell what is here, so don't skip anything
+	}
+	now := time.Now()
+	cutoff := now.Add(-s.cfg.FeedInterval).UnixMilli()
+	s.triedMu.Lock()
+	defer s.triedMu.Unlock()
+	// Forget feeds that are no longer chosen, so the record holds only the feeds in use.
+	chosen := make(map[string]bool, len(feeds))
 	for _, f := range feeds {
-		if !fresh[f.Name] {
-			todo++
+		chosen[f.Name] = true
+	}
+	for name := range s.tried {
+		if !chosen[name] {
+			delete(s.tried, name)
 		}
 	}
+	var out []Feed
+	for _, f := range feeds {
+		at, have := updated[f.Name]
+		if now.Sub(s.tried[f.Name]) < s.cfg.FeedInterval {
+			continue // downloaded or failed a moment ago
+		}
+		if (mode == refreshNew && !have) || (mode == refreshDue && (!have || at <= cutoff)) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// refreshFeeds downloads the feeds the mode asks for, one at a time.
+func (s *Service) refreshFeeds(ctx context.Context, mode refreshMode) {
+	feeds := s.pending(ctx, s.activeFeeds(ctx), mode)
+	todo := len(feeds)
 	if todo == 0 {
 		return
 	}
 	done := 0
 	defer s.setActivity("", 0, 0)
 	for _, f := range feeds {
-		if fresh[f.Name] {
-			continue
-		}
 		s.setActivity(f.Name, done, todo)
 		done++
 		id := s.feedID(f)
+		s.triedMu.Lock()
+		s.tried[f.Name] = time.Now()
+		s.triedMu.Unlock()
 		n, skipped, err := FetchFeed(ctx, s.cfg.HTTPClient, s.store, f)
 		if err != nil {
 			if ctx.Err() != nil {

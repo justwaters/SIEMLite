@@ -109,11 +109,21 @@ func (s *Service) SetFeeds(ctx context.Context, ids []string) error {
 		return err
 	}
 	var removed []string
+	was := map[string]bool{}
 	for _, id := range st.Selected {
+		was[id] = true
 		if !seen[id] {
 			removed = append(removed, id)
 		}
 	}
+	// A feed chosen now starts afresh: an earlier failed try of it doesn't hold it back.
+	s.triedMu.Lock()
+	for _, id := range keep {
+		if p, ok := PresetByID(id); ok && !was[id] {
+			delete(s.tried, p.Name)
+		}
+	}
+	s.triedMu.Unlock()
 	st.Selected = keep
 	err = s.saveFeedSettings(ctx, st)
 	s.feedMu.Unlock()
@@ -128,13 +138,16 @@ func (s *Service) SetFeeds(ctx context.Context, ids []string) error {
 	if err := s.dropPresets(ctx, removed); err != nil {
 		return err
 	}
-	s.RefreshAsync()
+	// Only what was just chosen is downloaded: the feeds already here keep what they have.
+	s.refreshAsync(refreshNew)
 	return nil
 }
 
-// RefreshAsync downloads the chosen feeds now, in the background. Feeds are
-// fetched one at a time and a second request while one runs is dropped.
-func (s *Service) RefreshAsync() {
+// RefreshAsync downloads every chosen feed now, in the background, whatever its age (the Refresh
+// button). Feeds are fetched one at a time and a second request while one runs is dropped.
+func (s *Service) RefreshAsync() { s.refreshAsync(refreshAll) }
+
+func (s *Service) refreshAsync(mode refreshMode) {
 	if !s.refreshing.CompareAndSwap(false, true) {
 		return
 	}
@@ -142,7 +155,7 @@ func (s *Service) RefreshAsync() {
 		defer s.refreshing.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		s.refreshFeeds(ctx, false)
+		s.refreshFeeds(ctx, mode)
 	}()
 }
 
