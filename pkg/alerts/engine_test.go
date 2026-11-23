@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -556,5 +557,44 @@ func TestClosedBeforeCheckDoesNotCountEarlierEvents(t *testing.T) {
 	eng.Check(ctx)
 	if got := alertsByRule(t, repo)["SSH brute force"]; len(got) != 1 {
 		t.Fatalf("unchecked events before the close: %+v", got)
+	}
+}
+
+// A rule counted for each source raises one alert per source, shown by the
+// source's name; the alert's events are the ones from that source.
+func TestRuleCountedPerSource(t *testing.T) {
+	repo, _, eng := setup(t)
+	ctx := context.Background()
+	a, _ := repo.CreateTokenSource(ctx, "web-1", "ka", nil, false, 1)
+	b, _ := repo.CreateTokenSource(ctx, "db-1", "kb", nil, false, 1)
+	now := time.Now()
+	var recs []storage.Record
+	for i := 0; i < 6; i++ { // 6 from web-1, 3 from db-1: only web-1 reaches 5
+		recs = append(recs, storage.Record{Timestamp: now.Add(-time.Duration(i) * time.Second).UnixMilli(), SourceID: a, CategoryUID: 3, ClassUID: 3002, SeverityID: 3, RawData: "boom"})
+	}
+	for i := 0; i < 3; i++ {
+		recs = append(recs, storage.Record{Timestamp: now.Add(-time.Duration(i) * time.Second).UnixMilli(), SourceID: b, CategoryUID: 3, ClassUID: 3002, SeverityID: 3, RawData: "boom"})
+	}
+	if err := repo.InsertBatch(ctx, recs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SaveRule(ctx, storage.Rule{Name: "per source", Enabled: true, Severity: 3, Query: "boom", GroupBy: "source", Threshold: 5, WindowMinutes: 10}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := alertsByRule(t, repo)["per source"]
+	if len(got) != 1 || got[0].GroupBy != "source" || got[0].Count != 6 || got[0].GroupValue != strconv.FormatInt(a, 10) || got[0].GroupLabel != "web-1" {
+		t.Fatalf("alerts = %+v", got)
+	}
+	if n := repo.GroupDisplay(ctx, "source", got[0].GroupValue); n != "web-1" {
+		t.Errorf("GroupDisplay = %q", n)
+	}
+	if n := repo.GroupDisplay(ctx, "source", "9999"); n != "Deleted source" {
+		t.Errorf("a deleted source = %q", n)
+	}
+	if n := repo.GroupDisplay(ctx, "host", "h1"); n != "h1" {
+		t.Errorf("other groups are shown as they are, got %q", n)
 	}
 }

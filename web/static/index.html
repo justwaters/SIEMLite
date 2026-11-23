@@ -558,8 +558,8 @@
   .integ-switch { padding: 0; gap: 8px; font-size: 13.5px; }
   .integ-body { border-top: 1px solid var(--rule); padding: 18px 20px; }
   .intel-head { align-items: center; justify-content: flex-start; gap: 28px; }
-  .intel-tabs { grid-auto-columns: 1fr; min-width: min(560px, 100%); padding: 3px; }
-  .intel-tabs button { font-size: 16px; padding: 9px 26px; }
+  .intel-tabs { grid-auto-columns: 1fr; min-width: min(400px, 100%); padding: 2px; }
+  .intel-tabs button { font-size: 14px; padding: 6px 16px; }
   .soon { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 56px 24px; }
   .soon-art { width: 96px; height: 96px; color: var(--ink-2); margin-bottom: 10px; }
   .soon h2 { margin: 0; }
@@ -1917,7 +1917,7 @@
       <label class="field-label">Within (minutes) <input class="input" id="r-window" type="number" min="1" value="5"></label>
       <label class="field-label" data-match>Counted for <select class="select" id="r-group">
         <option value="src_ip">Each source IP</option><option value="dst_ip">Each destination IP</option>
-        <option value="user">Each user</option><option value="host">Each host</option><option value="">All events together</option>
+        <option value="user">Each user</option><option value="host">Each host</option><option value="source">Each source</option><option value="">All events together</option>
       </select></label>
     </div>
     <label class="check"><input type="checkbox" id="r-enabled" checked> Rule is on</label>
@@ -3736,7 +3736,7 @@ pe("suggest").onclick = async () => {
 
 // --- Alerts ---
 let alertTab = "open", rulesCache = [];
-const GROUP_LABEL = { src_ip: "source IP", dst_ip: "destination IP", user: "user", host: "host", "": "" };
+const GROUP_LABEL = { src_ip: "source IP", dst_ip: "destination IP", user: "user", host: "host", source: "source", "": "" };
 function setNavAlerts(n) { const b = $("nav-alerts"); b.hidden = !n; b.textContent = n > 99 ? "99+" : String(n); }
 async function refreshAlertCount() {
   if (!me || me.limited) return;
@@ -3808,7 +3808,7 @@ function alertRow(a) {
   const sev = el("span", { className: "sev" }, el("i"), SEV[a.severity]); sev.style.setProperty("--c", `var(--sev-${a.severity})`);
   const what = el("td", { className: "what" });
   what.append(el("b", { textContent: a.rule_name }));
-  if (a.group_value) what.append(el("span", { className: "grp", textContent: a.group_value }));
+  if (a.group_value) what.append(el("span", { className: "grp", textContent: a.group_label || a.group_value }));
   else if (a.group_by) what.append(el("span", { className: "grp none", textContent: `no ${GROUP_LABEL[a.group_by]}` }));
   if (a.note) what.append(el("div", { className: "muted", textContent: a.note }));
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -3838,7 +3838,7 @@ function alertLink(a) {
   } else if (r.query) p.set("q", r.query);
   if (r.threat_only) p.set("threat", "1");
   if (r.source_id) p.set("source", String(r.source_id));
-  const key = { src_ip: "src_ip", dst_ip: "dst_ip", user: "user", host: "host" }[a.group_by];
+  const key = { src_ip: "src_ip", dst_ip: "dst_ip", user: "user", host: "host", source: "source" }[a.group_by];
   if (key && a.group_value) p.set(key, a.group_value);
   p.set("from", mdy(new Date(a.first_seen)));
   p.set("to", mdy(new Date(a.last_seen)));
@@ -4406,7 +4406,7 @@ function renderSummary(d) {
     el("thead", {}, el("tr", {}, ...["Severity", "Rule", "For", "Events", "Status", "Opened"].map((h) => el("th", { textContent: h })))),
     el("tbody", {}, ...alerts.list.map((a) => el("tr", {},
       el("td", { textContent: SEV[a.severity] || a.severity }), el("td", { textContent: a.rule_name }),
-      el("td", { className: "mono", textContent: a.group_value || "" }), el("td", { textContent: a.count.toLocaleString() }),
+      el("td", { className: "mono", textContent: a.group_label || a.group_value || "" }), el("td", { textContent: a.count.toLocaleString() }),
       el("td", { textContent: a.status }), el("td", { textContent: new Date(a.created_at).toLocaleString() })))))) : el("p", { className: "hint", textContent: "No alerts opened in this period." });
   $("rep-preview").replaceChildren(
     el("p", { className: "hint", textContent: `${spanText(d.start, d.end)}. This is a preview; Download PDF makes the full report.` }),
