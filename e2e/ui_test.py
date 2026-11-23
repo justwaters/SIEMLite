@@ -523,6 +523,46 @@ def main(binary, loggen):
             sentence = page.locator("#rules-body tr", has_text="Source went quiet").locator(".rule-sentence").inner_text()
             check("sends fewer than 1 event in 15 minutes" in sentence, f"the rule list reads a volume rule back ({sentence!r})")
 
+            # A rule on repeated events by one user: the form asks what is the same, hides the search and
+            # grouping, and the list reads it back.
+            page.click("#add-rule")
+            page.select_option("#r-kind", "repeat")
+            check(page.is_visible("#r-same") and not page.is_visible("#r-query") and not page.is_visible("#r-group"),
+                  "a repeat rule asks what is the same and hides the search and grouping")
+            check(not page.is_visible("#r-keywords"), "the keywords box is hidden while the same severity is chosen")
+            page.select_option("#r-same", "repeat_keyword")
+            check(page.is_visible("#r-keywords"), "choosing the same keyword shows the keywords box")
+            page.fill("#r-name", "Same keyword again")
+            page.fill("#r-keywords", "denied, failed, blocked")
+            page.fill("#r-threshold", "5")
+            page.fill("#r-window", "10")
+            page.click("#r-save")
+            page.locator("#rules-body tr", has_text="Same keyword again").wait_for()
+            sentence = page.locator("#rules-body tr", has_text="Same keyword again").locator(".rule-sentence").inner_text()
+            check("User has 5+ events with the same keyword in 10 min" in sentence and "denied, failed, blocked" in sentence,
+                  f"the rule list reads a repeat rule back ({sentence!r})")
+
+            # The built-in "Improbable travel" rule reads as a sentence about speed, and its form asks for a speed.
+            row = page.locator("#rules-body tr", has_text="Improbable travel")
+            row.wait_for()
+            sentence = row.locator(".rule-sentence").inner_text()
+            check("same user signs in from places too far apart" in sentence and "faster than 900 km/h" in sentence,
+                  f"the rule list reads the improbable travel rule ({sentence!r})")
+            check(row.locator("button", has_text="Delete").count() == 0, "the improbable travel rule has no Delete button")
+            row.locator("button", has_text="Edit").click()
+            page.wait_for_selector("#dlg-rule[open]")
+            check("Fastest believable travel (km/h)" in page.inner_text("#r-threshold-label"), "the improbable travel form asks for a speed")
+            check(not page.is_visible("#r-window") and not page.is_visible("#r-group") and not page.is_visible("#r-kind"),
+                  "the improbable travel form hides the window, grouping and kind")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#dlg-rule", state="hidden")
+            page.click("#add-rule")
+            page.wait_for_selector("#dlg-rule[open]")
+            check(page.is_visible("#r-window") and page.is_visible("#r-group") and "At least" in page.inner_text("#r-threshold-label"),
+                  "a new rule's form is unchanged after the improbable travel one")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#dlg-rule", state="hidden")
+
             # System > Software update: the release channel is Stable until Beta is chosen (and confirmed).
             page.goto(url + "#/system")
             page.wait_for_selector("#update-channel")
@@ -544,16 +584,22 @@ def main(binary, loggen):
             page.wait_for_selector("#au-rows input")
             check(not page.is_checked("#au-enabled") and page.is_checked("#au-backup") and page.is_checked("#au-hold") and page.locator("#au-rows input").count() == 1,
                   "automatic updates start off, with a backup first, holding for alerts, and one time")
+            # Tick boxes and switches are drawn by the page, not the browser.
+            check(page.evaluate("getComputedStyle(document.getElementById('au-enabled')).appearance") == "none",
+                  "tick boxes are the page's own, not the browser's")
+            check(page.evaluate("getComputedStyle(document.querySelector('.switch .track')).borderTopWidth") != "0px",
+                  "switches are the page's own: the track has an outline")
             page.check("#au-enabled")
             page.uncheck("#au-hold")
             row = page.locator(".au-row").nth(0)
-            for d in ("1", "2", "3", "4", "5"):
+            check(all(row.locator(f'[data-day="{d}"]').get_attribute("aria-pressed") == "true" for d in "0123456"), "a new schedule starts with every day picked")
+            for d in ("0", "6"):
                 row.locator(f'[data-day="{d}"]').click()
             row.locator("input").nth(0).fill("04:15")
             page.click("#au-add")
             row2 = page.locator(".au-row").nth(1)
-            row2.locator('[data-day="6"]').click()
-            row2.locator('[data-day="0"]').click()
+            for d in "12345":
+                row2.locator(f'[data-day="{d}"]').click()
             row2.locator("input").nth(0).fill("06:00")
             row2.locator("[data-add-time]").click()
             row2.locator("input").nth(1).fill("22:45")
@@ -571,6 +617,20 @@ def main(binary, loggen):
                   "the update schedule is kept after a reload")
             page.locator(".au-row").nth(1).get_by_text("Remove schedule").click()
             check(page.locator(".au-row").count() == 1, "a schedule can be removed")
+            row.locator('[data-day="1"]').click()
+            row.locator('[data-day="2"]').click()
+            row.locator('[data-day="3"]').click()
+            row.locator('[data-day="4"]').click()
+            row.locator('[data-day="5"]').click()
+            page.click("#au-save")
+            page.wait_for_selector("#au-msg:not([hidden])")
+            check("at least one day" in page.inner_text("#au-msg"), "a schedule with no day picked is refused")
+            for d in "0123456":
+                row.locator(f'[data-day="{d}"]').click()
+            page.click("#au-save")
+            page.wait_for_selector("#au-msg:has-text('Every day')")
+            check(all(page.locator(".au-row").nth(0).locator(f'[data-day="{d}"]').get_attribute("aria-pressed") == "true" for d in "0123456"),
+                  "picking all seven days keeps them all picked after saving")
             page.locator(".au-row").nth(0).locator("[data-add-time]").click()
             page.locator(".au-row").nth(0).locator("[data-add-time]").click()
             check(page.locator(".au-row").nth(0).locator("input").count() == 3, "times can be added to a schedule")

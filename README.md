@@ -597,6 +597,7 @@ every 10 seconds.
 | Critical event | any event rated Critical or Fatal, per host |
 | Failed sign-ins to SIEMLite | 5 failed sign-ins to SIEMLite itself from one address within 15 minutes (the audit events with `action=signin.failed`) |
 | Mass ingestion of late logs | 50 or more events more than 30 days old arriving from one source at once (High; the audit events with `action=ingest.late`; see [Keeping events](#keeping-events)) |
+| Improbable travel | the same user signing in from two places too far apart for the time between them (High; see [Improbable travel](#improbable-travel)) |
 
 A rule can instead watch **how much one source sends**: choose "A source sends more than a number of events" or "fewer than a
 number of events" when you make a rule, then the source, the number and the time window ("fewer than 1 event in 15 minutes" is
@@ -620,6 +621,53 @@ count those events.
 While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
 the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The [log
 generator](#test-logs)'s attacks raise alerts too.
+
+### Improbable travel
+
+The built-in rule **Improbable travel** raises a High alert for a user when two of their successful sign-ins came from
+places too far apart to travel between in the time that passed. It is added when SIEMLite starts (once; your edits to it
+are kept), and appears in the rules list like the others.
+
+- It needs a GeoIP **City** database with coordinates (`-geoip-city`, see [GeoIP and ASN](#geoip-and-asn)). With a
+  Country-only database, or no GeoIP, it stays quiet: sign-ins without coordinates are left out. Only events stored after
+  GeoIP was switched on carry a location.
+- What counts as a successful sign-in is the rule's search, which you can edit. It starts as
+  `action=auth.success,vpn.login,signin,signin.sso` (SSH and VPN logins from the [log generator](#test-logs), and sign-ins
+  to SIEMLite); change it to the action your own logs use. The event must name a user.
+- Each new sign-in is compared with the same user's previous sign-in (user names compared without regard to case) in the
+  last 24 hours. If the two places are at least 200 km apart (closer than that is the same area, given how approximate
+  GeoIP is) and the speed needed to get from one to the other is above the rule's **fastest believable travel**, the
+  alert opens for that user. The default is 900 km/h; a gap under a minute counts as a minute. The same address never counts.
+- An open alert for the user is updated instead of raising another, and the chat integrations announce it once, with the
+  two places, addresses, distance and speed.
+- It will have false positives where a user's address isn't where the user is: VPNs and proxies, mobile carriers that
+  route traffic through a distant gateway, and cloud sign-ins. Raise the speed or edit the search to leave those out.
+- A sign-in that arrives late is compared with the one before it in time, not the one after.
+
+### Repeated events by one user
+
+A rule can look for **a user involved in the same kind of event again and again**: choose "Repeated by user" when you make
+a rule, say what must be the same, and give the number of events and the time window. One alert opens per user and rule.
+
+- **Severity**: at least N events of the user, all with the same severity level (for example 10 High events in 5 minutes).
+- **Keyword**: the keywords box takes a comma-separated list such as `denied, failed, blocked`, each a word or a phrase
+  (`bad password`). Events are counted per keyword: 2 "denied" and 3 "failed" with a threshold of 5 does not alert, 5
+  "failed" does. An event with two keywords counts for both.
+- **Keyword and severity**: the same, counted per keyword and severity level together (5 "failed" events, all High).
+
+For example, "5 events with the same keyword in 10 minutes" with `denied, failed` alerts for a user with 5 events saying
+"failed" within 10 minutes. The alert says which keyword (and level) it was, how many events and over how long, and
+View events shows that user's events with any of the keywords.
+
+- The user is the event's user field. Events with no user are left out, never counted together. Users are compared as
+  written, so `Alice` and `alice` are two users.
+- Keywords are matched with the search index, as the Database search matches words: whole words, without regard to case,
+  anywhere in the event's text. A keyword that is part of a longer word does not match, and one of only punctuation
+  matches nothing. A rule takes at most 20 keywords of 100 characters each, and needs at least 2 events.
+- A user with an open alert is updated while more of the same pile up, instead of getting another alert. Close the alert
+  to be told again.
+- Expect false positives from noisy accounts (service accounts that fail all day); choose a higher number, a shorter
+  window, or a keyword that is more specific. Older events that arrive late count by when they happened.
 
 ## AI agents (MCP)
 
