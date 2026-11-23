@@ -327,6 +327,11 @@ func (o *openRouter) call(ctx context.Context, method, path string, in, out any)
 		if json.Unmarshal(b, &e) == nil && e.Error.Message != "" {
 			msg = e.Error.Message
 		}
+		if strings.Contains(strings.ToLower(msg), "data policy") {
+			return errors.New("OpenRouter has no company that can run " + o.model + " under SIEMLite's rule of only using " +
+				"companies that don't keep or train on what they are sent. Free models usually run only on companies that do. " +
+				"Pick a model that isn't free. (OpenRouter said: " + msg + ")")
+		}
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
 			return errors.New("OpenRouter refused the API key: " + msg)

@@ -4888,7 +4888,7 @@ function aiCloudSelect(chosen) {
   const rec = got.recommended || aiSvc().suggested || [];
   const models = got.models || [];
   const byId = new Map(models.map((m) => [m.id, m]));
-  const price = (m) => m ? (m.free ? " (free)" : m.prompt ? ` ($${m.prompt} / $${m.output} per million tokens)` : "") : "";
+  const price = (m) => m ? (m.free ? " (free, often unavailable)" : m.prompt ? ` ($${m.prompt} / $${m.output} per million tokens)` : "") : "";
   const opt = (id, label) => el("option", { value: id, textContent: label });
   const groups = [];
   if (rec.length) groups.push(el("optgroup", { label: "Recommended: small, fast and inexpensive" }, ...rec.map((id) => opt(id, (byId.get(id) || {}).name ? `${byId.get(id).name}${price(byId.get(id))}` : id))));
