@@ -505,7 +505,9 @@ Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an unde
 
 The easy way: the **Intel** page (admins). Its **Threat feeds** section lists free IP blocklists that need no account
 (Feodo Tracker, C2IntelFeeds, IPsum, two from Blocklist.de, and the Tor exit nodes). Tick the ones you want and save: they download right
-away, refresh every 6 hours, and are removed again if you untick them. Each has a link to its provider's terms;
+away, refresh every 6 hours, and are removed again if you untick them. A list is downloaded again only when its last
+download is 6 hours old, so restarting or updating SIEMLite, or choosing another list, doesn't download the others again
+(the **Refresh** button does, whatever their age). Each has a link to its provider's terms;
 whether you may use a list where you work is your call. Nothing is downloaded until you choose it. Events show the
 feed's name as the source of a match. Tor exit nodes aren't malicious in themselves, but they are flagged like any
 other listed address, so the built-in **Threat intel match** rule raises a High alert for each address that hits (traffic
