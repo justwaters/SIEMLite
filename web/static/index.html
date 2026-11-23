@@ -564,14 +564,27 @@
   .soon-art { width: 96px; height: 96px; color: var(--ink-2); margin-bottom: 10px; }
   .soon h2 { margin: 0; }
   .soon .hint { max-width: 46ch; margin: 0; }
+  #view-reports .panel { margin-bottom: 16px; }
+  #view-reports .panel > .hint { margin: 0 0 12px; }
+  #view-reports .table-wrap { margin: 12px 0 8px; }
+  #view-reports .table-wrap + .hint { margin: 8px 0 0; }
+  #view-reports .data :is(th, td) { white-space: nowrap; }
+  #view-reports .data td.wrap { white-space: normal; min-width: 150px; }
+  #view-reports .data td.email { overflow-wrap: anywhere; min-width: 170px; }
+  @media (max-width: 1280px) {
+    #view-reports .data :is(th, td) { padding-left: 8px; padding-right: 8px; }
+    #view-reports .data td.wrap { min-width: 100px; }
+    #view-reports .data td.actions .row-actions { flex-direction: column; align-items: stretch; }
+  }
+  .rep-controls .btn, .rep-controls .input, .rep-controls .select { height: 36px; }
   .rep-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin: 12px 0; }
   .rep-preview { margin-top: 16px; display: grid; gap: 18px; }
   .rep-figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   .rep-figs .figure { border: 1px solid var(--rule); border-radius: 10px; }
-  .rep-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+  .rep-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; }
   .rep-preview h3 { font-size: 14px; margin: 0 0 8px; }
   .rep-bars { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--rule); }
-  .rep-bars i { flex: 1; min-width: 2px; background: var(--chart-other, var(--ink-2)); border-radius: 2px 2px 0 0; position: relative; }
+  .rep-bars i { flex: 1; min-width: 2px; max-width: 56px; background: var(--chart-other, var(--ink-2)); border-radius: 2px 2px 0 0; position: relative; }
   .rep-bars i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--sev-5); border-radius: 2px 2px 0 0; }
   .rep-axis { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 12px; margin-top: 4px; }
   .rep-rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13.5px; }
@@ -4396,7 +4409,7 @@ function renderSummary(d) {
       el("td", { textContent: a.status }), el("td", { textContent: new Date(a.created_at).toLocaleString() })))))) : el("p", { className: "hint", textContent: "No alerts opened in this period." });
   $("rep-preview").replaceChildren(
     el("p", { className: "hint", textContent: `${spanText(d.start, d.end)}. This is a preview; Download PDF makes the full report.` }),
-    el("div", { className: "rep-figs" }, fig("Events", d.total), fig("High or worse", high), fig("Threat intel matches", d.threats), fig("Alerts opened", alerts.opened)),
+    el("div", { className: "rep-figs" }, fig("Events", d.total), fig("High or worse", high), fig("Threat matches", d.threats), fig("Alerts opened", alerts.opened)),
     el("div", {}, el("h3", { textContent: "Events over time" }), bars,
       el("div", { className: "rep-axis" }, el("span", { textContent: new Date(d.start).toLocaleDateString([], { month: "short", day: "numeric" }) }), el("span", { textContent: new Date(d.end - 1).toLocaleDateString([], { month: "short", day: "numeric" }) }))),
     el("div", { className: "rep-cols" },
@@ -4424,11 +4437,11 @@ async function loadSchedules() {
 }
 function scheduleRow(sc) {
   return el("tr", {},
-    el("td", {}, sc.name, sc.enabled ? "" : el("span", { className: "tag tag-plain", textContent: " Off" })),
-    el("td", { textContent: `${repWhen(sc)}, covering ${COVER_TEXT[sc.covers_days]}` }),
-    el("td", { className: sc.recipients ? "" : "muted", textContent: sc.recipients || "Nobody (kept here only)" }),
-    el("td", { className: "muted", textContent: sc.last_run ? `${ago(sc.last_run)}: ${sc.last_status}` : "Not yet" }),
-    el("td", { className: "muted", textContent: sc.enabled ? new Date(sc.next_run).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "–" }),
+    el("td", { className: "wrap" }, sc.name, sc.enabled ? "" : el("span", { className: "tag tag-plain", textContent: " Off" })),
+    el("td", { className: "wrap", textContent: `${repWhen(sc)}, covering ${COVER_TEXT[sc.covers_days]}` }),
+    el("td", { className: sc.recipients ? "wrap email" : "wrap email muted", textContent: sc.recipients || "Nobody (kept here only)" }),
+    el("td", { className: "wrap muted", textContent: sc.last_run ? `${ago(sc.last_run)}: ${sc.last_status}` : "Not yet" }),
+    el("td", { className: "wrap muted", textContent: sc.enabled ? new Date(sc.next_run).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "–" }),
     el("td", { className: "actions" }, el("div", { className: "row-actions" },
       el("button", { className: "btn btn-small", textContent: "Run now", onclick: (e) => runScheduleNow(sc, e.target) }),
       el("button", { className: "btn btn-small", textContent: "Edit", onclick: () => editSchedule(sc) }),
@@ -4474,9 +4487,9 @@ async function loadPast() {
   try { runs = await apiJSON("/api/v1/reports/runs"); } catch (err) { notice($("rep-msg"), err.message); return; }
   $("rep-past-body").replaceChildren(...(runs.length ? runs.map((r) => el("tr", {},
     el("td", { textContent: new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) }),
-    el("td", { textContent: spanText(r.period_start, r.period_end) }),
-    el("td", { textContent: r.trigger === "schedule" ? r.name : r.name === "Report" ? "You" : r.name + " (run now)" }),
-    el("td", { className: r.emailed ? "" : "muted", textContent: r.emailed || r.note || "–" }),
+    el("td", { className: "wrap", textContent: spanText(r.period_start, r.period_end) }),
+    el("td", { className: "wrap", textContent: r.trigger === "schedule" ? r.name : r.name === "Report" ? "You" : r.name + " (run now)" }),
+    el("td", { className: r.emailed ? "wrap email" : "wrap email muted", textContent: r.emailed || r.note || "–" }),
     el("td", { className: "muted", textContent: bytes(r.size) }),
     el("td", { className: "actions" }, el("div", { className: "row-actions" },
       el("button", { className: "btn btn-small", textContent: "Download", onclick: () => downloadRun(r.id) }),
