@@ -228,7 +228,7 @@
       <picture>
         <source srcset="screenshots/dashboard-dark.webp" media="(prefers-color-scheme: dark)">
         <img class="shot hero-shot" src="screenshots/dashboard-light.webp" width="2880" height="1800"
-          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with 14.3K events, 55 threat intel matches, 407 events rated High or worse and 35 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
+          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with 8.9K events, no threat intel matches, 277 events rated High or worse and 9 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
       </picture>
       <p class="caption">The Dashboard: the last 24 hours at a glance, with threat matches in red and the alerts waiting for you. The events came from loggen.</p>
     </div>
@@ -246,12 +246,12 @@
             <p>The Database lists every event, newest first. Search words and phrases, set a date range, filter by one or more sources,
               severity, IP, user or country, and open any event for the full story. Click an IP to search for it, or right-click
               it to look it up or add it to a friendly list.</p>
-            <p>Here, a failed SSH login from an address on a botnet list, with the exact line that was logged.</p>
+            <p>Here, a search for one address across two sources, with a failed VPN login opened to show the exact line that was logged.</p>
           </div>
           <picture>
             <source srcset="screenshots/database-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/database-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Database filtered to threat intel matches. An opened event explains that 192.0.2.139 is on a threat list for an SSH brute-force botnet, and shows a failed password for oracle on bastion-01 with the original log line.">
+              alt="The Database searching for events from 81.2.69.142 that mention failed or blocked, filtered to two sources. The IP hover card shows London, United Kingdom, with a hint to click to search and right-click for more. An opened event shows a failed VPN login for grace with the original log line.">
           </picture>
         </div>
         <div class="tour-row flip">
@@ -266,7 +266,7 @@
           <picture>
             <source srcset="screenshots/alerts-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/alerts-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Alerts page with 35 open alerts from loggen's attacks: critical events on workstations, SSH brute force alerts for several addresses with 13 to 16 events each, and threat intel matches, each with View events, Acknowledge and Close buttons.">
+              alt="The Alerts page with 9 open alerts from loggen's attacks: critical events on workstations and SSH brute force alerts for several addresses with 13 to 19 events each, with View events, Acknowledge and Close buttons. Two closed alerts show who closed them and why.">
           </picture>
         </div>
         <div class="tour-row">
@@ -279,7 +279,7 @@
           <picture>
             <source srcset="screenshots/parser-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/parser-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The parser editor for the Log generator parser: a pattern with time, host, app, level, action, address, port and user fields, severity decided by the level, and a preview reading all four sample lines.">
+              alt="The parser editor for the Log generator parser: a pattern with time, host, app, level, action, address, port and user fields, severity decided by the level, and a preview reading all three sample lines.">
           </picture>
         </div>
         <div class="tour-row flip">
