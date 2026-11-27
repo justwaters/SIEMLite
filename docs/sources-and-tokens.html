@@ -74,6 +74,15 @@ with three options:</p>
   shown as "Deleted source". SIEMLite asks again before it deletes, and refuses while an alert rule is scoped to the
   source (it names the rules; change them first).</li>
 </ul>
+<p>To replace a token without losing the source, choose <strong>Manage</strong> on its row, then <strong>New token</strong>. The old token stops
+working at once, so anything still sending with it gets a <code>401</code> until you give it the new one. The source keeps its name,
+parser and logs (and stays disabled if it was), and the new token is shown once, like the first. Use this when a token
+is lost or may have leaked. After replacing the Log generator's token, save the new one over <code>siemlite-loggen.token</code> or
+pass it with <code>-token</code>.</p>
+<p>The <strong>Syslog</strong> source has its own <strong>Manage</strong> button. It opens the list of IP addresses and networks allowed to send syslog to
+SIEMLite, one per line. Saving applies at once, with no restart, and a list saved there replaces the <code>-syslog-allow</code> flag;
+<strong>Use default</strong> goes back to loopback and private networks. Changes to the list are recorded in the audit log, and the
+<a href="security-audit.html">Security audit</a> checks the list currently in force.</p>
 <p>The built-in sources can't be disabled or deleted. Each change is recorded in the audit log. From the command line:</p>
 <pre><code class="language-sh">./siemlite keys create -name &lt;name&gt;
 ./siemlite keys list      # with last used times; a disabled token shows &quot;disabled&quot;

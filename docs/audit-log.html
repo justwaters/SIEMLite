@@ -61,10 +61,10 @@
   <main class="doc">
 <h1 id="audit-log">Audit log</h1>
 <p>SIEMLite records what people do in it as events from the built-in <strong>INTERNAL</strong> source: sign-ins, failed and blocked
-sign-ins, sign-outs, changes to users, sources, parsers and rules, alerts acknowledged or closed, and backups created, downloaded, uploaded, restored or deleted. Command-line changes are recorded too, as "command line
+sign-ins, sign-outs, changes to users, sources, parsers and rules, alerts acknowledged or closed (a closed alert's note is in the entry), and backups created, downloaded, uploaded, restored or deleted. Command-line changes are recorded too, as "command line
 (user)". Each event names who did it and from which address, and has an <code>action</code> field such as <code>signin.failed</code> or
 <code>user.delete</code>. Search for them in the Database by choosing the INTERNAL source, or with a search like <code>"sign-in failed"</code>.
-They are kept, and removed by retention, like any other events.</p>
+Changes to the syslog allowlist are recorded too. They are kept, and removed by retention, like any other events.</p>
 <p>A failed sign-in names the account only if it exists; otherwise it says "an unknown username", so a password typed
 into the username field is never stored. Every failed sign-in is recorded until the address is locked out; the lockout is
 recorded once, not each retry. Beyond 600 failed sign-ins a minute (a flood from many addresses) the rest are counted

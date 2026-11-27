@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GeoIP and ASN · SIEMLite docs</title>
-<meta name="description" content="Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,">
+<meta name="description" content="IP locations work with no setup: SIEMLite downloads the free DB-IP City and ASN databases itself, and every public IP gets a country, city and network.">
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
@@ -60,20 +60,51 @@
 </ul></aside>
   <main class="doc">
 <h1 id="geoip-and-asn">GeoIP and ASN</h1>
-<p>Give SIEMLite a MaxMind-format database and every public source and destination IP gets a country, city,
-coordinates and autonomous system as it is stored:</p>
+<p>IP locations work with no setup. SIEMLite downloads the free <a href="https://db-ip.com">DB-IP</a> "lite" City and ASN databases
+itself, and every public source and destination IP then gets a country, city, coordinates and autonomous system as it
+is stored.</p>
+<ul>
+<li><strong>What is downloaded, and from where.</strong> Two files from <code>download.db-ip.com</code> over HTTPS: the City database (about
+  60 MB, 130 MB unpacked) and the ASN database (about 5 MB, 10 MB unpacked). Nothing about your events or your
+  server is sent: it is a plain download.</li>
+<li><strong>When.</strong> DB-IP publishes a new edition each month. SIEMLite looks for one at every start (which includes the one
+  after each update) and whenever it checks for updates, by hand or on the automatic update schedule, and swaps it
+  in without a restart. A file is only downloaded when there is a newer month than the one you have; older editions
+  are deleted. A failed download never replaces a working database, and never holds up an update.</li>
+<li><strong>Where it is kept.</strong> <code>geoip/</code> next to the database (<code>/data/geoip</code> in the container), as
+  <code>dbip-city-lite-YYYY-MM.mmdb</code> and <code>dbip-asn-lite-YYYY-MM.mmdb</code>, about 140 MB together.</li>
+<li><strong>The System page</strong> has an <strong>IP locations</strong> panel: a switch (on by default), which editions you have, when it last
+  checked, what went wrong if it did, and <strong>Check now</strong>. Hovering an IP in the Database says why it has no location
+  when it has none.</li>
+<li><strong>Turn it off</strong> with that switch. Downloaded files stay on disk but are not used, and nothing is fetched.</li>
+<li><strong>Air-gapped, or you want MaxMind?</strong> Turn the switch off and give your own files instead; they win, and nothing
+  is downloaded:</li>
+</ul>
 <pre><code class="language-sh">./siemlite -geoip-city GeoLite2-City.mmdb -geoip-asn GeoLite2-ASN.mmdb
 </code></pre>
 <ul>
-<li>Works with MaxMind <a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data">GeoLite2</a> (free with an account;
-  keep it fresh with <code>geoipupdate</code>) or GeoIP2, and the <a href="https://db-ip.com/db/lite.php">DB-IP lite</a> databases (free, no
-  account, CC BY 4.0). A Country database works in place of City. Either flag can be used alone.</li>
-<li>Files are checked hourly and reloaded when they change, so <code>geoipupdate</code> needs no restart.</li>
+<li>Your own files can be MaxMind <a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data">GeoLite2</a> (free with
+  an account; keep it fresh with <code>geoipupdate</code>) or GeoIP2, or DB-IP files you fetched yourself. A Country database
+  works in place of City. Either flag can be used alone. They are checked hourly and reloaded when they change, so
+  <code>geoipupdate</code> needs no restart. The System page then says "Using your own database files."</li>
 <li>Private, loopback and other non-public addresses are skipped.</li>
 <li>Search with <code>country=CN</code> or <code>asn=AS4134</code> (either endpoint). The country code shows next to each IP in the UI; the
   full location and AS name are in the event detail.</li>
+<li><strong>Attribution.</strong> The downloaded data is <em>IP geolocation data by <a href="https://db-ip.com">DB-IP.com</a></em>, licensed under
+  <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The page credits DB-IP where it shows it; if you
+  republish the data, keep that credit.</li>
 </ul>
-<p>Only events stored after GeoIP is enabled are enriched.</p>
+<p>Only events stored after the databases are in place are enriched; earlier events keep what they had.</p>
+<h2 id="ip-addresses-in-the-ui">IP addresses in the UI</h2>
+<p>Wherever an address is shown (the Database and its event details, alerts, the Dashboard's threat-listed IPs, threat matches and
+reports) it is underlined.</p>
+<ul>
+<li><strong>Hover</strong> for its location, network and threat lists. When there is no location, the card says why: GeoIP isn't set up, the IP isn't in the database, or it was stored before location data was on.</li>
+<li><strong>Click</strong> to search SIEMLite for it (<code>ip=&lt;address&gt;</code>, source or destination). Ctrl/Cmd-click opens the search in a new tab.</li>
+<li><strong>Right-click</strong> it, or press the ContextMenu key or Shift+F10 on it, for a small menu: <strong>TALOS Lookup</strong> (opens
+  Cisco Talos in a new tab; nothing is sent to Talos until you choose it) and, for admins, <strong>Add to list</strong>, which adds
+  the address to one of your <a href="threat-intel.html">friendly lists</a> (with an optional note) from a dialog.</li>
+</ul>
   </main>
 </div>
 <footer>

@@ -66,22 +66,26 @@
   high-severity events, events over time, severity, busiest sources and the IPs on threat lists. Type a search and press
   Enter to open the results in the Database.</li>
 <li><strong>Database</strong>: every event, newest first, with full-text search, a <strong>From mm/dd/yy to mm/dd/yy</strong> date range and filters
-  for source, severity, category, IPs, user, program, country and threat matches. Open an event for its details.
+  for source, severity, category, IPs, user, program, country and threat matches. The <strong>Source</strong> filter is a checklist: tick one
+  or more sources (nothing ticked means all of them) to search just those; the choice is kept in the address, as <code>source=3,5</code>.
+  Open an event for its details.
   It loads 100 events at a time: scroll to the end, or choose <strong>Show more events</strong>, for the next 100.
   The address bar keeps the search, so it can be bookmarked or shared.</li>
 <li><strong>Alerts</strong>: alerts raised by the rules, by severity, with how many events and when. Open the events behind an alert,
-  acknowledge it while you look into it, then close it. The <strong>Rules</strong> tab lists the rules; admins add, edit and switch them off.
+  acknowledge it while you look into it, then close it with a note saying why (it is shown on the closed alert as "Closed by NAME: note" and kept in the audit log). The <strong>Rules</strong> tab lists the rules; admins add, edit and switch them off.
   Users limited to some sources don't see alerts, since a rule looks at every source.</li>
 <li><strong>Users</strong> (admins): add people, set their role, limit what they can see, change passwords, and keep the built-in admin account to the server itself.</li>
 <li><strong>Sources</strong> (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).</li>
+<li><strong>Intel</strong> (admins): the threat feeds to download and your friendly address lists. See <a href="threat-intel.html">Threat intel</a>.</li>
 <li><strong>Parsers</strong> (admins): build, upload, export and edit parsers.</li>
 <li><strong>Reports</strong> (admins): a summary of a period (events, threats, alerts) that you preview on the page, download as a PDF, or schedule to be emailed. See <a href="reports.html">Reports</a>.</li>
 <li><strong>Integrations</strong> (admins): connect SIEMLite to other services. Each integration is a card you set up and then turn on or off: email, Slack, Microsoft Teams, sign-in with Microsoft Entra ID, AI Parsers, AI Alerts and AI agents (MCP).</li>
-<li><strong>System</strong> (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, database size and uptime, and backups: create, schedule, download, upload, restore and delete.</li>
+<li><strong>System</strong> (admins): the version and whether a newer release is out (with an update button), the HTTPS certificate (self-signed or Let's Encrypt), how long events are kept, how long original lines are kept, the IP locations panel, the Stable or Beta update channel and automatic updates, database size and uptime, and backups: create, schedule, download, upload, restore and delete.</li>
 <li><strong>Security audit</strong> (admins): checks SIEMLite's setup and the server it runs on, and tracks each finding until it is fixed. See <a href="security-audit.html">Security audit</a>.</li>
 <li><strong>Account</strong> (everyone; select your name at the bottom of the sidebar): your role and what it lets you see, the theme (System, Light
   or Dark) and a Look (Original or an optional frosted Glass) that works with both, signing out, and how you sign in: a local password, which you can change here, or Microsoft Entra ID.</li>
 </ul>
+<p>Every date and time field uses SIEMLite's own picker instead of the browser's: a calendar with month and year views and a clock with hour and minute columns. Both work with the keyboard and in the dark and glass looks, and you can still type the date or time. An IP address wherever it is shown can be clicked to search for it, or right-clicked for a menu (see <a href="geoip-and-asn.html#ip-addresses-in-the-ui">IP addresses in the UI</a>).</p>
 <p>The light and dark themes can follow your system or be set from the menu. Fonts are bundled in the binary, so the UI never contacts a font service.</p>
   </main>
 </div>

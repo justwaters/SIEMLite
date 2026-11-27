@@ -80,7 +80,7 @@ on every other browser). Wrong guesses there are limited separately from signing
 can't lock the owner out of signing in. Admins can set anyone's password on the Users page.</p>
 <p>Passwords are stored as bcrypt hashes. Sessions last 12 hours, use an <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code> cookie,
 and end on sign-out. After 10 failed sign-ins in 15 minutes a client address is locked out for the rest of the window, and an account is locked after 50 failed sign-ins from any addresses. A locked account answers like a wrong password, so the lockout can't be used to find out which usernames exist.</p>
-<h3 id="sign-in-restrictions">Sign-in restrictions</h3>
+<h2 id="sign-in-restrictions">Sign-in restrictions</h2>
 <p>Two switches tighten who can sign in with a password. Both take effect at once, for new sign-ins and for sessions already open.</p>
 <ul>
 <li><strong>Keep the admin account to this server</strong> (Users page): the built-in local account named <code>admin</code> (the one made on first start) can

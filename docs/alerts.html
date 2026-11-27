@@ -62,7 +62,7 @@
 <h1 id="alerts">Alerts</h1>
 <p>A rule counts matching events and raises an alert when there are enough of them within a time window. Matching events
 can be narrowed by a search (the same syntax as the Database, including field terms such as <code>action=ingest.late</code>), a minimum severity, threat intel matches and a source,
-and counted separately for each source address, destination address, user or host. The alert engine checks new events
+and counted separately for each source address, destination address, user, host or log source (shown by its name). The alert engine checks new events
 every 10 seconds.</p>
 <div class="tablewrap"><table>
 <thead>
@@ -116,14 +116,14 @@ an admin has edited that rule): an alert with no event of its own is closed (by 
 the real one. If SIEMLite can't tell which source is its own audit log for a moment, the rules wait and look again rather than
 count those events.</p>
 <p>While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
-the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The <a href="test-logs.html">log
+the next match raises a new alert. Closing an alert needs a note saying why, from the Alerts page, the API or an AI agent; alerts SIEMLite closes by itself carry the note "Closed automatically: ...". Built-in rules can be edited or switched off but not deleted. The <a href="test-logs.html">log
 generator</a>'s attacks raise alerts too.</p>
 <h2 id="improbable-travel">Improbable travel</h2>
 <p>The built-in rule <strong>Improbable travel</strong> raises a High alert for a user when two of their successful sign-ins came from
 places too far apart to travel between in the time that passed. It is added when SIEMLite starts (once; your edits to it
 are kept), and appears in the rules list like the others.</p>
 <ul>
-<li>It needs a GeoIP <strong>City</strong> database with coordinates (<code>-geoip-city</code>, see <a href="geoip-and-asn.html">GeoIP and ASN</a>). With a
+<li>It needs a GeoIP <strong>City</strong> database with coordinates: the one SIEMLite downloads by itself works (or your own, <code>-geoip-city</code>; see <a href="geoip-and-asn.html">GeoIP and ASN</a>). With a
   Country-only database, or no GeoIP, it stays quiet: sign-ins without coordinates are left out. Only events stored after
   GeoIP was switched on carry a location.</li>
 <li>What counts as a successful sign-in is the rule's search, which you can edit. It starts as

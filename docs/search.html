@@ -132,7 +132,8 @@ the raw text.</p>
 keeps what the event has no column for, such as ports and the activity. A syslog line's header (priority, process id, message id,
 structured data) is not kept: if you need it, give that source a custom parser.</p>
 <h2 id="filters">Filters</h2>
-<p>Beyond the text query, the Database page and the search API filter by time range (<code>start</code>, <code>end</code>), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000) and <code>offset</code>. Results are newest first. See the <a href="api-reference.html">API reference</a>.</p>
+<p>On the Database page the <strong>Source</strong> filter is a checklist: tick one or more sources to search just those (nothing ticked means all of them). The choice is kept in the page address, as <code>source=3,5</code>, so links and reloads keep it. The date range uses SIEMLite's own date and time pickers.</p>
+<p>Beyond the text query, the Database page and the search API filter by time range (<code>start</code>, <code>end</code>), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code> (a source id; repeat it or give a comma-separated list, <code>source_id=3,5</code>, for events from any of those sources, up to 200; users limited to some sources get only the overlap), <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000) and <code>offset</code>. Results are newest first. See the <a href="api-reference.html">API reference</a>.</p>
   </main>
 </div>
 <footer>
