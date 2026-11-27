@@ -455,17 +455,130 @@ def main(binary, loggen):
             page.locator("tr.ev").nth(199).wait_for()
             ids = page.locator("tr.ev").count()
             check(ids >= 200, f"Show more events adds the next 100 ({ids} shown)")
-            # A public IP is a link: hovering shows its details, clicking goes to Talos without opening the row.
+            # An IP is a link to a search for it: hovering shows its details, clicking searches (the same page, no new tab)
+            # without opening the row. Right-click (or the ContextMenu key) shows our own menu: Talos Lookup and Add to list.
             link = page.locator("tr.ev a.ip-link").first
             if link.count():
                 ip = link.inner_text()
-                check((link.get_attribute("href") or "").endswith("search=" + ip) and "talosintelligence.com" in link.get_attribute("href"),
-                      f"a public IP links to its Talos lookup ({ip})")
+                check(link.get_attribute("href") == "#/database?q=ip%3D" + ip and not link.get_attribute("target"),
+                      f"an IP is a link to the Database search for it ({ip})")
                 link.hover()
                 page.wait_for_selector(".ip-tip:not([hidden])")
-                check("Talos" in page.inner_text(".ip-tip"), "hovering an IP shows its card")
+                check("search" in page.inner_text(".ip-tip"), "hovering an IP shows its card")
                 check(page.locator("tr.detail").count() == 0 or page.locator("tr.ev.open").count() == 0, "hovering an IP doesn't open the row")
                 page.mouse.move(5, 5)
+                pages_before = len(page.context.pages)
+                link.click()
+                for _ in range(50):
+                    if "q=ip" in page.url and page.input_value("#q").startswith("ip="):
+                        break
+                    time.sleep(0.1)
+                for _ in range(60):  # the earlier results stay up until the new ones arrive
+                    rows = page.locator("tr.ev")
+                    ok = rows.count() > 0 and all(ip in t for t in [r.inner_text() for r in rows.all()[:20]])
+                    if ok:
+                        break
+                    time.sleep(0.1)
+                check(page.input_value("#q") == "ip=" + ip and ok, f"clicking an IP searches for it: source or destination ({page.input_value('#q')})")
+                check(len(page.context.pages) == pages_before, "clicking an IP opens no new tab")
+                check(page.locator("tr.ev.open").count() == 0, "clicking an IP doesn't open the row")
+
+                # Right-click: our menu, not the browser's.
+                page.evaluate("() => { window.__cm = []; window.addEventListener('contextmenu', (e) => window.__cm.push(e), true); }")
+                link = page.locator("tr.ev a.ip-link").first
+                link.click(button="right")
+                page.wait_for_selector(".ctx-menu")
+                check(page.evaluate("() => window.__cm[0].defaultPrevented"), "right-clicking an IP stops the browser's own menu")
+                items = page.locator('.ctx-menu [role="menuitem"]').all_inner_texts()
+                check(page.get_attribute(".ctx-menu", "role") == "menu" and items == ["TALOS Lookup", "Add to list"], f"the IP menu offers Talos Lookup and Add to list ({items})")
+                box = page.locator(".ctx-menu").bounding_box()
+                check(box["x"] >= 0 and box["y"] >= 0 and box["x"] + box["width"] <= page.viewport_size["width"] and box["y"] + box["height"] <= page.viewport_size["height"],
+                      "the menu stays inside the window")
+                page.keyboard.press("ArrowDown")
+                check(page.evaluate("() => document.activeElement.textContent") == "Add to list", "arrow keys move through the menu")
+                page.keyboard.press("Escape")
+                check(page.locator(".ctx-menu").count() == 0 and page.evaluate("() => document.activeElement.classList.contains('ip-link')"),
+                      "Esc closes the menu and returns focus to the IP")
+                page.evaluate("() => { window.__cm = []; }")
+                page.locator("#view-database thead th").first.click(button="right")
+                check(page.evaluate("() => window.__cm.length === 1 && !window.__cm[0].defaultPrevented"), "elsewhere the page keeps the browser's menu")
+                page.keyboard.press("Escape")
+                link.focus()
+                page.keyboard.press("Shift+F10")
+                check(page.locator(".ctx-menu").count() == 1, "Shift+F10 opens the menu from the keyboard")
+                page.mouse.click(5, 300)
+                check(page.locator(".ctx-menu").count() == 0, "clicking outside closes the menu")
+                link.focus()
+                page.keyboard.press("ContextMenu")
+                check(page.locator(".ctx-menu").count() == 1, "the ContextMenu key opens the menu")
+                page.keyboard.press("Escape")
+                # TALOS Lookup opens the lookup in a new tab (the request is stopped here, so nothing leaves the test).
+                asked = []
+                page.context.route("**/talosintelligence.com/**", lambda r: (asked.append(r.request.url), r.abort()))
+                link.click(button="right")
+                with page.context.expect_page() as popup:
+                    page.click('.ctx-menu a[role="menuitem"]')
+                for _ in range(30):
+                    if asked:
+                        break
+                    time.sleep(0.1)
+                check(asked == ["https://talosintelligence.com/reputation_center/lookup?search=" + ip], f"TALOS Lookup opens the lookup for the IP in a new tab ({asked})")
+                popup.value.close()
+                check(page.locator(".ctx-menu").count() == 0, "choosing Talos Lookup closes the menu")
+                # Add to list.
+                page.goto(url + "#/intel/friendlies")
+                page.wait_for_selector("#fr-name")
+                page.goto(url + "#/database?q=" + "ip%3D" + ip)
+                page.wait_for_selector("tr.ev a.ip-link")
+                page.locator("tr.ev a.ip-link").first.click(button="right")
+                page.click('.ctx-menu button[role="menuitem"]')
+                page.wait_for_selector("#dlg-addip[open]")
+                check(page.inner_text("#addip-title") == f"Add {ip} to a list", "Add to list opens a dialog titled for the address")
+                page.wait_for_selector("#addip-lists a")
+                check("Intel" in page.inner_text("#addip-lists") and page.is_hidden("#addip-ok"), "with no lists the dialog points to the Intel page")
+                page.keyboard.press("Escape")
+                check(page.locator("#dlg-addip[open]").count() == 0, "Esc closes the dialog")
+                page.goto(url + "#/intel/friendlies")
+                page.wait_for_selector("#fr-name")
+                for nm in ("Trusted", "Scanners"):
+                    page.fill("#fr-name", nm)
+                    page.click('#fr-new button[type="submit"]')
+                    page.wait_for_selector(f'.fr-list h3:text-is("{nm}")')
+                page.goto(url + "#/database?q=" + "ip%3D" + ip)
+                page.wait_for_selector("tr.ev a.ip-link")
+                page.locator("tr.ev a.ip-link").first.click(button="right")
+                page.click('.ctx-menu button[role="menuitem"]')
+                page.wait_for_selector("#addip-lists input")
+                check(page.locator("#addip-lists input").count() == 2 and "0 entries" in page.inner_text("#addip-lists"), "the dialog lists each friendly list with its entry count")
+                page.check('#addip-lists label:has-text("Scanners") input')
+                page.fill("#addip-note", "seen in tests")
+                page.click("#addip-ok")
+                page.wait_for_selector("#addip-msg.ok")
+                check(page.inner_text("#addip-msg") == f"Added {ip} to Scanners.", "adding shows a confirmation")
+                page.click("#addip-cancel")
+                page.goto(url + "#/intel/friendlies")
+                page.wait_for_selector(".fr-entries li")
+                check(page.locator('.fr-list:has(h3:text-is("Scanners")) .fr-entries li .mono').all_inner_texts() == [ip]
+                      and page.locator('.fr-list:has(h3:text-is("Scanners")) .fr-entries li').first.get_attribute("title") == "seen in tests",
+                      "the address (with its note) is on the chosen list on the Intel page")
+                page.goto(url + "#/database?q=" + "ip%3D" + ip)
+                page.wait_for_selector("tr.ev a.ip-link")
+                page.locator("tr.ev a.ip-link").first.click(button="right")
+                page.click('.ctx-menu button[role="menuitem"]')
+                page.wait_for_selector("#addip-lists input")
+                page.check('#addip-lists label:has-text("Scanners") input')
+                page.click("#addip-ok")
+                page.wait_for_selector("#addip-msg.bad")
+                check("already" in page.inner_text("#addip-msg") and page.locator("#dlg-addip[open]").count() == 1, "a duplicate shows an error and the dialog stays open")
+                page.keyboard.press("Escape")
+                for nm in ("Trusted", "Scanners"):  # leave the Intel page as the later checks expect
+                    page.goto(url + "#/intel/friendlies")
+                    page.wait_for_selector(f'.fr-list h3:text-is("{nm}")')
+                    page.locator(f'.fr-list:has(h3:text-is("{nm}")) .btn-danger').click()
+                    page.click("#c-ok")
+                    page.wait_for_selector(f'.fr-list h3:text-is("{nm}")', state="detached")
+                page.goto(url + "#/database")
+                page.wait_for_selector("tr.ev")
             else:
                 check(False, "the Database shows a public IP as a link")
             # Field terms beside the words, the format the search box is meant to take.

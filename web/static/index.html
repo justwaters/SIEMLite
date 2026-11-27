@@ -411,6 +411,18 @@
   .sev i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); flex: none; }
   .ip-link { color: inherit; text-decoration: underline dotted; text-decoration-color: var(--ink-2); text-underline-offset: 4px; }
   .ip-link:hover, .ip-link:focus-visible { text-decoration-style: solid; text-decoration-color: currentColor; }
+  .ctx-menu { position: fixed; z-index: 60; min-width: 190px; padding: 5px; background: var(--surface); color: var(--ink); border: 1px solid var(--rule);
+              border-radius: 10px; box-shadow: 0 12px 32px -12px rgba(0, 0, 0, .5); font-family: var(--sans); font-size: 13.5px; display: grid; gap: 1px; }
+  .ctx-menu .ctx-head { padding: 5px 10px 6px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--rule); margin-bottom: 3px; }
+  .ctx-menu [role="menuitem"] { display: block; width: 100%; box-sizing: border-box; padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--ink);
+                                font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+  .ctx-menu [role="menuitem"]:hover, .ctx-menu [role="menuitem"]:focus { background: var(--raised); outline: none; }
+  .ctx-menu [role="menuitem"]:focus-visible { box-shadow: inset 0 0 0 2px var(--ink-2); }
+  :root[data-look="glass"] .ctx-menu { -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%); background: var(--g-fill-hi);
+    border-color: var(--g-edge); border-radius: 14px; box-shadow: var(--g-rim), var(--g-shadow); }
+  .ip-pick { display: grid; gap: 6px; max-height: 240px; overflow: auto; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; margin: 0; }
+  .ip-pick legend { padding: 0 4px; color: var(--ink-2); font-size: 13px; }
+  .ip-pick .muted { margin-left: 6px; }
   .ip-tip { position: fixed; z-index: 50; font-family: var(--sans); font-size: 12px; padding: 6px 9px; }
   .ip-tip b { font-size: 13px; }
   .ip-tip .ip-tip-threat { color: var(--sev-5); font-weight: 600; }
@@ -1993,6 +2005,20 @@
   </form>
 </dialog>
 
+<dialog id="dlg-addip">
+  <form method="dialog" id="addip-form">
+    <h2 id="addip-title">Add to a list</h2>
+    <p id="addip-sub">Addresses on a friendly list are never marked as a threat, even if a feed lists them. This applies to events stored from now on.</p>
+    <fieldset class="ip-pick" id="addip-lists"><legend>Friendly list</legend></fieldset>
+    <label class="field-label" id="addip-note-wrap">Note (optional) <input class="input" id="addip-note" maxlength="200" autocomplete="off" placeholder="e.g. office gateway"></label>
+    <p class="notice" id="addip-msg" role="status" hidden></p>
+    <div class="dialog-actions">
+      <button class="btn" type="button" id="addip-cancel">Cancel</button>
+      <button class="btn btn-primary" type="submit" id="addip-ok">Add</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-confirm">
   <form method="dialog">
     <h2 id="c-title"></h2>
@@ -2561,10 +2587,12 @@ function renderStats(s) {
       el("span", { className: "n", textContent: nf.format(x.count) }), bar);
   }) : [el("li", {}, el("p", { className: "empty-note", textContent: "No events in this period." }))]));
 
-  $("dash-threats").replaceChildren(...(o.top_threat_ips.length ? o.top_threat_ips.map((x) => el("li", {},
-    el("a", { href: "#/database?threat=1&q=" + encodeURIComponent('"' + x.ip + '"') + "&from=" + mdy(new Date(s.start)) },
-      el("span", { className: "mono", textContent: x.ip }), x.country ? el("span", { className: "cc", textContent: x.country }) : ""),
-    el("span", { className: "n", textContent: nf.format(x.count) }))) :
+  $("dash-threats").replaceChildren(...(o.top_threat_ips.length ? o.top_threat_ips.map((x) => {
+    const link = el("a", { href: "#/database?threat=1&q=" + encodeURIComponent(ipSearchQuery(x.ip)) + "&from=" + mdy(new Date(s.start)) },
+      el("span", { className: "mono", textContent: x.ip }), x.country ? el("span", { className: "cc", textContent: x.country }) : "");
+    ipMenuOn(link, x.ip);
+    return el("li", {}, link, el("span", { className: "n", textContent: nf.format(x.count) }));
+  }) :
     [el("li", {}, el("p", { className: "empty-note", textContent: "No source IPs matched a threat list in this period." }))]));
 }
 function bucketLabel(ms, width, long) {
@@ -2984,7 +3012,8 @@ function ipCell(ip, cc, enr, intel) {
   if (cc) td.append(el("span", { className: "cc", textContent: cc }));
   return td;
 }
-// An IP is underlined: hovering shows where it is, clicking looks it up on Talos in a new tab (nothing is sent until the click).
+// An IP is underlined: hovering shows where it is, a click searches SIEMLite for it (the Database, source or destination), and
+// right-click, the ContextMenu key or Shift+F10 opens a small menu (Talos Lookup, Add to list). Nothing is sent to Talos until it is chosen.
 const PRIVATE_IP = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/i;
 let ipTip;
 const countryName = (cc) => { try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || cc; } catch { return cc; } };
@@ -2994,12 +3023,71 @@ function noLocationWhy() {
   // Either the address isn't in the database, or the event was stored before the data was on: an event doesn't say which.
   return "Not in the location database, or stored before location data was on.";
 }
-function ipLink(ip, enr, intel) {
+// The search a user would type for an address: either end. IPv6 is quoted so its colons are plain text.
+const ipSearchQuery = (ip) => "ip=" + (ip.includes(":") ? `"${ip}"` : ip);
+const ipSearchHref = (ip) => "#/database?q=" + encodeURIComponent(ipSearchQuery(ip));
+const IP_TEXT = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}(:\d{1,3}(\.\d{1,3}){3})?)$/i;
+const ipPlain = (ip) => (ip && IP_TEXT.test(ip) ? ipLink(ip, null, null, true) : ip || "");
+let ipMenuEl = null, ipMenuFrom = null;
+function closeIPMenu(refocus) {
+  if (!ipMenuEl) return;
+  ipMenuEl.remove(); ipMenuEl = null;
+  document.removeEventListener("pointerdown", ipMenuOutside, true);
+  document.removeEventListener("scroll", ipMenuAway, true); window.removeEventListener("resize", ipMenuAway); window.removeEventListener("blur", ipMenuAway);
+  if (refocus && ipMenuFrom && ipMenuFrom.isConnected) ipMenuFrom.focus();
+  ipMenuFrom = null;
+}
+function ipMenuOutside(e) { if (ipMenuEl && !ipMenuEl.contains(e.target)) closeIPMenu(false); }
+function ipMenuAway(e) { if (!e || !ipMenuEl || !ipMenuEl.contains(e.target)) closeIPMenu(false); }
+// openIPMenu shows the menu at (x, y), flipped left or up if it would leave the window. from gets the focus back when it closes.
+function openIPMenu(ip, from, x, y) {
+  closeIPMenu(false);
+  if (typeof ipTip !== "undefined" && ipTip) ipTip.hidden = true;
+  const items = [el("a", { role: "menuitem", tabIndex: -1, textContent: "TALOS Lookup", target: "_blank", rel: "noopener noreferrer",
+    href: "https://talosintelligence.com/reputation_center/lookup?search=" + encodeURIComponent(ip) })];
+  if (isAdmin) {
+    const add = el("button", { type: "button", role: "menuitem", tabIndex: -1, textContent: "Add to list" });
+    add.onclick = () => { closeIPMenu(false); openAddIP(ip, from); };
+    items.push(add);
+  }
+  const m = el("div", { className: "ctx-menu", role: "menu", "aria-label": "Actions for " + ip }, el("div", { className: "ctx-head", textContent: ip }), ...items);
+  m.addEventListener("click", (e) => { if (e.target.closest("a")) closeIPMenu(false); });
+  m.addEventListener("keydown", (e) => {
+    const i = items.indexOf(document.activeElement);
+    const go = (n) => { e.preventDefault(); items[(n + items.length) % items.length].focus(); };
+    if (e.key === "ArrowDown") go(i + 1); else if (e.key === "ArrowUp") go(i < 0 ? -1 : i - 1);
+    else if (e.key === "Home") go(0); else if (e.key === "End") go(-1);
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeIPMenu(true); }
+    else if (e.key === "Tab") { e.preventDefault(); closeIPMenu(true); }
+    else if (e.key === " ") { e.preventDefault(); document.activeElement.click(); }
+    e.stopPropagation();
+  });
+  m.addEventListener("contextmenu", (e) => e.preventDefault());
+  document.body.append(m);
+  ipMenuEl = m; ipMenuFrom = from;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(4, x + w + 4 > innerWidth ? x - w : x) + "px";
+  m.style.top = Math.max(4, y + h + 4 > innerHeight ? y - h : y) + "px";
+  document.addEventListener("pointerdown", ipMenuOutside, true);
+  document.addEventListener("scroll", ipMenuAway, true); window.addEventListener("resize", ipMenuAway); window.addEventListener("blur", ipMenuAway);
+  items[0].focus();
+}
+// ipMenuOn gives any element holding an address the menu: right-click at the pointer, ContextMenu or Shift+F10 beside the element.
+function ipMenuOn(node, ip) {
+  node.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); openIPMenu(ip, node, e.clientX, e.clientY); });
+  node.addEventListener("keydown", (e) => {
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = node.getBoundingClientRect();
+    openIPMenu(ip, node, r.left, r.bottom + 2);
+  });
+}
+function ipLink(ip, enr, intel, noTip) {
   if (!ip) return "";
   const priv = PRIVATE_IP.test(ip);
   enr = enr || {};
-  const a = el("a", { className: "ip-link", textContent: ip, target: "_blank", rel: "noopener noreferrer",
-    href: "https://talosintelligence.com/reputation_center/lookup?search=" + encodeURIComponent(ip) });
+  const a = el("a", { className: "ip-link", textContent: ip, href: ipSearchHref(ip), title: noTip ? "Search for " + ip : "" });
+  ipMenuOn(a, ip);
   const as = enr.autonomous_system, loc = enr.location;
   const listed = (intel || []).filter((m) => (m.matched || m.value) === ip);
   const place = loc ? [loc.city, countryName(loc.country)].filter(Boolean).join(", ") : "";
@@ -3013,7 +3101,7 @@ function ipLink(ip, enr, intel) {
       as && as.number ? el("span", { className: "mono", textContent: "AS" + as.number }) : "",
       !place && !as ? el("span", { textContent: priv ? "Private address" : noLocationWhy() }) : "",
       place || as ? el("span", { className: "ip-tip-src", textContent: geoipSource === "dbip" ? "IP data by DB-IP" : geoipSource === "own" ? "IP data from your own database" : "" }) : "",
-      el("span", { className: "ip-tip-hint", textContent: "Talos Lookup" }));
+      el("span", { className: "ip-tip-hint", textContent: "Click to search · right-click for more" }));
     ipTip.hidden = false;
     const r = a.getBoundingClientRect(), w = ipTip.offsetWidth, h = ipTip.offsetHeight;
     const below = r.bottom + 8 + h < innerHeight;
@@ -3021,12 +3109,60 @@ function ipLink(ip, enr, intel) {
     ipTip.style.top = (below ? r.bottom + 8 : r.top - 8 - h) + "px";
   };
   const hide = () => { if (ipTip) ipTip.hidden = true; };
-  a.addEventListener("mouseenter", show); a.addEventListener("focus", show);
-  a.addEventListener("mouseleave", hide); a.addEventListener("blur", hide);
-  a.addEventListener("click", (e) => { e.stopPropagation(); hide(); }); // not a click on the row
+  if (!noTip) {
+    const showIf = () => { if (!ipMenuEl) show(); };
+    a.addEventListener("mouseenter", showIf); a.addEventListener("focus", showIf);
+    a.addEventListener("mouseleave", hide); a.addEventListener("blur", hide);
+  }
+  a.addEventListener("click", (e) => { e.stopPropagation(); hide(); }); // not a click on the row; the link itself goes to the search
   a.addEventListener("keydown", (e) => e.stopPropagation()); // Enter follows the link, it doesn't open the row
   return a;
 }
+// "Add to list": a dialog with the friendly lists to choose from. Only admins edit the lists, so only they are offered it.
+let addIPFor = "", addIPBack = null;
+async function openAddIP(ip, back) {
+  addIPFor = ip; addIPBack = back;
+  const d = $("dlg-addip"), box = $("addip-lists");
+  $("addip-title").textContent = `Add ${ip} to a list`;
+  notice($("addip-msg"), ""); $("addip-note").value = ""; $("addip-note-wrap").hidden = false;
+  $("addip-ok").hidden = false; $("addip-ok").disabled = true; $("addip-cancel").textContent = "Cancel";
+  box.replaceChildren(el("legend", { textContent: "Friendly list" }), el("span", { className: "muted", textContent: "Loading…" }));
+  if (!d.open) d.showModal();
+  let lists;
+  try { lists = await apiJSON("/api/v1/intel/friendly"); }
+  catch (err) { box.replaceChildren(el("legend", { textContent: "Friendly list" })); notice($("addip-msg"), err.message); return; }
+  if (!lists.length) {
+    box.replaceChildren(el("legend", { textContent: "Friendly list" }), el("span", { className: "muted" }, "You have no lists yet. ",
+      el("a", { href: "#/intel/friendlies", textContent: "Make one on the Intel page", onclick: () => d.close() }), "."));
+    $("addip-note-wrap").hidden = true; $("addip-ok").hidden = true;
+    return;
+  }
+  box.replaceChildren(el("legend", { textContent: "Friendly list" }), ...lists.map((l, i) => {
+    const has = l.entries.some((e) => e.value === ip);
+    const n = `${l.entries.length} ${l.entries.length === 1 ? "entry" : "entries"}` + (has ? ", already has this address" : "");
+    const r = el("input", { type: "radio", name: "addip-list", value: String(l.id), checked: i === 0 });
+    r.dataset.name = l.name;
+    return el("label", { className: "check" }, r, l.name, el("span", { className: "muted", textContent: n }));
+  }));
+  $("addip-ok").disabled = false;
+  const first = box.querySelector("input"); if (first) first.focus();
+}
+$("addip-cancel").onclick = () => $("dlg-addip").close();
+$("dlg-addip").addEventListener("close", () => { if (addIPBack && addIPBack.isConnected) addIPBack.focus(); });
+$("addip-form").onsubmit = async (e) => {
+  e.preventDefault(); // errors stay in the dialog
+  const pick = $("addip-lists").querySelector("input:checked");
+  if (!pick) return;
+  const name = pick.dataset.name, ok = $("addip-ok");
+  ok.disabled = true;
+  try {
+    const r = await apiJSON(`/api/v1/intel/friendly/${pick.value}/entries`, { method: "POST", json: { values: addIPFor, note: $("addip-note").value } });
+    if (!r.added) { notice($("addip-msg"), `${addIPFor} is already on ${name}.`); ok.disabled = false; return; }
+    notice($("addip-msg"), `Added ${addIPFor} to ${name}.`, true);
+    ok.hidden = true; $("addip-note-wrap").hidden = true; $("addip-cancel").textContent = "Close"; $("addip-cancel").focus();
+    if (!$("view-intel").hidden) loadFriendly();
+  } catch (err) { notice($("addip-msg"), err.message); ok.disabled = false; }
+};
 // Every list that has an address (or file, or domain) found in an event: the list, what kind of threat it
 // tracks, what it says about this one, how far to trust it, and where to read about it.
 const CONFIDENCE = { high: "High confidence", medium: "Medium confidence", low: "Low confidence" };
@@ -3038,7 +3174,7 @@ function threatBox(matches) {
     groups.get(k).push(m);
   }
   return el("ul", { className: "matches", "aria-label": "Threat intel matches" }, ...[...groups].map(([value, ms]) => el("li", {},
-    el("b", { textContent: `${value} is on ${ms.length === 1 ? "a threat list" : ms.length + " threat lists"}` }),
+    el("b", {}, IP_TEXT.test(value) ? ipPlain(value) : value, ` is on ${ms.length === 1 ? "a threat list" : ms.length + " threat lists"}`),
     ...ms.map((m) => el("div", { className: "match" },
       el("span", { className: "match-list", textContent: m.source }),
       m.category ? el("span", { className: "tag tag-plain", textContent: m.category }) : "",
@@ -4052,7 +4188,7 @@ function alertRow(a) {
   const sev = el("span", { className: "sev" }, el("i"), SEV[a.severity]); sev.style.setProperty("--c", `var(--sev-${a.severity})`);
   const what = el("td", { className: "what" });
   what.append(el("b", { textContent: a.rule_name }));
-  if (a.group_value) what.append(el("span", { className: "grp", textContent: a.group_label || a.group_value }));
+  if (a.group_value) what.append(el("span", { className: "grp" }, (a.group_by === "src_ip" || a.group_by === "dst_ip") && !a.group_label ? ipPlain(a.group_value) : (a.group_label || a.group_value)));
   else if (a.group_by) what.append(el("span", { className: "grp none", textContent: `no ${GROUP_LABEL[a.group_by]}` }));
   if (a.note) what.append(el("div", { className: "muted", textContent: a.note }));
   if (a.status === "closed" && a.close_note) what.append(el("div", { className: "muted close-note", textContent: `Closed by ${a.updated_by || "someone"}: ${a.close_note}` }));
@@ -4682,7 +4818,7 @@ const spanText = (a, b) => new Date(a).toLocaleDateString([], { month: "short", 
 function rankList(items, label) {
   if (!items || !items.length) return el("p", { className: "hint", textContent: "None in this period." });
   return el("ul", { className: "rep-rank" }, ...items.slice(0, 8).map((i) => el("li", {},
-    el("span", { textContent: label(i) }), el("span", { className: "muted", textContent: i.count.toLocaleString() }),
+    el("span", {}, label(i)), el("span", { className: "muted", textContent: i.count.toLocaleString() }),
     el("div", { className: "bar" }))));
 }
 function renderSummary(d) {
@@ -4702,7 +4838,7 @@ function renderSummary(d) {
     el("thead", {}, el("tr", {}, ...["Severity", "Rule", "For", "Events", "Status", "Opened"].map((h) => el("th", { textContent: h })))),
     el("tbody", {}, ...alerts.list.map((a) => el("tr", {},
       el("td", { textContent: SEV[a.severity] || a.severity }), el("td", { textContent: a.rule_name }),
-      el("td", { className: "mono", textContent: a.group_label || a.group_value || "" }), el("td", { textContent: a.count.toLocaleString() }),
+      el("td", { className: "mono" }, (a.group_by === "src_ip" || a.group_by === "dst_ip") && !a.group_label ? ipPlain(a.group_value) : (a.group_label || a.group_value || "")), el("td", { textContent: a.count.toLocaleString() }),
       el("td", { textContent: a.status }), el("td", { textContent: new Date(a.created_at).toLocaleString() })))))) : el("p", { className: "hint", textContent: "No alerts opened in this period." });
   $("rep-preview").replaceChildren(
     el("p", { className: "hint", textContent: `${spanText(d.start, d.end)}. This is a preview; Download PDF makes the full report.` }),
@@ -4711,7 +4847,7 @@ function renderSummary(d) {
       el("div", { className: "rep-axis" }, el("span", { textContent: new Date(d.start).toLocaleDateString([], { month: "short", day: "numeric" }) }), el("span", { textContent: new Date(d.end - 1).toLocaleDateString([], { month: "short", day: "numeric" }) }))),
     el("div", { className: "rep-cols" },
       ranks("By severity", sevRows, (i) => i.name), ranks("Top sources", d.top_sources, (i) => i.name),
-      ranks("Top countries", d.top_countries, (i) => i.name), ranks("Threat-listed addresses", (d.top_threat_ips || []).map((t) => ({ name: t.ip + (t.country ? " " + t.country : ""), count: t.count })), (i) => i.name)),
+      ranks("Top countries", d.top_countries, (i) => i.name), ranks("Threat-listed addresses", (d.top_threat_ips || []).map((t) => ({ ip: t.ip, name: t.ip + (t.country ? " " + t.country : ""), count: t.count })), (i) => i.ip ? el("span", {}, ipPlain(i.ip), i.name.slice(i.ip.length)) : i.name)),
     el("div", {}, el("h3", { textContent: `Alerts opened (${alerts.opened.toLocaleString()})` }), alertTable,
       alerts.more ? el("p", { className: "hint", textContent: `… and ${alerts.more} more not listed.` }) : ""),
     el("p", { className: "hint", textContent: "Threat feeds in use: " + (d.feeds && d.feeds.length ? d.feeds.join(", ") : "none") + "." }));
