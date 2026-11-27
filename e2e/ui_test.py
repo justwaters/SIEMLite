@@ -37,7 +37,7 @@ def free_port():
 def start(binary, workdir):
     port = free_port()
     log = open(os.path.join(workdir, "server.log"), "w+")
-    proc = subprocess.Popen([binary, "-addr", f"127.0.0.1:{port}", "-db", os.path.join(workdir, "siemlite.db")],
+    proc = subprocess.Popen([binary, "-addr", f"127.0.0.1:{port}", "-db", os.path.join(workdir, "siemlite.db"), "-local-addr", f"127.0.0.1:{free_port()}"],
                             stdout=log, stderr=subprocess.STDOUT,
                             # IP location data is downloaded from here: nothing listens, so no test reaches the real network
                             env={**os.environ, "SIEMLITE_GEOIP_DOWNLOAD_URL": "https://127.0.0.1:1/free/"})
@@ -628,7 +628,17 @@ def main(binary, loggen):
             check(all(row.locator(f'[data-day="{d}"]').get_attribute("aria-pressed") == "true" for d in "0123456"), "a new schedule starts with every day picked")
             for d in ("0", "6"):
                 row.locator(f'[data-day="{d}"]').click()
-            row.locator("input").nth(0).fill("04:15")
+            # The time field is the page's own picker: click an hour, then a minute (the value stays 24-hour HH:MM).
+            check(page.locator('input[type="time"], input[type="date"]').count() == 0, "no native date or time fields are on the System page")
+            row.locator(".dp-btn").nth(0).click()
+            page.wait_for_selector("#dp-pop .dp-opt")
+            check(page.is_visible("#dp-pop") and page.get_attribute("#dp-pop", "role") == "dialog" and page.locator('#dp-pop [role="listbox"]').count() >= 2
+                  and page.locator('#dp-pop [aria-label="Hours"] [aria-selected="true"]').count() == 1, "the time picker opens with the hour listbox showing the current hour")
+            page.locator('#dp-pop [aria-label="Hours"] .dp-opt[data-v="4"]').click()
+            page.locator('#dp-pop [aria-label="Minutes"] .dp-opt[data-v="15"]').click()
+            page.keyboard.press("Escape")
+            check(row.locator("input").nth(0).input_value() == "04:15" and not page.is_visible("#dp-pop"), "picking an hour and a minute sets 04:15 and Escape closes the picker")
+            check(page.evaluate("document.activeElement === document.querySelector('.au-row input')"), "Escape returns focus to the time field")
             page.click("#au-add")
             row2 = page.locator(".au-row").nth(1)
             for d in "12345":
@@ -637,6 +647,16 @@ def main(binary, loggen):
             row2.locator("[data-add-time]").click()
             row2.locator("input").nth(1).fill("22:45")
             check(page.locator(".au-row").count() == 2 and row2.locator("input").count() == 2, "a second schedule with two times can be added")
+            # Keyboard: Down then Enter in the hour list moves the hour on by one; typing an out-of-range time is refused.
+            row2.locator(".dp-btn").nth(1).click()
+            page.keyboard.press("ArrowDown"); page.keyboard.press("Enter")
+            page.keyboard.press("Escape")
+            check(row2.locator("input").nth(1).input_value() == "23:45", f"the time picker works from the keyboard ({row2.locator('input').nth(1).input_value()})")
+            row2.locator("input").nth(1).fill("25:61"); row2.locator("input").nth(1).press("Tab")
+            check(row2.locator("input").nth(1).get_attribute("aria-invalid") == "true", "25:61 is refused as a time")
+            row2.locator("input").nth(1).fill("9:05"); row2.locator("input").nth(1).press("Tab")
+            check(row2.locator("input").nth(1).input_value() == "09:05" and row2.locator("input").nth(1).get_attribute("aria-invalid") is None, "typing 9:05 is accepted and tidied to 09:05")
+            row2.locator("input").nth(1).fill("22:45"); row2.locator("input").nth(1).press("Tab")
             page.click("#au-save")
             page.wait_for_selector("#au-msg:not([hidden])")
             msg = page.inner_text("#au-msg")
@@ -648,6 +668,8 @@ def main(binary, loggen):
                   page.locator(".au-row").nth(0).locator('[data-day="6"]').get_attribute("aria-pressed") == "false" and
                   page.locator(".au-row").nth(1).locator("input").count() == 2,
                   "the update schedule is kept after a reload")
+            check(page.locator(".au-row").nth(0).locator("input").nth(0).input_value() == "04:15" and page.locator(".au-row").nth(1).locator("input").nth(0).input_value() == "06:00"
+                  and page.locator(".au-row").nth(1).locator("input").nth(1).input_value() == "22:45", "the saved times come back as the same HH:MM after a reload")
             page.locator(".au-row").nth(1).get_by_text("Remove schedule").click()
             check(page.locator(".au-row").count() == 1, "a schedule can be removed")
             row.locator('[data-day="1"]').click()
@@ -667,6 +689,92 @@ def main(binary, loggen):
             page.locator(".au-row").nth(0).locator("[data-add-time]").click()
             page.locator(".au-row").nth(0).locator("[data-add-time]").click()
             check(page.locator(".au-row").nth(0).locator("input").count() == 3, "times can be added to a schedule")
+
+            # Date picker: Reports > Make a report > Choose dates, the Database date range, and inside a modal dialog.
+            page.goto(url + "#/reports")
+            page.wait_for_selector("#rep-period")
+            page.select_option("#rep-period", "custom")
+            check(page.locator('input[type="date"], input[type="time"]').count() == 0, "no native date or time fields are on the page")
+            page.click("#rep-from + .dp-btn")
+            check(page.is_visible("#dp-pop") and page.get_attribute("#dp-pop", "role") == "dialog" and page.get_attribute("#rep-from", "aria-haspopup") == "dialog"
+                  and page.get_attribute("#rep-from", "aria-expanded") == "true", "the date picker opens from the calendar button")
+            check(page.locator("#dp-pop .dp-day").count() == 42 and page.locator('#dp-pop .dp-day[aria-current="date"]').count() == 1, "it shows six weeks and marks today")
+            page.locator("#dp-pop .dp-day:not(.out)").nth(9).click()
+            v = page.input_value("#rep-from")
+            check(re.fullmatch(r"\d{4}-\d{2}-10", v) is not None and not page.is_visible("#dp-pop"), f"clicking a day fills the field as YYYY-MM-DD and closes ({v})")
+            check(page.evaluate("document.activeElement.id") == "rep-from", "focus goes back to the field after a pick")
+            page.click("#rep-from + .dp-btn")
+            page.keyboard.press("ArrowRight"); page.keyboard.press("Enter")
+            check(page.input_value("#rep-from") == v[:-2] + "11", f"arrow keys and Enter pick a day ({page.input_value('#rep-from')})")
+            page.click("#rep-from + .dp-btn")
+            page.keyboard.press("PageDown"); page.keyboard.press("Enter")
+            y, mo = int(v[:4]), int(v[5:7])
+            y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+            check(page.input_value("#rep-from") == f"{y:04d}-{mo:02d}-11", f"PageDown moves a month ({page.input_value('#rep-from')})")
+            page.fill("#rep-from", "2026-03-05"); page.press("#rep-from", "Tab")
+            check(page.input_value("#rep-from") == "2026-03-05" and page.get_attribute("#rep-from", "aria-invalid") is None, "a typed ISO date is accepted")
+            page.click("#rep-from + .dp-btn")
+            check(page.inner_text("#dp-pop .dp-title") == "March 2026" and page.locator('#dp-pop [aria-selected="true"]').get_attribute("role") == "gridcell"
+                  and page.locator('#dp-pop .dp-day.sel').get_attribute("aria-label").endswith("March 5, 2026"), "the picker opens on the typed date, marked selected with a full-date label")
+            page.click('#dp-pop [aria-label="Next month"]')
+            check(page.inner_text("#dp-pop .dp-title") == "April 2026", "the next-month button moves on")
+            page.click('#dp-pop [aria-label="Previous month"]'); page.click('#dp-pop [aria-label="Previous month"]')
+            check(page.inner_text("#dp-pop .dp-title") == "February 2026", "the previous-month button moves back")
+            page.click("#dp-pop .dp-title"); page.locator("#dp-pop .dp-cell").nth(5).click()
+            check(page.inner_text("#dp-pop .dp-title") == "June 2026", "the title opens a month grid; a month opens its days")
+            page.click("#dp-pop .dp-title"); page.click("#dp-pop .dp-title"); page.locator("#dp-pop .dp-cell", has_text="2024").click()
+            page.locator("#dp-pop .dp-cell").nth(0).click()
+            check(page.inner_text("#dp-pop .dp-title") == "January 2024", "month then year pickers jump to another year")
+            page.keyboard.press("Escape")
+            check(not page.is_visible("#dp-pop") and page.evaluate("document.activeElement.id") == "rep-from" and page.input_value("#rep-from") == "2026-03-05",
+                  "Escape closes the picker, keeps the value and returns focus")
+            page.click("#rep-from + .dp-btn"); page.mouse.click(5, 300)
+            check(not page.is_visible("#dp-pop"), "clicking outside closes the picker")
+            page.click("#rep-from + .dp-btn")
+            check(page.is_visible("#dp-pop") and page.locator('#dp-pop .dp-foot button:has-text("Clear")').count() == 0, "a required date has no Clear button")
+            page.keyboard.press("Escape")
+            # Reports still make a custom-period preview from the typed dates, and refuse bad ones.
+            page.fill("#rep-from", "2026-13-45"); page.press("#rep-from", "Tab")
+            page.fill("#rep-to", "2026-03-10")
+            check(page.get_attribute("#rep-from", "aria-invalid") == "true", "an impossible date is flagged")
+            page.click("#rep-preview-btn")
+            page.wait_for_selector("#rep-msg:not([hidden])")
+            check("YYYY-MM-DD" in page.inner_text("#rep-msg"), f"an invalid date stops the report with a plain message ({page.inner_text('#rep-msg')!r})")
+            page.fill("#rep-from", "2026-03-12"); page.press("#rep-from", "Tab")
+            page.click("#rep-preview-btn")
+            page.wait_for_selector("#rep-msg:has-text('before')")
+            check(True, "an end date before the start is refused")
+            page.fill("#rep-from", "2026-03-01"); page.press("#rep-from", "Tab")
+            page.click("#rep-preview-btn")
+            page.wait_for_selector("#rep-preview:not([hidden])")
+            check(True, "a report previews from a custom period made with the date fields")
+            # Database date range: optional, so the picker has Clear; a pick runs the search.
+            page.goto(url + "#/database")
+            page.wait_for_selector("#from")
+            page.click('[data-picker="from"]')
+            check(page.is_visible("#dp-pop") and page.locator('#dp-pop .dp-foot button:has-text("Clear")').count() == 1, "the Database From date opens the picker, with Today and Clear")
+            page.locator("#dp-pop .dp-day:not(.out)").nth(2).click()
+            check(re.fullmatch(r"\d\d/\d\d/\d\d", page.input_value("#from")) is not None, f"a picked day fills the Database field as mm/dd/yy ({page.input_value('#from')})")
+            page.click('[data-picker="from"]'); page.click('#dp-pop .dp-foot button:has-text("Clear")')
+            check(page.input_value("#from") == "" and not page.is_visible("#dp-pop"), "Clear empties the Database date")
+            page.fill("#from", "99/99/99"); page.press("#from", "Enter")
+            page.wait_for_selector('#from[aria-invalid="true"]')
+            check(True, "an impossible Database date is refused")
+            page.fill("#from", ""); page.press("#from", "Enter")
+            # The picker draws above a modal dialog (it sits in the dialog, in the top layer), and Escape closes it without closing the dialog.
+            page.evaluate("""() => { const d = document.createElement('dialog'); d.id = 'dp-test-dlg'; const i = document.createElement('input'); i.id = 'dp-test-in'; i.className = 'input';
+              d.append(i); document.body.append(d); attachDatePicker(i, { optional: true }); d.showModal(); }""")
+            page.click("#dp-test-in + .dp-btn")
+            page.wait_for_selector("#dp-pop .dp-day")
+            check(page.evaluate("""() => { const p = document.getElementById('dp-pop'), r = p.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && p.contains(hit) && p.matches(':popover-open'); }"""),
+                  "the picker is on top of a modal dialog")
+            page.keyboard.press("Escape")
+            check(not page.is_visible("#dp-pop") and page.evaluate("document.getElementById('dp-test-dlg').open"), "Escape closes the picker but not the dialog")
+            page.click("#dp-test-in + .dp-btn")
+            page.locator("#dp-pop .dp-day:not(.out)").nth(0).click()
+            check(re.fullmatch(r"\d{4}-\d{2}-01", page.input_value("#dp-test-in")) is not None, "a day can be picked inside a modal dialog")
+            page.evaluate("document.getElementById('dp-test-dlg').close(); document.getElementById('dp-test-dlg').remove()")
 
             # An AI agent token: make it on the Integrations page, see it once, and
             # connect to /mcp with it as an analyst.

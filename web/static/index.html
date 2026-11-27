@@ -356,7 +356,55 @@
   .date input.input { width: 92px; height: 34px; border-color: transparent; font-family: var(--mono); font-size: 13.5px; padding: 0 6px; }
   .date input.input:focus { border-color: var(--ink-2); }
   .date input.input[aria-invalid="true"] { border-color: var(--sev-5); }
-  .date .picker { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+  /* Date and time pickers: one popover, drawn by us, shared by every date and time field. */
+  .dp-wrap { position: relative; display: block; }
+  .dp-wrap > .input { width: 100%; padding-right: 38px; font-family: var(--mono); font-size: 13.5px; }
+  .dp-wrap > .dp-btn { position: absolute; top: 2px; right: 2px; width: 32px; height: 32px; }
+  .field-label > .dp-wrap { width: 168px; max-width: 100%; }
+  .dp-pop { position: fixed; inset: auto; margin: 0; width: min(296px, calc(100vw - 16px)); box-sizing: border-box; padding: 10px; overflow: visible;
+            background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-radius: 12px; font-size: 13.5px;
+            box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .35), 0 2px 8px rgba(0, 0, 0, .08); animation: dp-in .12s ease-out; }
+  .dp-pop[hidden] { display: none; }
+  .dp-pop.dp-time-pop { width: min(236px, calc(100vw - 16px)); }
+  @keyframes dp-in { from { opacity: 0; transform: translateY(-4px); } }
+  .dp-head { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+  .dp-head .icon-btn { width: 32px; height: 32px; flex: none; }
+  .dp-head .icon-btn[aria-disabled="true"] { opacity: .35; cursor: default; }
+  .dp-head .icon-btn[aria-disabled="true"]:hover { background: none; color: var(--ink-2); }
+  .dp-title { flex: 1; min-width: 0; height: 32px; border: 0; border-radius: 7px; background: none; color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+  .dp-title:hover { background: var(--raised); }
+  .dp-title[aria-disabled="true"] { cursor: default; }
+  .dp-title[aria-disabled="true"]:hover { background: none; }
+  .dp-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+  .dp-wd { height: 26px; display: grid; place-items: center; font-size: 11.5px; color: var(--ink-2); }
+  .dp-day, .dp-cell { position: relative; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit;
+                      font-variant-numeric: tabular-nums; cursor: pointer; }
+  .dp-day { width: 100%; height: 36px; }
+  .dp-day:hover, .dp-cell:hover { background: var(--raised); }
+  .dp-day.out { color: var(--ink-2); opacity: .6; }
+  .dp-day.today, .dp-cell.today { box-shadow: inset 0 0 0 1px var(--ink-2); }
+  .dp-day.sel, .dp-cell.sel { background: var(--ink); color: var(--paper); opacity: 1; box-shadow: none; }
+  .dp-day[aria-disabled="true"], .dp-cell[aria-disabled="true"] { opacity: .28; cursor: default; background: none; }
+  .dp-day:focus-visible, .dp-cell:focus-visible, .dp-opt:focus-visible, .dp-foot button:focus-visible, .dp-title:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .dp-cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(4, 1fr); gap: 4px; height: 252px; }
+  .dp-cell.out { color: var(--ink-2); opacity: .6; }
+  .dp-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule); }
+  .dp-foot > div { display: flex; gap: 4px; }
+  .dp-foot button { height: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: none; color: var(--ink); font: inherit; font-weight: 500; cursor: pointer; }
+  .dp-foot button:hover { background: var(--raised); }
+  .dp-foot button[aria-disabled="true"] { opacity: .35; cursor: default; background: none; }
+  .dp-foot .dp-ok { background: var(--ink); color: var(--paper); font-weight: 600; }
+  .dp-foot .dp-ok:hover { background: var(--ink); opacity: .88; }
+  .dp-cols { display: flex; gap: 6px; }
+  .dp-col { flex: 1; min-width: 0; height: 216px; overflow-y: auto; position: relative; display: grid; align-content: start; gap: 2px; padding: 2px; scrollbar-width: thin; }
+  .dp-col + .dp-col { border-left: 1px solid var(--rule); padding-left: 8px; }
+  .dp-opt { height: 34px; display: grid; place-items: center; border-radius: 8px; cursor: pointer; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .dp-opt:hover { background: var(--raised); }
+  .dp-opt[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+  .dp-opt[aria-disabled="true"] { opacity: .28; cursor: default; background: none; }
+  :root[data-look="glass"] .dp-pop { background: var(--g-fill-hi); border-color: var(--g-edge); border-radius: 18px;
+    -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%); box-shadow: var(--g-rim), 0 24px 60px -20px rgba(0, 0, 0, .5); }
+  :root[data-look="glass"] .dp-day, :root[data-look="glass"] .dp-cell, :root[data-look="glass"] .dp-opt { border-radius: 10px; }
   .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 10px;
              padding: 14px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
   .filters .wide { grid-column: span 2; }
@@ -665,7 +713,7 @@
   #tls-form .notice { grid-column: 1 / -1; margin: 0; }
   #au-form { grid-template-columns: minmax(0, 1fr); align-items: start; }
   #au-form .notice { margin: 0; }
-  #au-form .au-time .input { width: 130px; }
+  #au-form .au-time .dp-wrap { width: 140px; }
   #au-form .sched-fields { align-items: center; }
   .working td { color: var(--ink-2); }
   .backups td { white-space: nowrap; }
@@ -779,6 +827,7 @@
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
   <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4m7-4v4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
@@ -901,11 +950,11 @@
             <label for="from">From</label>
             <span class="date"><input class="input" id="from" placeholder="mm/dd/yy" inputmode="numeric" autocomplete="off" maxlength="10">
               <button type="button" class="icon-btn" data-picker="from" aria-label="Choose the start date"><svg class="icon"><use href="#i-cal"/></svg></button>
-              <input type="date" class="picker" tabindex="-1" aria-hidden="true" data-for="from"></span>
+</span>
             <label for="to">to</label>
             <span class="date"><input class="input" id="to" placeholder="mm/dd/yy" inputmode="numeric" autocomplete="off" maxlength="10">
               <button type="button" class="icon-btn" data-picker="to" aria-label="Choose the end date"><svg class="icon"><use href="#i-cal"/></svg></button>
-              <input type="date" class="picker" tabindex="-1" aria-hidden="true" data-for="to"></span>
+</span>
           </div>
         </div>
         <div class="filters" id="filters" hidden>
@@ -1182,8 +1231,8 @@
               <option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="custom">Choose dates…</option>
             </select>
           </label>
-          <label class="field-label" id="rep-from-wrap" hidden>From <input class="input" type="date" id="rep-from"></label>
-          <label class="field-label" id="rep-to-wrap" hidden>To (included) <input class="input" type="date" id="rep-to"></label>
+          <label class="field-label" id="rep-from-wrap" hidden>From <input class="input" id="rep-from" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" maxlength="10"></label>
+          <label class="field-label" id="rep-to-wrap" hidden>To (included) <input class="input" id="rep-to" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" maxlength="10"></label>
           <div class="row-actions">
             <button class="btn" type="button" id="rep-preview-btn">Preview</button>
             <button class="btn btn-primary" type="button" id="rep-pdf-btn">Download PDF</button>
@@ -2639,21 +2688,446 @@ function parseMDY(v) {
   const d = new Date(year, Number(m[1]) - 1, Number(m[2]));
   return d.getMonth() === Number(m[1]) - 1 && d.getDate() === Number(m[2]) ? d : null;
 }
-for (const btn of document.querySelectorAll("[data-picker]")) {
-  const target = $(btn.dataset.picker), picker = document.querySelector(`.picker[data-for="${btn.dataset.picker}"]`);
-  btn.onclick = () => {
-    const d = parseMDY(target.value);
-    picker.value = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
-    try { picker.showPicker(); } catch { picker.focus(); }
-  };
-  picker.onchange = () => {
-    if (!picker.value) return;
-    const [y, m, d] = picker.value.split("-").map(Number);
-    target.value = mdy(new Date(y, m - 1, d));
-    target.removeAttribute("aria-invalid");
-    offset = 0; runSearch();
-  };
+// --- Date and time pickers ---
+// attachDatePicker(input, { format: "iso" | "mdy", optional, min, max, anchor, button, buttonLabel })
+// attachTimePicker(input, { optional, anchor, buttonLabel })
+// The input stays the real field: its .value is "YYYY-MM-DD" (or "mm/dd/yy" for format "mdy") for dates and "HH:MM" (24 hour) for
+// times, and picking fires "input" and "change" on it as the native controls did. One popover is shared by all of them; it is drawn in
+// the top layer (Popover API) inside the field's own <dialog> when there is one, so it sits above a modal dialog.
+const dpLocale = (navigator.languages && navigator.languages[0]) || navigator.language || "en";
+const dpWeekStart = (() => { // 0 = Sunday ... 6 = Saturday; Monday when the browser can't say
+  try { const l = new Intl.Locale(dpLocale), w = l.getWeekInfo ? l.getWeekInfo() : l.weekInfo; return w && w.firstDay ? w.firstDay % 7 : 1; } catch { return 1; }
+})();
+const dpHour12 = (() => { try { return /^h1[12]$/.test(new Intl.DateTimeFormat(dpLocale, { hour: "numeric" }).resolvedOptions().hourCycle || ""); } catch { return false; } })();
+const dpPeriods = (() => {
+  try { const f = new Intl.DateTimeFormat(dpLocale, { hour: "numeric", hour12: true }), get = (h) => f.formatToParts(new Date(2024, 0, 1, h)).find((p) => p.type === "dayPeriod");
+    return [get(9).value, get(15).value]; } catch { return ["AM", "PM"]; }
+})();
+const dpPad = (n, len = 2) => String(n).padStart(len, "0");
+const dpISO = (d) => `${dpPad(d.getFullYear(), 4)}-${dpPad(d.getMonth() + 1)}-${dpPad(d.getDate())}`;
+const dpKey = (d) => d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
+function dpParseISO(v) {
+  const m = /^\s*(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})(?:[T\s].*)?$/.exec(v || "");
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3], dt = new Date(y, mo - 1, d);
+  return y >= 1000 && dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? dt : null;
 }
+function dpAddMonths(d, n) {
+  const r = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  r.setDate(Math.min(d.getDate(), new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate()));
+  return r;
+}
+function dpMake(tag, cls, props = {}) { const e = document.createElement(tag); if (cls) e.className = cls; return Object.assign(e, props); }
+function dpIcon(id) { const s = svgEl("svg", { class: "icon", "aria-hidden": "true" }); s.append(svgEl("use", { href: "#" + id })); return s; }
+
+const dpHost = {
+  el: null, owner: null, anchor: null,
+  native: typeof HTMLElement.prototype.showPopover === "function",
+  ensure() {
+    if (this.el) return this.el;
+    const e = this.el = dpMake("div", "dp-pop", { id: "dp-pop" });
+    e.tabIndex = -1;
+    if (this.native) e.setAttribute("popover", "manual"); else e.hidden = true;
+    e.addEventListener("keydown", (ev) => {
+      if (!this.owner) return;
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); this.close(true); return; }
+      if (ev.key === "Tab") {
+        const f = [...e.querySelectorAll('button:not([aria-disabled="true"]), [tabindex="0"]')];
+        if (!f.length) return;
+        const at = f.indexOf(document.activeElement);
+        if (ev.shiftKey && at <= 0) { ev.preventDefault(); f[f.length - 1].focus(); }
+        else if (!ev.shiftKey && at === f.length - 1) { ev.preventDefault(); f[0].focus(); }
+        return;
+      }
+      this.owner.key(ev);
+    });
+    return e;
+  },
+  show(owner, anchor, cls) {
+    if (this.owner) this.close(false);
+    const e = this.ensure(), parent = anchor.closest("dialog") || document.body;
+    if (e.parentNode !== parent) parent.append(e);
+    this.owner = owner; this.anchor = anchor;
+    e.className = "dp-pop " + cls;
+    e.replaceChildren();
+    if (this.native) e.showPopover(); else e.hidden = false;
+    this.onDown = (ev) => { if (!e.contains(ev.target) && !anchor.contains(ev.target)) this.close(false); };
+    this.onMove = () => { if (!anchor.isConnected || !anchor.getClientRects().length) this.close(false); else this.place(); };
+    document.addEventListener("pointerdown", this.onDown, true);
+    window.addEventListener("resize", this.onMove);
+    window.addEventListener("scroll", this.onMove, true);
+    window.addEventListener("hashchange", this.onMove);
+  },
+  place() {
+    const e = this.el, a = this.anchor.getBoundingClientRect(), w = e.offsetWidth, h = e.offsetHeight, vw = innerWidth, vh = innerHeight, gap = 6, edge = 8;
+    const below = vh - a.bottom - gap - edge, above = a.top - gap - edge;
+    let top = h <= below || below >= above ? a.bottom + gap : a.top - gap - h;
+    top = Math.max(edge, Math.min(top, vh - h - edge));
+    const left = Math.max(edge, Math.min(a.left, vw - w - edge));
+    e.style.left = left + "px"; e.style.top = top + "px";
+  },
+  close(refocus) {
+    const owner = this.owner;
+    if (!owner) return;
+    this.owner = null;
+    document.removeEventListener("pointerdown", this.onDown, true);
+    window.removeEventListener("resize", this.onMove);
+    window.removeEventListener("scroll", this.onMove, true);
+    window.removeEventListener("hashchange", this.onMove);
+    if (this.native) { try { this.el.hidePopover(); } catch {} } else this.el.hidden = true;
+    owner.closed();
+    if (refocus) owner.input.focus();
+  },
+};
+
+// Everything the two pickers share: the input, its button, wrapping, and the events a pick fires.
+function dpSetup(input, opts, icon, what) {
+  let anchor = opts.anchor, btn = opts.button;
+  if (!btn) {
+    const wrap = dpMake("span", "dp-wrap");
+    btn = dpMake("button", "icon-btn dp-btn", { type: "button" });
+    btn.append(dpIcon(icon));
+    input.replaceWith(wrap);
+    wrap.append(input, btn);
+    anchor = anchor || wrap;
+  }
+  anchor = anchor || btn.parentElement;
+  btn.setAttribute("aria-label", opts.buttonLabel || btn.getAttribute("aria-label") || `Choose ${what}`);
+  btn.setAttribute("aria-haspopup", "dialog"); btn.setAttribute("aria-expanded", "false"); btn.setAttribute("aria-controls", "dp-pop");
+  input.setAttribute("aria-haspopup", "dialog"); input.setAttribute("aria-expanded", "false"); input.setAttribute("aria-controls", "dp-pop");
+  const fire = () => { for (const t of ["input", "change"]) input.dispatchEvent(new Event(t, { bubbles: true })); };
+  const flag = (bad, msg) => { // the field's own validity, so a required form refuses it as the native control would
+    if (bad) input.setAttribute("aria-invalid", "true"); else input.removeAttribute("aria-invalid");
+    if (opts.validity !== false) input.setCustomValidity(bad ? msg : "");
+  };
+  return { anchor, btn, fire, flag };
+}
+
+function attachDatePicker(input, opts = {}) {
+  const mdyFmt = opts.format === "mdy";
+  const parse = mdyFmt ? parseMDY : dpParseISO, format = mdyFmt ? mdy : dpISO;
+  const optional = opts.optional !== undefined ? opts.optional : !input.required;
+  const day = (v) => (v instanceof Date ? v : v ? dpParseISO(String(v)) : null);
+  const lo = () => day(opts.min || input.getAttribute("min")), hi = () => day(opts.max || input.getAttribute("max"));
+  const ok = (d) => (!lo() || dpKey(d) >= dpKey(lo())) && (!hi() || dpKey(d) <= dpKey(hi()));
+  const { anchor, btn, fire, flag } = dpSetup(input, opts, "i-cal", "a date");
+  const msg = mdyFmt ? "Enter a date as mm/dd/yy." : "Enter a date as YYYY-MM-DD.";
+  const L = dpLocale;
+  const monthFmt = new Intl.DateTimeFormat(L, { month: "long", year: "numeric" }), longFmt = new Intl.DateTimeFormat(L, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const monthName = new Intl.DateTimeFormat(L, { month: "short" }), monthLong = new Intl.DateTimeFormat(L, { month: "long" });
+  let view = "days", cursor = new Date(), sel = null, shell = null;
+
+  // Typed text: checked as it is typed (silently) and when it is committed (flagged, and tidied to the canonical form).
+  function check(commit) {
+    const v = input.value.trim();
+    if (!v) { flag(false); return true; }
+    const d = parse(v);
+    if (!d || !ok(d)) { if (commit) flag(true, msg); else if (opts.validity !== false) input.setCustomValidity(msg); return false; }
+    flag(false);
+    if (commit && input.value !== format(d)) { input.value = format(d); input.dispatchEvent(new Event("input", { bubbles: true })); }
+    return true;
+  }
+  input.addEventListener("input", () => { input.removeAttribute("aria-invalid"); check(false); });
+  input.addEventListener("change", () => check(true));
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" && ev.altKey) { ev.preventDefault(); open(); }
+    else if (ev.key === "Escape" && dpHost.owner === owner) { ev.preventDefault(); ev.stopPropagation(); dpHost.close(true); }
+  });
+
+  function commit(d) {
+    input.value = d ? format(d) : "";
+    flag(false);
+    dpHost.close(true);
+    fire();
+  }
+  const clamp = (d) => (lo() && dpKey(d) < dpKey(lo()) ? lo() : hi() && dpKey(d) > dpKey(hi()) ? hi() : d);
+  const owner = {
+    input,
+    closed() { btn.setAttribute("aria-expanded", "false"); input.setAttribute("aria-expanded", "false"); },
+    key(ev) {
+      const t = ev.target, k = ev.key;
+      if (!t.closest || !t.closest(".dp-body")) return;
+      let d = new Date(cursor), step = null;
+      if (view === "days") {
+        const shiftYear = ev.shiftKey;
+        if (k === "ArrowLeft") d.setDate(d.getDate() - 1);
+        else if (k === "ArrowRight") d.setDate(d.getDate() + 1);
+        else if (k === "ArrowUp") d.setDate(d.getDate() - 7);
+        else if (k === "ArrowDown") d.setDate(d.getDate() + 7);
+        else if (k === "Home") d.setDate(d.getDate() - ((d.getDay() - dpWeekStart + 7) % 7));
+        else if (k === "End") d.setDate(d.getDate() + 6 - ((d.getDay() - dpWeekStart + 7) % 7));
+        else if (k === "PageUp") d = dpAddMonths(d, shiftYear ? -12 : -1);
+        else if (k === "PageDown") d = dpAddMonths(d, shiftYear ? 12 : 1);
+        else return;
+        cursor = clamp(d);
+      } else {
+        const cols = 3;
+        step = k === "ArrowLeft" ? -1 : k === "ArrowRight" ? 1 : k === "ArrowUp" ? -cols : k === "ArrowDown" ? cols : k === "PageUp" ? (view === "months" ? -12 : -10) : k === "PageDown" ? (view === "months" ? 12 : 10) : null;
+        if (k === "Home") step = view === "months" ? -cursor.getMonth() : -(cursor.getFullYear() % 10);
+        if (k === "End") step = view === "months" ? 11 - cursor.getMonth() : 9 - (cursor.getFullYear() % 10);
+        if (step === null) return;
+        cursor = clamp(dpAddMonths(cursor, view === "months" ? step : step * 12));
+      }
+      ev.preventDefault();
+      body(true);
+    },
+  };
+
+  function open() {
+    if (dpHost.owner === owner) return;
+    sel = parse(input.value.trim());
+    cursor = clamp(sel || new Date());
+    view = "days";
+    dpHost.show(owner, anchor, "dp-date");
+    btn.setAttribute("aria-expanded", "true"); input.setAttribute("aria-expanded", "true");
+    const pop = dpHost.el;
+    pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Choose a date");
+    const prev = dpMake("button", "icon-btn", { type: "button" }), next = dpMake("button", "icon-btn", { type: "button" });
+    prev.append(dpIcon("i-left")); next.append(dpIcon("i-right"));
+    const title = dpMake("button", "dp-title", { type: "button", id: "dp-title" });
+    title.setAttribute("aria-live", "polite");
+    const head = dpMake("div", "dp-head"); head.append(prev, title, next);
+    const bodyEl = dpMake("div", "dp-body");
+    const foot = dpMake("div", "dp-foot");
+    const today = dpMake("button", "", { type: "button", textContent: "Today" });
+    const left = dpMake("div"); left.append(today);
+    foot.append(left);
+    if (optional) { const clear = dpMake("button", "", { type: "button", textContent: "Clear" }); clear.onclick = () => commit(null); const r = dpMake("div"); r.append(clear); foot.append(r); }
+    today.onclick = () => { const t = new Date(); if (ok(t)) commit(t); };
+    pop.append(head, bodyEl, foot);
+    shell = { prev, next, title, bodyEl, today };
+    title.onclick = () => { if (view === "days") view = "months"; else if (view === "months") view = "years"; else return; body(true); };
+    body(true);
+    dpHost.place();
+  }
+  function shift(n) {
+    if (view === "days") cursor = dpAddMonths(cursor, n);
+    else if (view === "months") cursor = dpAddMonths(cursor, 12 * n);
+    else cursor = dpAddMonths(cursor, 120 * n);
+    body(false);
+  }
+  function body(focus) {
+    const { prev, next, title, bodyEl, today } = shell;
+    const y = cursor.getFullYear(), m = cursor.getMonth(), t = new Date();
+    today.setAttribute("aria-disabled", String(!ok(t)));
+    let first, last, tx, pl, nl;
+    if (view === "days") {
+      tx = monthFmt.format(cursor); pl = "Previous month"; nl = "Next month";
+      first = new Date(y, m, 1); last = new Date(y, m + 1, 0);
+    } else if (view === "months") {
+      tx = String(y); pl = "Previous year"; nl = "Next year";
+      first = new Date(y, 0, 1); last = new Date(y, 11, 31);
+    } else {
+      const s = Math.floor(y / 10) * 10; tx = `${s} – ${s + 9}`; pl = "Previous decade"; nl = "Next decade";
+      first = new Date(s, 0, 1); last = new Date(s + 9, 11, 31);
+    }
+    title.textContent = tx;
+    title.setAttribute("aria-disabled", String(view === "years"));
+    title.setAttribute("aria-label", view === "years" ? tx : `${tx}, choose a ${view === "days" ? "month" : "year"}`);
+    prev.setAttribute("aria-label", pl); next.setAttribute("aria-label", nl);
+    prev.setAttribute("aria-disabled", String(!!lo() && dpKey(lo()) > dpKey(first)));
+    next.setAttribute("aria-disabled", String(!!hi() && dpKey(hi()) < dpKey(last)));
+    prev.onclick = () => { if (prev.getAttribute("aria-disabled") !== "true") shift(-1); };
+    next.onclick = () => { if (next.getAttribute("aria-disabled") !== "true") shift(1); };
+    bodyEl.replaceChildren(view === "days" ? daysGrid(t) : cells());
+    if (focus) { const f = bodyEl.querySelector('[tabindex="0"]'); if (f) f.focus(); }
+  }
+  function daysGrid(t) {
+    const y = cursor.getFullYear(), m = cursor.getMonth();
+    const lead = (new Date(y, m, 1).getDay() - dpWeekStart + 7) % 7;
+    const grid = dpMake("div", "dp-grid"); grid.setAttribute("role", "grid"); grid.setAttribute("aria-labelledby", "dp-title");
+    const hr = dpMake("div", "dp-row"); hr.setAttribute("role", "row");
+    const wdShort = new Intl.DateTimeFormat(dpLocale, { weekday: "short" }), wdLong = new Intl.DateTimeFormat(dpLocale, { weekday: "long" });
+    for (let i = 0; i < 7; i++) {
+      const ref = new Date(2024, 0, 7 + ((dpWeekStart + i) % 7));
+      const c = dpMake("div", "dp-wd", { textContent: wdShort.format(ref) }); c.setAttribute("role", "columnheader"); c.setAttribute("aria-label", wdLong.format(ref));
+      hr.append(c);
+    }
+    grid.append(hr);
+    for (let r = 0; r < 6; r++) {
+      const row = dpMake("div", "dp-row"); row.setAttribute("role", "row");
+      for (let c = 0; c < 7; c++) {
+        const d = new Date(y, m, 1 - lead + r * 7 + c);
+        const cell = dpMake("div"); cell.setAttribute("role", "gridcell");
+        const isSel = !!sel && dpKey(d) === dpKey(sel), enabled = ok(d);
+        cell.setAttribute("aria-selected", String(isSel));
+        const b = dpMake("button", "dp-day" + (d.getMonth() !== m ? " out" : "") + (dpKey(d) === dpKey(t) ? " today" : "") + (isSel ? " sel" : ""), { type: "button", textContent: String(d.getDate()) });
+        b.setAttribute("aria-label", longFmt.format(d));
+        if (dpKey(d) === dpKey(t)) b.setAttribute("aria-current", "date");
+        if (!enabled) b.setAttribute("aria-disabled", "true");
+        b.tabIndex = dpKey(d) === dpKey(cursor) ? 0 : -1;
+        b.dataset.iso = dpISO(d);
+        b.onclick = () => { if (enabled) commit(d); };
+        cell.append(b); row.append(cell);
+      }
+      grid.append(row);
+    }
+    return grid;
+  }
+  function cells() {
+    const wrap = dpMake("div", "dp-cells"); wrap.setAttribute("role", "group"); wrap.setAttribute("aria-labelledby", "dp-title");
+    const y = cursor.getFullYear(), m = cursor.getMonth(), t = new Date();
+    for (let i = 0; i < 12; i++) {
+      let label, aria, isCur, isNow, out = false, within, apply;
+      if (view === "months") {
+        const d = new Date(y, i, 1);
+        label = monthName.format(d); aria = `${monthLong.format(d)} ${y}`; isCur = i === m; isNow = y === t.getFullYear() && i === t.getMonth();
+        within = (!lo() || dpKey(new Date(y, i + 1, 0)) >= dpKey(lo())) && (!hi() || dpKey(d) <= dpKey(hi()));
+        apply = () => { cursor = clamp(new Date(y, i, Math.min(cursor.getDate(), new Date(y, i + 1, 0).getDate()))); view = "days"; };
+      } else {
+        const yr = Math.floor(y / 10) * 10 - 1 + i;
+        label = String(yr); aria = label; isCur = yr === y; isNow = yr === t.getFullYear(); out = i === 0 || i === 11;
+        within = (!lo() || yr >= lo().getFullYear()) && (!hi() || yr <= hi().getFullYear());
+        apply = () => { cursor = clamp(new Date(yr, m, Math.min(cursor.getDate(), new Date(yr, m + 1, 0).getDate()))); view = "months"; };
+      }
+      const b = dpMake("button", "dp-cell" + (isNow ? " today" : "") + (sel && ((view === "months" && sel.getFullYear() === y && sel.getMonth() === i) || (view === "years" && sel.getFullYear() === Math.floor(y / 10) * 10 - 1 + i)) ? " sel" : "") + (out ? " out" : ""), { type: "button", textContent: label });
+      b.setAttribute("aria-label", aria);
+      if (isCur) b.setAttribute("aria-current", "true");
+      b.tabIndex = isCur ? 0 : -1;
+      if (!within) b.setAttribute("aria-disabled", "true");
+      b.onclick = () => { if (within) { apply(); body(true); } };
+      wrap.append(b);
+    }
+    return wrap;
+  }
+  btn.addEventListener("click", () => { if (dpHost.owner === owner) dpHost.close(true); else open(); });
+  return { open, close: () => { if (dpHost.owner === owner) dpHost.close(false); }, validate: () => check(true), input };
+}
+
+function attachTimePicker(input, opts = {}) {
+  const optional = opts.optional !== undefined ? opts.optional : !input.required;
+  const { anchor, btn, fire, flag } = dpSetup(input, opts, "i-clock", "a time");
+  const msg = "Enter a time as HH:MM.";
+  const parse = (v) => {
+    const m = /^\s*(\d{1,2})[:.h](\d{2})\s*([ap])?\.?(?:m\.?)?\s*$/i.exec(v || "");
+    if (!m) return null;
+    let h = +m[1]; const mi = +m[2];
+    if (mi > 59) return null;
+    if (m[3]) { if (h < 1 || h > 12) return null; h = (h % 12) + (m[3].toLowerCase() === "p" ? 12 : 0); } else if (h > 23) return null;
+    return { h, m: mi };
+  };
+  const fmt = (t) => `${dpPad(t.h)}:${dpPad(t.m)}`;
+  const bound = (name) => { const t = parse(input.getAttribute(name)); return t ? t.h * 60 + t.m : null; };
+  const ok = (h, m) => { const v = h * 60 + m, a = bound("min"), b = bound("max"); return (a === null || v >= a) && (b === null || v <= b); };
+  function check(commit) {
+    const v = input.value.trim();
+    if (!v) { flag(false); return true; }
+    const t = parse(v);
+    if (!t || !ok(t.h, t.m)) { if (commit) flag(true, msg); else input.setCustomValidity(msg); return false; }
+    flag(false);
+    if (commit && input.value !== fmt(t)) { input.value = fmt(t); input.dispatchEvent(new Event("input", { bubbles: true })); }
+    return true;
+  }
+  input.addEventListener("input", () => { input.removeAttribute("aria-invalid"); check(false); });
+  input.addEventListener("change", () => check(true));
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" && ev.altKey) { ev.preventDefault(); open(); }
+    else if (ev.key === "Escape" && dpHost.owner === owner) { ev.preventDefault(); ev.stopPropagation(); dpHost.close(true); }
+  });
+  let cur = null, cols = [];
+  const apply = (h, m) => { cur = { h, m }; input.value = fmt(cur); flag(false); fire(); sync(); };
+  const stepMin = 5;
+  const owner = {
+    input,
+    closed() { btn.setAttribute("aria-expanded", "false"); input.setAttribute("aria-expanded", "false"); },
+    key(ev) {
+      const opt = ev.target.closest && ev.target.closest(".dp-opt");
+      if (!opt) return;
+      const col = opt.parentElement, ci = cols.indexOf(col), list = [...col.children];
+      const i = list.indexOf(opt);
+      let to = null;
+      if (ev.key === "ArrowDown") to = list[Math.min(list.length - 1, i + 1)];
+      else if (ev.key === "ArrowUp") to = list[Math.max(0, i - 1)];
+      else if (ev.key === "Home") to = list[0];
+      else if (ev.key === "End") to = list[list.length - 1];
+      else if (ev.key === "ArrowLeft" && ci > 0) to = cols[ci - 1].querySelector('[tabindex="0"]');
+      else if (ev.key === "ArrowRight" && ci < cols.length - 1) to = cols[ci + 1].querySelector('[tabindex="0"]');
+      else if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); opt.click(); return; }
+      else return;
+      ev.preventDefault();
+      if (to) { setTab(to); to.focus({ preventScroll: true }); to.scrollIntoView({ block: "nearest" }); }
+    },
+  };
+  function setTab(opt) { for (const o of opt.parentElement.children) o.tabIndex = o === opt ? 0 : -1; }
+  function sync() { // reflect the current time in the columns without rebuilding them
+    if (!cols.length) return;
+    const sets = [cur ? (dpHour12 ? cur.h % 12 || 12 : cur.h) : null, cur ? cur.m : null, cur ? (cur.h >= 12 ? 1 : 0) : null];
+    cols.forEach((col, ci) => { for (const o of col.children) o.setAttribute("aria-selected", String(+o.dataset.v === sets[ci])); });
+  }
+  function column(label, items, selected, pick) {
+    const col = dpMake("div", "dp-col"); col.setAttribute("role", "listbox"); col.setAttribute("aria-label", label);
+    for (const it of items) {
+      const o = dpMake("div", "dp-opt", { textContent: it.text }); o.setAttribute("role", "option"); o.dataset.v = it.v;
+      o.setAttribute("aria-selected", String(it.v === selected));
+      if (!it.ok) o.setAttribute("aria-disabled", "true");
+      o.tabIndex = -1;
+      o.onclick = () => { if (it.ok) { setTab(o); pick(it.v, o); } };
+      col.append(o);
+    }
+    const start = col.querySelector('[aria-selected="true"]') || col.firstElementChild;
+    if (start) start.tabIndex = 0;
+    return col;
+  }
+  function open() {
+    if (dpHost.owner === owner) return;
+    cur = parse(input.value);
+    dpHost.show(owner, anchor, "dp-time-pop");
+    btn.setAttribute("aria-expanded", "true"); input.setAttribute("aria-expanded", "true");
+    const pop = dpHost.el;
+    pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Choose a time");
+    const h = cur ? cur.h : null, mi = cur ? cur.m : null, pm = h !== null && h >= 12;
+    const hours = [], mins = [];
+    for (let i = 0; i < 24; i++) {
+      if (dpHour12) { if (i >= 12) break; const v = i === 0 ? 12 : i; hours.push({ v, text: String(v), ok: true }); } else hours.push({ v: i, text: dpPad(i), ok: true });
+    }
+    const minuteSet = new Set(); for (let i = 0; i < 60; i += stepMin) minuteSet.add(i); if (mi !== null) minuteSet.add(mi);
+    for (const v of [...minuteSet].sort((a, b) => a - b)) mins.push({ v, text: dpPad(v), ok: true });
+    const curH24 = (v) => (dpHour12 ? (v % 12) + ((cur && cur.h >= 12) ? 12 : 0) : v);
+    for (const it of hours) { const hh = curH24(it.v); it.ok = [...Array(60).keys()].some((q) => ok(hh, q)); }
+    for (const it of mins) it.ok = ok(cur ? cur.h : 0, it.v) || cur === null;
+    const wrap = dpMake("div", "dp-cols dp-body");
+    const focusCol = (ci) => { const t = cols[ci].querySelector('[tabindex="0"]'); if (t) { t.focus({ preventScroll: true }); } };
+    const advance = (ci) => { if (ci < cols.length - 1) focusCol(ci + 1); else dpHost.close(true); };
+    const hourCol = column("Hours", hours, h === null ? null : dpHour12 ? h % 12 || 12 : h, (v) => {
+      const hh = dpHour12 ? (v % 12) + (cur && cur.h >= 12 ? 12 : 0) : v;
+      apply(hh, cur ? cur.m : 0); advance(0);
+    });
+    const minCol = column("Minutes", mins, mi, (v) => { apply(cur ? cur.h : dpHour12 ? 0 : new Date().getHours(), v); advance(1); });
+    cols = [hourCol, minCol];
+    wrap.append(hourCol, minCol);
+    if (dpHour12) {
+      const perCol = column("AM or PM", [{ v: 0, text: dpPeriods[0], ok: true }, { v: 1, text: dpPeriods[1], ok: true }], h === null ? null : pm ? 1 : 0, (v) => {
+        const base = cur || { h: 0, m: 0 };
+        apply((base.h % 12) + (v ? 12 : 0), base.m); dpHost.close(true);
+      });
+      cols.push(perCol); wrap.append(perCol);
+    }
+    const foot = dpMake("div", "dp-foot");
+    const left = dpMake("div"), right = dpMake("div");
+    const now = dpMake("button", "", { type: "button", textContent: "Now" });
+    now.onclick = () => { const d = new Date(); if (ok(d.getHours(), d.getMinutes())) { apply(d.getHours(), d.getMinutes()); dpHost.close(true); } };
+    left.append(now);
+    if (optional) { const clear = dpMake("button", "", { type: "button", textContent: "Clear" }); clear.onclick = () => { input.value = ""; flag(false); cur = null; dpHost.close(true); fire(); }; left.append(clear); }
+    const done = dpMake("button", "dp-ok", { type: "button", textContent: "Done" }); done.onclick = () => dpHost.close(true);
+    right.append(done);
+    foot.append(left, right);
+    pop.append(wrap, foot);
+    dpHost.place();
+    for (const col of cols) { const s = col.querySelector('[aria-selected="true"]'); if (s) col.scrollTop = s.offsetTop - col.clientHeight / 2 + s.offsetHeight / 2; }
+    focusCol(0);
+  }
+  btn.addEventListener("click", () => { if (dpHost.owner === owner) dpHost.close(true); else open(); });
+  return { open, close: () => { if (dpHost.owner === owner) dpHost.close(false); }, validate: () => check(true), input };
+}
+
+// The Database date range keeps its mm/dd/yy text fields and calendar buttons; a pick runs the search through the field's change event.
+for (const id of ["from", "to"]) {
+  const input = $(id), btn = document.querySelector(`[data-picker="${id}"]`);
+  attachDatePicker(input, { format: "mdy", optional: true, validity: false, button: btn, anchor: input.closest(".date") });
+}
+// Reports > Make a report > Choose dates
+attachDatePicker($("rep-from"), { optional: false, buttonLabel: "Choose the start date" });
+attachDatePicker($("rep-to"), { optional: false, buttonLabel: "Choose the end date" });
 for (const id of ["from", "to"]) {
   $(id).addEventListener("input", () => $(id).removeAttribute("aria-invalid"));
   $(id).addEventListener("change", () => { offset = 0; runSearch(); });
@@ -4159,10 +4633,11 @@ function auRender() {
     row.times.forEach((t, i) => {
       const wrap = document.createElement("span"); wrap.className = "au-time";
       const inp = document.createElement("input");
-      inp.type = "time"; inp.className = "input"; inp.required = true; inp.value = t;
+      inp.type = "text"; inp.className = "input"; inp.required = true; inp.value = t; inp.placeholder = "HH:MM"; inp.autocomplete = "off"; inp.inputMode = "numeric"; inp.maxLength = 8;
       inp.setAttribute("aria-label", `Schedule ${ri + 1} time ${i + 1}`);
       inp.oninput = () => { row.times[i] = inp.value; };
       wrap.append(inp);
+      attachTimePicker(inp, { buttonLabel: `Choose schedule ${ri + 1} time ${i + 1}` });
       if (row.times.length > 1) {
         const x = document.createElement("button");
         x.type = "button"; x.className = "btn"; x.textContent = "Remove"; x.setAttribute("aria-label", `Remove time ${t || i + 1}`);
@@ -4492,9 +4967,11 @@ function fillScheduleOptions() {
 function repPeriod() {
   const v = $("rep-period").value;
   if (v !== "custom") return { days: Number(v) };
-  const f = $("rep-from").value, t = $("rep-to").value;
+  const f = $("rep-from").value.trim(), t = $("rep-to").value.trim();
   if (!f || !t) throw new Error("Choose both dates.");
-  const from = new Date(f + "T00:00:00").getTime(), to = new Date(t + "T00:00:00").getTime() + 86400000;
+  const fd = dpParseISO(f), td = dpParseISO(t);
+  if (!fd || !td) throw new Error("Enter both dates as YYYY-MM-DD.");
+  const from = new Date(dpISO(fd) + "T00:00:00").getTime(), to = new Date(dpISO(td) + "T00:00:00").getTime() + 86400000;
   if (!(to > from)) throw new Error("The end date can't be before the start date.");
   return { from, to };
 }
