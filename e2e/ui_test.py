@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -484,6 +485,90 @@ def main(binary, loggen):
             check(page.is_hidden("#db-error"), "a search with several field terms and comma lists is accepted")
             page.fill("#q", "")
             page.press("#q", "Enter")
+            page.wait_for_selector("tr.ev")
+
+            # The Source filter is a multi-select: tick several sources and the search covers all of them.
+            all_srcs = page.evaluate("fetch('/api/v1/sources').then(r => r.json())")
+            all_srcs = all_srcs.get("sources", all_srcs) if isinstance(all_srcs, dict) else all_srcs
+            ids_by_name = {x["name"]: x["id"] for x in all_srcs}
+            pair = ["INTERNAL", "Log generator"]
+            shown_sources = lambda: {t.strip() for t in page.locator("tr.ev td:nth-child(3)").all_inner_texts()}
+
+            def wait_sources(want, what):
+                got = set()
+                for _ in range(100):  # the earlier results stay up until the new ones arrive
+                    page.wait_for_selector("tr.ev")
+                    got = shown_sources()
+                    if got == want:
+                        break
+                    time.sleep(0.1)
+                check(got == want, f"{what} ({got})")
+
+            page.goto(url + "#/database")
+            page.wait_for_selector("tr.ev")
+            if page.is_hidden("#filters"):
+                page.click("#filters-btn")
+            check(page.inner_text("#f-source-btn").strip() == "All sources", "the Source filter starts on All sources")
+            page.click("#f-source-btn")
+            page.wait_for_selector(".msel-pop")
+            check(page.get_attribute("#f-source-btn", "aria-expanded") == "true", "opening the Source list says so to assistive tech")
+            for n in pair:
+                page.locator(".msel-list label", has_text=re.compile("^" + re.escape(n) + "$")).locator("input").check()
+            check(page.inner_text("#f-source-btn").strip() == "2 sources", "two ticked sources read '2 sources'")
+            check(all(n in (page.get_attribute("#f-source-btn", "aria-label") or "") for n in pair), "the button's label names the chosen sources")
+            wait_sources(set(pair), "ticking two sources shows only events from those two")
+            page.keyboard.press("Escape")
+            check(page.locator(".msel-pop").count() == 0, "Escape closes the Source list")
+            check(page.evaluate("document.activeElement.id") == "f-source-btn", "Escape returns focus to the Source button")
+            check(page.locator("#filter-count").inner_text() == "1", "the filters badge counts the Source filter once")
+            want_ids = ",".join(str(i) for i in sorted(ids_by_name[n] for n in pair))
+            hash_ids = sorted(re.search(r"source=([^&]+)", urllib.parse.unquote(page.evaluate("location.hash"))).group(1).split(","), key=int)
+            check(",".join(hash_ids) == want_ids, f"the choice is kept in the address ({page.evaluate('location.hash')})")
+            page.reload()
+            page.wait_for_selector("#f-source-btn")
+            check(page.inner_text("#f-source-btn").strip() == "2 sources", "the choice survives a reload")
+            wait_sources(set(pair), "after a reload the search is still limited to the two sources")
+            # Deep links: one id (as other pages make), a comma list, and a repeated parameter.
+            page.goto(url + f"#/database?source={ids_by_name['Log generator']}")
+            page.reload()
+            page.wait_for_selector("tr.ev")
+            check(page.inner_text("#f-source-btn").strip() == "Log generator", "a link with source=<id> shows that source's name")
+            wait_sources({"Log generator"}, "a link with one source id shows only that source")
+            page.goto(url + f"#/database?source={ids_by_name['INTERNAL']}&source={ids_by_name['Log generator']}")
+            page.reload()
+            check(page.inner_text("#f-source-btn").strip() == "2 sources", "a link with the source parameter twice selects both")
+            # Keyboard: ArrowDown opens, arrows move, Space toggles, Tab leaves.
+            page.click("#f-source-btn")
+            page.keyboard.press("Escape")
+            page.focus("#f-source-btn")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_selector(".msel-pop")
+            page.keyboard.press("ArrowDown")
+            moved = page.evaluate("document.activeElement.tagName + ':' + document.activeElement.type")
+            check(page.evaluate("!!document.activeElement.closest('.msel-pop')"), f"the arrow keys move inside the Source list ({moved})")
+            page.keyboard.press("Tab")
+            check(page.locator(".msel-pop").count() == 0, "Tab leaves the Source list and closes it")
+            check(page.evaluate("document.activeElement.id") != "f-source-btn", "Tab moves focus on from the Source button")
+            page.focus("#f-source-btn")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".msel-pop")
+            page.click(".msel-head .btn:has-text('Clear')")
+            check(page.inner_text("#f-source-btn").strip() == "All sources", "Clear goes back to All sources")
+            page.locator(".msel-list input").first.focus()
+            page.keyboard.press("Space")
+            check(page.locator(".msel-list input:checked").count() == 1, "Space ticks the focused source")
+            check(page.inner_text("#f-source-btn").strip() != "All sources", "one ticked source shows its name")
+            page.mouse.click(5, 300)  # outside
+            check(page.locator(".msel-pop").count() == 0, "clicking outside closes the Source list")
+            page.click("#f-source-btn")
+            page.click(".msel-head .btn:has-text('Clear')")
+            page.keyboard.press("Escape")
+            for _ in range(50):
+                if "source=" not in page.evaluate("location.hash"):
+                    break
+                time.sleep(0.1)
+            check("source=" not in page.evaluate("location.hash"), "clearing the Source filter takes it out of the address")
+            page.goto(url + "#/database")
             page.wait_for_selector("tr.ev")
 
             # Dragging the | between two column headers resizes the columns,
