@@ -186,7 +186,9 @@ usually within seconds, then who issued it and until when. Or set it from the st
   high-severity events, events over time, severity, busiest sources and the IPs on threat lists. Type a search and press
   Enter to open the results in the Database.
 - **Database**: every event, newest first, with full-text search, a **From mm/dd/yy to mm/dd/yy** date range and filters
-  for source, severity, category, IPs, user, program, country and threat matches. Open an event for its details.
+  for source, severity, category, IPs, user, program, country and threat matches. The **Source** filter is a checklist: tick one
+  or more sources (nothing ticked means all of them) to search just those; the choice is kept in the address, as `source=3,5`.
+  Open an event for its details.
   It loads 100 events at a time: scroll to the end, or choose **Show more events**, for the next 100.
   The address bar keeps the search, so it can be bookmarked or shared.
 - **Alerts**: alerts raised by the rules, by severity, with how many events and when. Open the events behind an alert,
@@ -321,7 +323,7 @@ structured data) is not kept: if you need it, give that source a custom parser.
 |---|---|---|
 | `POST /api/v1/logs` | access token, or admin | Raw log text, one entry per line, read with the source's parser. Optional `source` (program name) and `severity` query params. |
 | `POST /api/v1/events` | access token, or admin | JSON array of OCSF events (up to 10,000 per request). |
-| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id`, `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, by default 24 hours after the event arrived). |
+| `GET /api/v1/search` | any signed-in user | `q`, `start`, `end` (RFC3339 or epoch ms), `severity`, `category`, `class`, `src_ip`, `dst_ip`, `user`, `source` (program), `source_id` (a source id; repeat it or give a comma-separated list, `source_id=3,5`, for events from any of those sources, up to 200; users limited to some sources get only the overlap), `host`, `country`, `asn`, `threat=true`, `limit` (max 1000), `offset`. Newest first. Each event includes its parsed `message`, its `source_name`, extra parsed `fields` and `enrichment`, and `raw_data`, the original line (empty once it has been removed, by default 24 hours after the event arrived). |
 | `GET /api/v1/stats?hours=24` | any signed-in user | Dashboard figures for the last 1-2160 hours. |
 | `GET /api/v1/sources` | any signed-in user | Admins get every source; others get the names of the sources they can see. |
 | `POST /api/v1/sources/{id}/token` | admin | Give an access token a new token, returned once as `{"source", "token"}`. The old token stops working at once; the source, its settings and its logs stay, and a disabled source stays disabled. `400` for built-in sources, `404` for a missing one. |

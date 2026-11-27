@@ -34,10 +34,11 @@ type Query struct {
 	UserName    string
 	Source      string
 	Host        string
-	Country     string // ISO country code of either endpoint
-	ASN         int    // autonomous system number of either endpoint
-	ThreatOnly  bool   // only events that matched threat intel
-	SourceID    int64  // one source; 0 = any
+	Country     string  // ISO country code of either endpoint
+	ASN         int     // autonomous system number of either endpoint
+	ThreatOnly  bool    // only events that matched threat intel
+	SourceID    int64   // one source; 0 = any
+	SourceIDs   []int64 // any of these sources; empty = any (combines with SourceID)
 
 	// Restrict limits results to AllowedSources (a restricted user).
 	Restrict       bool
@@ -102,6 +103,7 @@ func (e *Engine) Search(ctx context.Context, q Query) (*Result, error) {
 		ASN:            q.ASN,
 		ThreatOnly:     q.ThreatOnly,
 		SourceID:       q.SourceID,
+		SourceIDs:      q.SourceIDs,
 		Restrict:       q.Restrict,
 		AllowedSources: q.AllowedSources,
 		Match:          strings.TrimSpace(q.Text),

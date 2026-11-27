@@ -66,6 +66,9 @@ type Filter struct {
 	ASN         int    // either endpoint's autonomous system number
 	ThreatOnly  bool
 	SourceID    int64 // one source; 0 = any
+	// SourceIDs limits results to any of these sources (empty = any). It
+	// combines with SourceID and with Restrict: an event must pass all.
+	SourceIDs []int64
 	// Restrict limits results to AllowedSources (a restricted user's view).
 	// With Restrict set and no sources, nothing matches.
 	Restrict       bool
@@ -706,11 +709,19 @@ func nullable(s string) any {
 	return s
 }
 
-// sourceWhere adds the single-source filter and a restricted user's limit.
+// sourceWhere adds the source filters (one id, or a list) and a restricted
+// user's limit. All of them apply, so the result is their intersection.
 func sourceWhere(f Filter, where []string, args []any) ([]string, []any) {
 	if f.SourceID != 0 {
 		where = append(where, "e.source_id = ?")
 		args = append(args, f.SourceID)
+	}
+	if len(f.SourceIDs) > 0 {
+		marks := strings.TrimSuffix(strings.Repeat("?, ", len(f.SourceIDs)), ", ")
+		where = append(where, "e.source_id IN ("+marks+")")
+		for _, id := range f.SourceIDs {
+			args = append(args, id)
+		}
 	}
 	if f.Restrict {
 		if len(f.AllowedSources) == 0 {

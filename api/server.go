@@ -541,6 +541,38 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, resp)
 }
 
+// maxSourceFilter caps how many sources one search can name.
+const maxSourceFilter = 200
+
+// parseSourceIDs reads the source_id values of a request: the parameter may
+// repeat (source_id=3&source_id=5) and each value may be a comma-separated
+// list (source_id=3,5). Duplicates and 0 (the old "any source") are dropped.
+func parseSourceIDs(values []string) ([]int64, error) {
+	var ids []int64
+	seen := map[int64]bool{}
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(part, 10, 64)
+			if err != nil || id < 0 {
+				return nil, errors.New("must be a number, or a comma-separated list of numbers")
+			}
+			if id == 0 || seen[id] {
+				continue
+			}
+			if len(ids) >= maxSourceFilter {
+				return nil, fmt.Errorf("at most %d sources can be chosen", maxSourceFilter)
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 // handleSearch maps query parameters onto a search.Query.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Query()
@@ -553,13 +585,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Host:     p.Get("host"),
 		Country:  p.Get("country"),
 	}
-	if v := p.Get("source_id"); v != "" {
-		id, err := strconv.ParseInt(v, 10, 64)
-		if q.SourceID = id; err != nil {
-			writeError(w, http.StatusBadRequest, "source_id: must be a number")
-			return
-		}
+	ids, err := parseSourceIDs(p["source_id"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "source_id: "+err.Error())
+		return
 	}
+	q.SourceIDs = ids
 	if pr := auth.FromContext(r.Context()); pr != nil && pr.Restricted() {
 		q.Restrict, q.AllowedSources = true, pr.Sources
 	}
@@ -572,7 +603,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var err error
 	if q.Start, err = parseTime(p.Get("start")); err != nil {
 		writeError(w, http.StatusBadRequest, "start: "+err.Error())
 		return
