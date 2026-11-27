@@ -509,6 +509,12 @@ is stored.
 - Private, loopback and other non-public addresses are skipped.
 - Search with `country=CN` or `asn=AS4134` (either endpoint). The country code shows next to each IP in the UI; the
   full location and AS name are in the event detail.
+- **IP addresses in the UI.** Wherever an address is shown (the Database and its event details, alerts, the Dashboard's
+  threat-listed IPs, threat matches and reports) it is underlined: hover for its location, network and threat lists;
+  click to search SIEMLite for it (`ip=<address>`, source or destination; Ctrl/Cmd-click opens the search in a new tab).
+  Right-click it, or press the ContextMenu key or Shift+F10 on it, for a small menu: **TALOS Lookup** (opens
+  Cisco Talos in a new tab; nothing is sent to Talos until you choose it) and, for admins, **Add to list**, which adds
+  the address to one of your friendly lists (with an optional note) from a dialog.
 - **Attribution.** The downloaded data is *IP geolocation data by [DB-IP.com](https://db-ip.com)*, licensed under
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The page credits DB-IP where it shows it; if you
   republish the data, keep that credit.
@@ -523,7 +529,7 @@ names and hashes anywhere in the raw log. A hit marks the event as a threat (red
 `threat=true` in search) and records which indicator, source and field matched, plus what each list says about it:
 the list's name, the kind of threat it tracks (botnet C2, Tor exit node, brute-force attacker…), how far to trust it
 (high, medium or low), a link to read about it, and the feed's own note for that line (for example "Possible
-Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an underlined IP in the Database to see its lists.
+Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an underlined IP (in the Database, alerts, the Dashboard and reports) to see where it is and which lists it is on.
 
 The easy way: the **Intel** page (admins). Its **Threat feeds** section lists free IP blocklists that need no account
 (Feodo Tracker, C2IntelFeeds, IPsum, two from Blocklist.de, and the Tor exit nodes). Tick the ones you want and save: they download right
