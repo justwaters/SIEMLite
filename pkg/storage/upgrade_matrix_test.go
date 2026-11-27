@@ -21,6 +21,7 @@ import (
 // So v = 0, 1, 2 and 3 all start from the same base schema, which is the
 // oldest shape this code can reproduce.
 var downgrades = map[int][]string{
+	24: {`ALTER TABLE alerts DROP COLUMN close_note`},
 	23: {
 		`CREATE TABLE alert_rules_old (
 			id             INTEGER PRIMARY KEY AUTOINCREMENT,

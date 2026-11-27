@@ -201,6 +201,7 @@ func (o oldSnapshotter) SnapshotTo(ctx context.Context, dir string) error {
 	defer db.Close()
 	for _, stmt := range []string{
 		`DROP TABLE friendly_entries`, `DROP TABLE friendly_lists`, // v21
+		`ALTER TABLE alerts DROP COLUMN close_note`, // v25
 		`ALTER TABLE alerts DROP COLUMN closed_seq`, // v22
 		`DROP TABLE rule_proposals`,                 // v20
 		`ALTER TABLE alerts DROP COLUMN note`,       // v19

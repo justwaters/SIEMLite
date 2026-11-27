@@ -151,7 +151,7 @@ func TestUpgradeToV7(t *testing.T) {
 		`ALTER TABLE users DROP COLUMN disabled`,
 		`ALTER TABLE users DROP COLUMN display_name`,
 		`ALTER TABLE alert_rules DROP COLUMN kind`,
-		`ALTER TABLE alerts DROP COLUMN closed_seq`, `ALTER TABLE alerts DROP COLUMN note`,
+		`ALTER TABLE alerts DROP COLUMN close_note`, `ALTER TABLE alerts DROP COLUMN closed_seq`, `ALTER TABLE alerts DROP COLUMN note`,
 		`PRAGMA user_version = 6`,
 	} {
 		if _, err := db.Write.Exec(stmt); err != nil {
@@ -245,7 +245,7 @@ func TestUpgradeToV14(t *testing.T) {
 	}
 	repo := NewRepository(db)
 	id, _ := repo.CreateExternalUser(ctx, "entra", "oid-1", "justin@fisni.com", "admin", 1)
-	for _, stmt := range []string{`ALTER TABLE users DROP COLUMN display_name`, `ALTER TABLE alert_rules DROP COLUMN kind`, `ALTER TABLE alerts DROP COLUMN closed_seq`, `ALTER TABLE alerts DROP COLUMN note`, `PRAGMA user_version = 13`} {
+	for _, stmt := range []string{`ALTER TABLE users DROP COLUMN display_name`, `ALTER TABLE alert_rules DROP COLUMN kind`, `ALTER TABLE alerts DROP COLUMN close_note`, `ALTER TABLE alerts DROP COLUMN closed_seq`, `ALTER TABLE alerts DROP COLUMN note`, `PRAGMA user_version = 13`} {
 		if _, err := db.Write.Exec(stmt); err != nil {
 			t.Fatal(stmt, err)
 		}
@@ -264,5 +264,41 @@ func TestUpgradeToV14(t *testing.T) {
 	}
 	if u, _ := repo.GetUser(ctx, id); u.DisplayName != "Justin Waters" {
 		t.Errorf("display name = %q", u.DisplayName)
+	}
+}
+
+// A database at schema 24 has closed alerts with no note; opening it adds the column, those alerts keep
+// their state with an empty note, and new closes store one.
+func TestUpgradeToV25AddsCloseNote(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "siemlite.db")
+	db, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO alerts (rule_name, severity, group_by, group_value, status, count, first_seen, last_seen, created_at, updated_at, updated_by)
+			VALUES ('old', 3, '', '', 'closed', 1, 1, 1, 1, 1, 'jd')`,
+		`ALTER TABLE alerts DROP COLUMN close_note`,
+		`PRAGMA user_version = 24`,
+	} {
+		if _, err := db.Write.Exec(stmt); err != nil {
+			t.Fatal(stmt, err)
+		}
+	}
+	db.Close()
+	db, err = Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewRepository(db)
+	list, _, err := repo.ListAlerts(ctx, "", 10)
+	if err != nil || len(list) != 1 || list[0].Status != AlertClosed || list[0].UpdatedBy != "jd" || list[0].CloseNote != "" {
+		t.Fatalf("after the upgrade: %+v %v", list, err)
+	}
+	a, err := repo.SetAlertStatus(ctx, list[0].ID, AlertClosed, "jd", "Known test traffic.", 2)
+	if err != nil || a.CloseNote != "Known test traffic." {
+		t.Fatalf("close after the upgrade: %+v %v", a, err)
 	}
 }

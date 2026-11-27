@@ -245,9 +245,10 @@ func (s *Server) mcpServer() *mcp.Server {
 			})},
 
 		{Name: "set_alert_status", Min: mcp.LevelAnalyst,
-			Description: "Acknowledge, close or reopen an alert. Recorded in the audit log under this token's name. Only do this when the person you work for asked.",
+			Description: "Acknowledge, close or reopen an alert. Closing needs a note saying why (3 to 1000 characters). Recorded in the audit log under this token's name. Only do this when the person you work for asked.",
 			Schema: mcpSchema(map[string]any{"id": idProp("alert"),
-				"status": map[string]any{"type": "string", "enum": []string{"acknowledged", "closed", "open"}, "description": "The new state."}}, "id", "status"),
+				"status": map[string]any{"type": "string", "enum": []string{"acknowledged", "closed", "open"}, "description": "The new state."},
+				"note":   prop("string", "Why the alert is being closed, 3 to 1000 characters. Required when status is closed; ignored otherwise.")}, "id", "status"),
 			Run: run(func(ctx context.Context, args json.RawMessage) (mcp.Result, error) {
 				id, rest, err := withID(args)
 				if err != nil {

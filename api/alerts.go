@@ -45,7 +45,25 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"alerts": list, "counts": counts})
 }
 
-// handleSetAlertStatus acknowledges, closes or reopens an alert.
+// closeNoteProblem is the message for a close that has no usable note.
+const closeNoteProblem = "Say why you're closing this alert."
+
+// cleanCloseNote trims a close note and reports whether it is fit to keep: 3 to 1000
+// characters and no control characters other than newlines.
+func cleanCloseNote(note string) (string, bool) {
+	note = strings.TrimSpace(strings.ReplaceAll(note, "\r\n", "\n"))
+	if n := len([]rune(note)); n < 3 || n > 1000 {
+		return "", false
+	}
+	for _, c := range note {
+		if c != '\n' && unicode.IsControl(c) {
+			return "", false
+		}
+	}
+	return note, true
+}
+
+// handleSetAlertStatus acknowledges, closes or reopens an alert. Closing needs a note.
 func (s *Server) handleSetAlertStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.canSeeAlerts(w, r) {
 		return
@@ -56,8 +74,9 @@ func (s *Server) handleSetAlertStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Status string `json:"status"`
+		Note   string `json:"note"`
 	}
-	if !decodeJSON(w, r, &req, 1<<10) {
+	if !decodeJSON(w, r, &req, 16<<10) {
 		return
 	}
 	switch req.Status {
@@ -66,8 +85,16 @@ func (s *Server) handleSetAlertStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "status must be open, acknowledged or closed")
 		return
 	}
+	note := ""
+	if req.Status == storage.AlertClosed {
+		var ok bool
+		if note, ok = cleanCloseNote(req.Note); !ok {
+			writeError(w, http.StatusBadRequest, closeNoteProblem)
+			return
+		}
+	}
 	by := auth.FromContext(r.Context()).Name
-	a, err := s.deps.Repo.SetAlertStatus(r.Context(), id, req.Status, by, time.Now().UnixMilli())
+	a, err := s.deps.Repo.SetAlertStatus(r.Context(), id, req.Status, by, note, time.Now().UnixMilli())
 	if errors.Is(err, storage.ErrAlertNotFound) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -82,7 +109,11 @@ func (s *Server) handleSetAlertStatus(w http.ResponseWriter, r *http.Request) {
 	} else if a.GroupValue != "" {
 		what += " (" + a.GroupValue + ")"
 	}
-	s.audit(r, audit.Entry{Action: "alert." + req.Status, Message: fmt.Sprintf("%s %s the alert %s", by, verb, what),
+	msg := fmt.Sprintf("%s %s the alert %s", by, verb, what)
+	if note != "" {
+		msg += ": " + note
+	}
+	s.audit(r, audit.Entry{Action: "alert." + req.Status, Message: msg,
 		Fields: map[string]string{"target": what}})
 	writeJSON(w, http.StatusOK, a)
 }

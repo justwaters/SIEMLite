@@ -366,7 +366,13 @@ func TestMCPTools(t *testing.T) {
 	if msg, isErr := e.tool(analyst, "set_alert_status", map[string]any{"id": id, "status": "deleted"}); !isErr || !strings.Contains(msg, "status") {
 		t.Errorf("a bad status = %q %v", msg, isErr)
 	}
-	if _, isErr := e.tool(analyst, "set_alert_status", map[string]any{"id": "x", "status": "closed"}); !isErr {
+	if msg, isErr := e.tool(analyst, "set_alert_status", map[string]any{"id": id, "status": "closed"}); !isErr || !strings.Contains(msg, "why") {
+		t.Errorf("closing over MCP without a note = %q %v", msg, isErr)
+	}
+	if text, isErr := e.tool(analyst, "set_alert_status", map[string]any{"id": id, "status": "closed", "note": "Duplicate of another alert."}); isErr || !strings.Contains(text, `"close_note":"Duplicate of another alert."`) {
+		t.Errorf("closing over MCP with a note = %q %v", text, isErr)
+	}
+	if _, isErr := e.tool(analyst, "set_alert_status", map[string]any{"id": "x", "status": "closed", "note": "a bad id"}); !isErr {
 		t.Error("a bad id was accepted")
 	}
 	waitForEvent(t, e, root, "agent:triage acknowledged the alert")

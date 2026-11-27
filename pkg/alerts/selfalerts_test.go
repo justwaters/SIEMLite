@@ -197,7 +197,7 @@ func TestRepairCorrectsAlertsRaisedByOwnAuditEvents(t *testing.T) {
 	if a := byID[one]; a.Count != 1 || a.Status != "closed" {
 		t.Errorf("the alert with the real event: %+v (want count 1, status unchanged)", a)
 	}
-	if a := byID[two]; a.Count != 0 || a.Status != "closed" || a.UpdatedBy != "SIEMLite" {
+	if a := byID[two]; a.Count != 0 || a.Status != "closed" || a.UpdatedBy != "SIEMLite" || a.CloseNote != SystemCloseNote {
 		t.Errorf("the alert made only by audit events: %+v (want closed by SIEMLite, count 0)", a)
 	}
 	if a := byID[three]; a.Count != 0 || a.Status != "closed" || a.UpdatedBy == "SIEMLite" {

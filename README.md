@@ -17,7 +17,7 @@ a built-in web UI and a small JSON API.
 - **Sources and parsers**: each application gets an access token that can only send logs, with a "last used" time and
   a parser of your choice. Build parsers in the UI from sample lines, upload them, or let a local AI model suggest one.
 - **Alerts**: rules that watch for patterns, like 10 failed SSH passwords from one address in 5 minutes, with four
-  built in. Acknowledge and close alerts on the Alerts page.
+  built in. Acknowledge and close alerts on the Alerts page; closing one needs a note saying why.
 - **Audit log**: sign-ins, changes to users, sources, parsers and rules, backups and restores are recorded as events
   from the **INTERNAL** source, searchable like any other log.
 - **Test logs built in**: `loggen` sends realistic logs from a fictional company, attacks included, at 1 to 1,000,000
@@ -190,7 +190,7 @@ usually within seconds, then who issued it and until when. Or set it from the st
   It loads 100 events at a time: scroll to the end, or choose **Show more events**, for the next 100.
   The address bar keeps the search, so it can be bookmarked or shared.
 - **Alerts**: alerts raised by the rules, by severity, with how many events and when. Open the events behind an alert,
-  acknowledge it while you look into it, then close it. The **Rules** tab lists the rules; admins add, edit and switch them off.
+  acknowledge it while you look into it, then close it with a note saying why (it is shown on the closed alert as "Closed by NAME: note" and kept in the audit log). The **Rules** tab lists the rules; admins add, edit and switch them off.
   Users limited to some sources don't see alerts, since a rule looks at every source.
 - **Users** (admins): add people, set their role, limit what they can see, change passwords, and keep the built-in admin account to the server itself.
 - **Sources** (admins): add sources (each gets an access token and ready-to-paste code), see when each source last sent logs, choose how each source's lines are read (Automatic, None or a parser), add logs by hand, and enable, disable or delete a token (Manage).
@@ -330,7 +330,7 @@ structured data) is not kept: if you need it, give that source a custom parser.
 | `GET`/`POST /api/v1/parsers`, `GET`/`PUT`/`DELETE /api/v1/parsers/{id}`, `GET /api/v1/parsers/templates`, `GET /api/v1/parsers/severity-defaults` | admin | Manage parsers; the templates, and the default keyword rules for a parser's severity. |
 | `GET /api/v1/alerts?status=open` | any signed-in user not limited to some sources | Alerts (`open`, `acknowledged`, `closed` or `all`) and the count in each state. |
 | `POST /api/v1/alerts` | same | Open an alert no rule raised: `{"title", "severity" (1-6), "group_by" (`src_ip`, `dst_ip`, `user` or `host`, optional), "group_value", "count", "note"}`. An open alert with the same title and group is updated instead (`200`; a new one is `201`). It is audited. |
-| `PATCH /api/v1/alerts/{id}` | same | Acknowledge, close or reopen: `{"status": "acknowledged"}`. |
+| `PATCH /api/v1/alerts/{id}` | same | Acknowledge, close or reopen: `{"status": "acknowledged"}`. Closing needs a note: `{"status": "closed", "note": "Test traffic from the pen test."}` (3 to 1000 characters, no control characters apart from newlines); without one the answer is `400` "Say why you're closing this alert." The closed alert's JSON has `close_note` (and `updated_by` says who closed it); the note is also in the `alert.closed` audit entry. Reopening or acknowledging needs no note and clears `close_note` from the alert (the audit log keeps it). |
 | `GET /api/v1/rules`, `POST /api/v1/rules`, `PUT`/`DELETE /api/v1/rules/{id}` | any signed-in user (list), admin | Alert rules: `{"name", "description", "enabled", "severity", "query", "min_severity", "threat_only", "source_id", "group_by", "threshold", "window_minutes", "kind"}`. `kind` is `match` (the default), or `volume_over` / `volume_under` to alert when the source in `source_id` (required) sends more than / fewer than `threshold` events in `window_minutes`; those ignore `query`, `min_severity`, `threat_only` and `group_by`. |
 | `GET /api/v1/system` | admin | Database size and version, uptime, backups folder and free space. |
 | `GET`/`PUT /api/v1/system/tls`, `POST /api/v1/system/tls/check` | admin | The HTTPS certificate: `{"mode": "self-signed"/"letsencrypt", "domain"}`; the reply describes the certificates, whether one is being obtained, the last error and what the domain resolves to. The check (`{"domain"}`) says whether that name on port 443 reaches this SIEMLite. |
@@ -645,7 +645,7 @@ the real one. If SIEMLite can't tell which source is its own audit log for a mom
 count those events.
 
 While an alert is open or acknowledged, more matching events add to it instead of raising a new one. Once it's closed,
-the next match raises a new alert. Built-in rules can be edited or switched off but not deleted. The [log
+the next match raises a new alert. Closing an alert needs a note saying why, from the Alerts page, the API or an AI agent; alerts SIEMLite closes by itself carry the note "Closed automatically: ...". Built-in rules can be edited or switched off but not deleted. The [log
 generator](#test-logs)'s attacks raise alerts too.
 
 ### Improbable travel
@@ -705,7 +705,7 @@ time (the agent using it is refused straight away). The switch on the card keeps
 | Level | Tools |
 |---|---|
 | **Read-only** | `search_events` (the Database search with its filters, newest first, 200 at most; the original line only with `include_raw`), `get_stats` (the dashboard's numbers for the last N hours), `list_alerts`, `list_rules`, `list_sources` |
-| **Analyst** | the above, and `set_alert_status` (acknowledge, close or reopen an alert) and `create_alert` (open an alert for something found in the logs that no rule describes, with a severity, what it is about and a note saying why; raising it again adds to the open one) |
+| **Analyst** | the above, and `set_alert_status` (acknowledge, close or reopen an alert; closing needs a `note` saying why) and `create_alert` (open an alert for something found in the logs that no rule describes, with a severity, what it is about and a note saying why; raising it again adds to the open one) |
 | **Admin** | the above, and `list_parsers`, `get_parser`, `draft_parser`, `test_parser`, `save_parser`, `delete_parser`, `create_source`, `update_source`, `delete_source` |
 
 Agents can't reach users, passwords, sign-in settings, Microsoft sign-in, certificates, email, backups, retention or alert rules

@@ -11,6 +11,9 @@ import (
 // v0.28.1) has run on this database. It is not a version of "the repair": a different clean-up of other data
 // takes a key of its own, named for what it does, so one finishing never stops another from running. Changing
 // this key would only make this same repair run again.
+// SystemCloseNote is the note on an alert SIEMLite closes by itself.
+const SystemCloseNote = "Closed automatically: it was counted from SIEMLite's own audit events."
+
 const repairKey = "alerts_self_trigger_repaired"
 
 // selfTriggered are the built-in rules that watch SIEMLite's own audit log, and so could be raised by
@@ -97,7 +100,7 @@ func (e *Engine) RepairSelfTriggered(ctx context.Context) ([]Repair, error) {
 				}
 			}
 			if own == 0 && a.Status != storage.AlertClosed {
-				if _, err := e.store.SetAlertStatus(ctx, a.ID, storage.AlertClosed, "SIEMLite", now); err != nil {
+				if _, err := e.store.SetAlertStatus(ctx, a.ID, storage.AlertClosed, "SIEMLite", SystemCloseNote, now); err != nil {
 					return out, err
 				}
 				r.Closed = true

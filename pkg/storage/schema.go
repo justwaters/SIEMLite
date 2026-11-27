@@ -8,7 +8,7 @@ import (
 )
 
 // schemaVersion is stored in PRAGMA user_version.
-const schemaVersion = 24
+const schemaVersion = 25
 
 // schemaStatements is the idempotent DDL applied on startup.
 //
@@ -426,6 +426,10 @@ var upgrades = map[int][]string{
 		`UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'alert_rules'), 0)) WHERE name = 'alert_rules_new'`,
 		`DROP TABLE alert_rules`,
 		`ALTER TABLE alert_rules_new RENAME TO alert_rules`,
+	},
+	// v25: closing an alert needs a note saying why; it is kept with the alert while it is closed.
+	24: {
+		`ALTER TABLE alerts ADD COLUMN close_note TEXT NOT NULL DEFAULT ''`,
 	},
 }
 

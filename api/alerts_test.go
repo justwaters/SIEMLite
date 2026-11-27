@@ -65,7 +65,7 @@ func TestFailedSignInsRaiseAnAlert(t *testing.T) {
 	if got := e.call(sam, "PATCH", path, map[string]any{"status": "snoozed"}, nil, nil); got != 400 {
 		t.Errorf("bad status = %d", got)
 	}
-	if got := e.call(sam, "PATCH", "/api/v1/alerts/999", map[string]any{"status": "closed"}, nil, nil); got != 404 {
+	if got := e.call(sam, "PATCH", "/api/v1/alerts/999", map[string]any{"status": "closed", "note": "no such alert"}, nil, nil); got != 404 {
 		t.Errorf("missing alert = %d", got)
 	}
 	if got := e.call(sam, "GET", "/api/v1/alerts?status=bogus", nil, nil, nil); got != 400 {
@@ -93,12 +93,44 @@ func TestFailedSignInsRaiseAnAlert(t *testing.T) {
 		t.Errorf("counts = %v", list.Counts)
 	}
 
-	// Closing is audited too, under the analyst's name.
-	e.call(sam, "PATCH", path, map[string]any{"status": "closed"}, nil, nil)
+	// Closing needs a note: none, blank, too short, too long or with control characters is refused.
+	for name, body := range map[string]map[string]any{
+		"no note": {"status": "closed"}, "blank": {"status": "closed", "note": "  \n\t "},
+		"too short": {"status": "closed", "note": "ok"}, "too long": {"status": "closed", "note": strings.Repeat("x", 1001)},
+		"control": {"status": "closed", "note": "bad\x07note"},
+	} {
+		var er struct {
+			Error string `json:"error"`
+		}
+		if got := e.call(sam, "PATCH", path, body, &er, nil); got != 400 || er.Error != "Say why you're closing this alert." {
+			t.Errorf("close with %s = %d %q", name, got, er.Error)
+		}
+	}
+	e.call(sam, "GET", "/api/v1/alerts?status=acknowledged", nil, &list, nil)
+	if len(list.Alerts) != 1 {
+		t.Fatalf("a refused close changed the alert: %+v", list.Alerts)
+	}
+
+	// Closing is audited too, under the analyst's name, with the note.
+	var closed storage.Alert
+	if got := e.call(sam, "PATCH", path, map[string]any{"status": "closed", "note": "  Test traffic from the pen test.\nNo action needed. "}, &closed, nil); got != 200 ||
+		closed.Status != "closed" || closed.CloseNote != "Test traffic from the pen test.\nNo action needed." || closed.UpdatedBy != "sam" {
+		t.Fatalf("close = %d %+v", got, closed)
+	}
 	e.worker.Drain(ctx)
 	e.call(root, "GET", "/api/v1/search?q="+url.QueryEscape(`"closed the alert"`), nil, &res, nil)
-	if res.Count != 1 || !strings.Contains(string(res.Events[0].Fields), `"action":"alert.closed"`) {
+	if res.Count != 1 || !strings.Contains(string(res.Events[0].Fields), `"action":"alert.closed"`) ||
+		!strings.Contains(res.Events[0].Message, "Test traffic from the pen test.") {
 		t.Errorf("close audit = %d %+v", res.Count, res.Events)
+	}
+	e.call(sam, "GET", "/api/v1/alerts?status=closed", nil, &list, nil)
+	if len(list.Alerts) != 1 || !strings.Contains(list.Alerts[0].CloseNote, "pen test") {
+		t.Errorf("listed closed alert = %+v", list.Alerts)
+	}
+	// Reopening needs no note and shows none.
+	var re storage.Alert
+	if got := e.call(sam, "PATCH", path, map[string]any{"status": "open"}, &re, nil); got != 200 || re.Status != "open" || re.CloseNote != "" {
+		t.Errorf("reopen = %d %+v", got, re)
 	}
 }
 
@@ -320,7 +352,7 @@ func TestManagingAnAlertRaisesNoAlerts(t *testing.T) {
 	for _, name := range []string{"Mass ingestion of late logs", "Unusual zebra activity"} {
 		id := before[name][0].ID
 		for _, status := range []string{"acknowledged", "closed", "open"} {
-			if got := e.call(root, "PATCH", fmt.Sprintf("/api/v1/alerts/%d", id), map[string]string{"status": status}, nil, nil); got != 200 {
+			if got := e.call(root, "PATCH", fmt.Sprintf("/api/v1/alerts/%d", id), map[string]string{"status": status, "note": "closed by the test"}, nil, nil); got != 200 {
 				t.Fatalf("%s -> %s = %d", name, status, got)
 			}
 		}

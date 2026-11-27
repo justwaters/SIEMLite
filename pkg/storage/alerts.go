@@ -157,6 +157,8 @@ type Alert struct {
 	UpdatedBy  string `json:"updated_by,omitempty"`
 	// Note says why a hand-raised alert (one with no rule) was raised.
 	Note string `json:"note,omitempty"`
+	// CloseNote is why a closed alert was closed (by whom: UpdatedBy). Empty unless the alert is closed.
+	CloseNote string `json:"close_note,omitempty"`
 }
 
 const ruleCols = `id, name, description, enabled, severity, query, min_severity, threat_only, source_id, group_by,
@@ -922,7 +924,7 @@ func (r *Repository) ActiveAlertGroups(ctx context.Context, ruleID int64) (map[s
 // first, and the number in each status.
 func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) ([]Alert, map[string]int64, error) {
 	q := `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen, last_seen,
-		created_at, updated_at, updated_by, note FROM alerts`
+		created_at, updated_at, updated_by, note, close_note FROM alerts`
 	var args []any
 	if status != "" {
 		q += ` WHERE status = ?`
@@ -940,7 +942,7 @@ func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) (
 		var a Alert
 		var rid sql.NullInt64
 		if err := rows.Scan(&a.ID, &rid, &a.RuleName, &a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count,
-			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note); err != nil {
+			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note, &a.CloseNote); err != nil {
 			return nil, nil, err
 		}
 		if rid.Valid {
@@ -975,7 +977,10 @@ func (r *Repository) ListAlerts(ctx context.Context, status string, limit int) (
 // Closing remembers the highest arrival number handed out so far: events
 // numbered up to it already counted (or were about to) and can't open a new
 // alert for the same rule and group, only events arriving afterwards can.
-func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by string, nowMs int64) (*Alert, error) {
+//
+// note is why an alert is closed; it is stored with the alert while it is closed
+// and cleared when the alert is acknowledged or reopened (the audit log keeps it).
+func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by, note string, nowMs int64) (*Alert, error) {
 	var closedSeq int64
 	if status == AlertClosed {
 		var err error
@@ -984,7 +989,8 @@ func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by st
 		}
 	}
 	res, err := r.db.Write.ExecContext(ctx, `UPDATE alerts SET status = ?, updated_by = ?, updated_at = ?,
-		closed_seq = CASE WHEN ? = 'closed' THEN MAX(closed_seq, ?) ELSE closed_seq END WHERE id = ?`, status, by, nowMs, status, closedSeq, id)
+		close_note = CASE WHEN ? = 'closed' THEN ? ELSE '' END,
+		closed_seq = CASE WHEN ? = 'closed' THEN MAX(closed_seq, ?) ELSE closed_seq END WHERE id = ?`, status, by, nowMs, status, note, status, closedSeq, id)
 	if err != nil {
 		return nil, fmt.Errorf("set alert status: %w", err)
 	}
@@ -994,8 +1000,8 @@ func (r *Repository) SetAlertStatus(ctx context.Context, id int64, status, by st
 	var a Alert
 	var rid sql.NullInt64
 	err = r.db.Write.QueryRowContext(ctx, `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen,
-		last_seen, created_at, updated_at, updated_by, note FROM alerts WHERE id = ?`, id).Scan(&a.ID, &rid, &a.RuleName,
-		&a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count, &a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note)
+		last_seen, created_at, updated_at, updated_by, note, close_note FROM alerts WHERE id = ?`, id).Scan(&a.ID, &rid, &a.RuleName,
+		&a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count, &a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note, &a.CloseNote)
 	if rid.Valid {
 		a.RuleID = &rid.Int64
 	}
@@ -1056,9 +1062,9 @@ func (r *Repository) RaiseManualAlert(ctx context.Context, a Alert, nowMs int64)
 	var out Alert
 	var rid sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen,
-		last_seen, created_at, updated_at, updated_by, note FROM alerts WHERE id = ?`, id).Scan(&out.ID, &rid, &out.RuleName,
+		last_seen, created_at, updated_at, updated_by, note, close_note FROM alerts WHERE id = ?`, id).Scan(&out.ID, &rid, &out.RuleName,
 		&out.Severity, &out.GroupBy, &out.GroupValue, &out.Status, &out.Count, &out.FirstSeen, &out.LastSeen, &out.CreatedAt,
-		&out.UpdatedAt, &out.UpdatedBy, &out.Note); err != nil {
+		&out.UpdatedAt, &out.UpdatedBy, &out.Note, &out.CloseNote); err != nil {
 		return nil, false, err
 	}
 	return &out, created, tx.Commit()
@@ -1068,7 +1074,7 @@ func (r *Repository) RaiseManualAlert(ctx context.Context, a Alert, nowMs int64)
 // largest) first, at most limit of them, and how many there were in all, by severity and by status.
 func (r *Repository) AlertsInRange(ctx context.Context, fromMs, toMs int64, limit int) (list []Alert, total int64, bySeverity map[int]int64, byStatus map[string]int64, err error) {
 	rows, err := r.db.Read.QueryContext(ctx, `SELECT id, rule_id, rule_name, severity, group_by, group_value, status, count, first_seen,
-		last_seen, created_at, updated_at, updated_by, note FROM alerts WHERE created_at >= ? AND created_at < ?
+		last_seen, created_at, updated_at, updated_by, note, close_note FROM alerts WHERE created_at >= ? AND created_at < ?
 		ORDER BY severity DESC, count DESC, id DESC LIMIT ?`, fromMs, toMs, limit)
 	if err != nil {
 		return nil, 0, nil, nil, fmt.Errorf("alerts in range: %w", err)
@@ -1079,7 +1085,7 @@ func (r *Repository) AlertsInRange(ctx context.Context, fromMs, toMs int64, limi
 		var a Alert
 		var rid sql.NullInt64
 		if err := rows.Scan(&a.ID, &rid, &a.RuleName, &a.Severity, &a.GroupBy, &a.GroupValue, &a.Status, &a.Count,
-			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note); err != nil {
+			&a.FirstSeen, &a.LastSeen, &a.CreatedAt, &a.UpdatedAt, &a.UpdatedBy, &a.Note, &a.CloseNote); err != nil {
 			return nil, 0, nil, nil, err
 		}
 		if rid.Valid {

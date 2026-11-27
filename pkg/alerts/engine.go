@@ -37,7 +37,7 @@ type Store interface {
 	CountRuleEvents(ctx context.Context, ru storage.Rule, groupValue string, startMs, endMs int64) (int64, error)
 	AlertsOfRule(ctx context.Context, ruleID int64) ([]storage.Alert, error)
 	SetAlertCount(ctx context.Context, id, count, nowMs int64) error
-	SetAlertStatus(ctx context.Context, id int64, status, by string, nowMs int64) (*storage.Alert, error)
+	SetAlertStatus(ctx context.Context, id int64, status, by, note string, nowMs int64) (*storage.Alert, error)
 	RaiseVolumeAlert(ctx context.Context, ru storage.Rule, count, first, last, nowMs int64) (bool, error)
 	Setting(ctx context.Context, key, def string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error

@@ -812,6 +812,24 @@ def main(binary, loggen):
             page.locator("#alerts-body tr").nth(before - 1).wait_for(state="detached")
             check(True, "acknowledging moves an alert off the Open tab")
 
+            # Closing asks why: the button stays disabled until a note is typed, Enter adds a line, and the note is shown.
+            before = page.locator("#alerts-body tr").count()
+            page.locator("#alerts-body tr").first.get_by_role("button", name="Close", exact=True).click()
+            page.wait_for_selector("#dlg-close-alert[open]")
+            check(page.is_disabled("#close-alert-ok"), "the close dialog's Close alert button is disabled without a note")
+            page.fill("#close-alert-note", "  ")
+            check(page.is_disabled("#close-alert-ok"), "a blank note doesn't enable Close alert")
+            page.fill("#close-alert-note", "Known test traffic")
+            page.press("#close-alert-note", "Enter")
+            check(page.is_visible("#dlg-close-alert") and "\n" in page.input_value("#close-alert-note"), "Enter in the note adds a line instead of closing")
+            check(not page.is_disabled("#close-alert-ok"), "a note enables Close alert")
+            page.click("#close-alert-ok")
+            page.locator("#alerts-body tr").nth(before - 1).wait_for(state="detached")
+            page.click('[data-atab="closed"]')
+            page.wait_for_selector("#alerts-body .close-note")
+            check("Known test traffic" in page.inner_text("#alerts-body .close-note") and "Closed by" in page.inner_text("#alerts-body .close-note"),
+                  "a closed alert shows who closed it and why")
+
             # Every page fits a phone screen.
             phone = session(390, 844)
             phone.wait_for_selector("#ver:not(:empty)")

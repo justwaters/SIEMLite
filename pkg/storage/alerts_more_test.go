@@ -134,7 +134,7 @@ func TestRaiseAlertGroupsAndStatus(t *testing.T) {
 	if n, _ := repo.CountOpenAlerts(ctx); n != 2 {
 		t.Errorf("open = %d, want 2", n)
 	}
-	ack, err := repo.SetAlertStatus(ctx, a.ID, AlertAcknowledged, "jd", 4000)
+	ack, err := repo.SetAlertStatus(ctx, a.ID, AlertAcknowledged, "jd", "", 4000)
 	if err != nil || ack.Status != AlertAcknowledged || ack.UpdatedBy != "jd" || ack.UpdatedAt != 4000 {
 		t.Fatalf("ack: %+v %v", ack, err)
 	}
@@ -145,7 +145,7 @@ func TestRaiseAlertGroupsAndStatus(t *testing.T) {
 	if opened, _ := repo.RaiseAlert(ctx, ru, "9.9.9.9", 1, 1, 1, 1, 4500); opened {
 		t.Error("acknowledged alert should be updated, not duplicated")
 	}
-	closed, err := repo.SetAlertStatus(ctx, a.ID, AlertClosed, "jd", 5000)
+	closed, err := repo.SetAlertStatus(ctx, a.ID, AlertClosed, "jd", "closed in the test", 5000)
 	if err != nil || closed.Status != AlertClosed {
 		t.Fatalf("close: %+v %v", closed, err)
 	}
@@ -159,13 +159,22 @@ func TestRaiseAlertGroupsAndStatus(t *testing.T) {
 	if opened, _ := repo.RaiseAlert(ctx, ru, "9.9.9.9", 1, 1, 1, 1, 6000); !opened {
 		t.Error("a closed alert must not absorb new events")
 	}
-	if _, err := repo.SetAlertStatus(ctx, 99999, AlertClosed, "x", 1); !errors.Is(err, ErrAlertNotFound) {
+	if closed.CloseNote != "closed in the test" || closed.UpdatedBy != "jd" {
+		t.Errorf("close note not kept: %+v", closed)
+	}
+	if list, _, _ := repo.ListAlerts(ctx, AlertClosed, 10); len(list) != 1 || list[0].CloseNote != "closed in the test" {
+		t.Errorf("listed close note: %+v", list)
+	}
+	if _, err := repo.SetAlertStatus(ctx, 99999, AlertClosed, "x", "closed in the test", 1); !errors.Is(err, ErrAlertNotFound) {
 		t.Errorf("status unknown: %v", err)
 	}
 	// Reopening works and leaves closed_seq alone.
-	re, err := repo.SetAlertStatus(ctx, a.ID, AlertOpen, "jd", 7000)
+	re, err := repo.SetAlertStatus(ctx, a.ID, AlertOpen, "jd", "", 7000)
 	if err != nil || re.Status != AlertOpen {
 		t.Fatalf("reopen: %+v %v", re, err)
+	}
+	if re.CloseNote != "" {
+		t.Errorf("a reopened alert still shows a close note: %q", re.CloseNote)
 	}
 	var cs2 int64
 	repo.db.Read.QueryRow(`SELECT closed_seq FROM alerts WHERE id = ?`, a.ID).Scan(&cs2)
@@ -209,7 +218,7 @@ func TestRaiseVolumeAlert(t *testing.T) {
 	}
 	// After closing, a new one opens.
 	al, _ := repo.AlertsOfRule(ctx, over.ID)
-	repo.SetAlertStatus(ctx, al[0].ID, AlertClosed, "x", 3000)
+	repo.SetAlertStatus(ctx, al[0].ID, AlertClosed, "x", "closed in the test", 3000)
 	if opened, _ := repo.RaiseVolumeAlert(ctx, over, 11, 1, 2, 4000); !opened {
 		t.Error("closed volume alert should not be reused")
 	}
@@ -238,7 +247,7 @@ func TestRaiseManualAlert(t *testing.T) {
 	if _, c, _ := repo.RaiseManualAlert(ctx, Alert{RuleName: "Odd login", GroupBy: "user", GroupValue: "eve", Count: 1}, 3000); !c {
 		t.Error("different group should create")
 	}
-	repo.SetAlertStatus(ctx, a.ID, AlertClosed, "x", 3500)
+	repo.SetAlertStatus(ctx, a.ID, AlertClosed, "x", "closed in the test", 3500)
 	if c2, c, _ := repo.RaiseManualAlert(ctx, in, 4000); !c || c2.ID == a.ID {
 		t.Error("a closed manual alert should not be reused")
 	}
@@ -263,7 +272,7 @@ func TestAlertsInRangeAndCounts(t *testing.T) {
 	_ = outside
 	before := mk(5, 1, 999, "before")
 	_ = before
-	repo.SetAlertStatus(ctx, low.ID, AlertClosed, "x", 3100)
+	repo.SetAlertStatus(ctx, low.ID, AlertClosed, "x", "closed in the test", 3100)
 	_ = ru
 
 	list, total, bySev, byStat, err := repo.AlertsInRange(ctx, 1000, 5000, 10)
@@ -353,7 +362,7 @@ func TestCountOpenAlertsAtLeast(t *testing.T) {
 	}
 	for _, a := range all {
 		if a.Severity == 5 {
-			if _, err := repo.SetAlertStatus(ctx, a.ID, AlertClosed, "jd", 2000); err != nil {
+			if _, err := repo.SetAlertStatus(ctx, a.ID, AlertClosed, "jd", "closed in the test", 2000); err != nil {
 				t.Fatal(err)
 			}
 		}

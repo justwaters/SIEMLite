@@ -131,7 +131,7 @@ func TestThresholdWindowAndDedupe(t *testing.T) {
 		t.Fatalf("after more failures: %+v", got)
 	}
 	// Once closed, a new burst opens a new alert.
-	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", 1); err != nil {
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", "closed in the test", 1); err != nil {
 		t.Fatal(err)
 	}
 	send(10, time.Second, "192.0.2.1")
@@ -512,7 +512,7 @@ func TestClosedAlertDoesNotRefireFromOldEvents(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("burst: %+v", got)
 	}
-	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", time.Now().UnixMilli()); err != nil {
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", "closed in the test", time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
 	// One straggler after the close: the ten before it are already dealt with.
@@ -547,11 +547,11 @@ func TestClosedBeforeCheckDoesNotCountEarlierEvents(t *testing.T) {
 	send(10)
 	eng.Check(ctx)
 	got := alertsByRule(t, repo)["SSH brute force"]
-	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", time.Now().UnixMilli()); err != nil {
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", "closed in the test", time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
 	send(9) // stored but not checked yet when the alert is closed
-	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", time.Now().UnixMilli()); err != nil {
+	if _, err := repo.SetAlertStatus(ctx, got[0].ID, storage.AlertClosed, "test", "closed in the test", time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
 	eng.Check(ctx)
