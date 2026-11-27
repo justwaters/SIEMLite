@@ -66,10 +66,12 @@ names and hashes anywhere in the raw log. A hit marks the event as a threat (red
 <code>threat=true</code> in search) and records which indicator, source and field matched, plus what each list says about it:
 the list's name, the kind of threat it tracks (botnet C2, Tor exit node, brute-force attacker…), how far to trust it
 (high, medium or low), a link to read about it, and the feed's own note for that line (for example "Possible
-Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an underlined IP in the Database to see its lists.</p>
+Cobaltstrike C2 IP"). An address on several lists shows every one. Hover an underlined IP (in the Database, alerts, the Dashboard and reports) to see where it is and which lists it is on.</p>
 <p>The easy way: the <strong>Intel</strong> page (admins). Its <strong>Threat feeds</strong> section lists free IP blocklists that need no account
 (Feodo Tracker, C2IntelFeeds, IPsum, two from Blocklist.de, and the Tor exit nodes). Tick the ones you want and save: they download right
-away, refresh every 6 hours, and are removed again if you untick them. Each has a link to its provider's terms;
+away, refresh every 6 hours, and are removed again if you untick them. A list is downloaded again only when its last
+download is 6 hours old, so restarting or updating SIEMLite, or choosing another list, doesn't download the others again
+(the <strong>Refresh</strong> button does, whatever their age). Each has a link to its provider's terms;
 whether you may use a list where you work is your call. Nothing is downloaded until you choose it. Events show the
 feed's name as the source of a match. Tor exit nodes aren't malicious in themselves, but they are flagged like any
 other listed address, so the built-in <strong>Threat intel match</strong> rule raises a High alert for each address that hits (traffic
@@ -77,7 +79,7 @@ from or to a Tor exit; put your own exits on a friendly list to leave them alone
 <p><strong>Friendly addresses</strong> (same page) are lists of addresses and ranges you trust, such as your office, a partner or a
 scanner you run. Make a list, then paste addresses (one per line, or separated by commas; <code>203.0.113.7</code> or
 <code>198.51.100.0/24</code>; <code>#</code> starts a comment). A friendly address is never marked as a threat, even when a feed lists it.
-It applies to events stored from then on; events already in the database keep their marks.</p>
+It applies to events stored from then on; events already in the database keep their marks. To add an address from anywhere in the UI, right-click it and choose <strong>Add to list</strong> (see <a href="geoip-and-asn.html#ip-addresses-in-the-ui">IP addresses in the UI</a>).</p>
 <p>Or download feeds from the command line (refreshed every <code>-intel-refresh</code>, default 6h; these show on the Intel page too, read-only):</p>
 <pre><code class="language-sh">./siemlite \
   -intel-feed feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt \

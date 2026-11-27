@@ -83,7 +83,7 @@
 <tr>
 <td><code>GET /api/v1/search</code></td>
 <td>any signed-in user</td>
-<td><code>q</code>, <code>start</code>, <code>end</code> (RFC3339 or epoch ms), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code>, <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000), <code>offset</code>. Newest first. Each event includes its parsed <code>message</code>, its <code>source_name</code>, extra parsed <code>fields</code> and <code>enrichment</code>, and <code>raw_data</code>, the original line (empty once it has been removed, by default 24 hours after the event arrived).</td>
+<td><code>q</code>, <code>start</code>, <code>end</code> (RFC3339 or epoch ms), <code>severity</code>, <code>category</code>, <code>class</code>, <code>src_ip</code>, <code>dst_ip</code>, <code>user</code>, <code>source</code> (program), <code>source_id</code> (a source id; repeat it or give a comma-separated list, <code>source_id=3,5</code>, for events from any of those sources, up to 200; users limited to some sources get only the overlap), <code>host</code>, <code>country</code>, <code>asn</code>, <code>threat=true</code>, <code>limit</code> (max 1000), <code>offset</code>. Newest first. Each event includes its parsed <code>message</code>, its <code>source_name</code>, extra parsed <code>fields</code> and <code>enrichment</code>, and <code>raw_data</code>, the original line (empty once it has been removed, by default 24 hours after the event arrived).</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/stats?hours=24</code></td>
@@ -128,7 +128,7 @@
 <tr>
 <td><code>PATCH /api/v1/alerts/{id}</code></td>
 <td>same</td>
-<td>Acknowledge, close or reopen: <code>{"status": "acknowledged"}</code>.</td>
+<td>Acknowledge, close or reopen: <code>{"status": "acknowledged"}</code>. Closing needs a note: <code>{"status": "closed", "note": "Test traffic from the pen test."}</code> (3 to 1000 characters, no control characters apart from newlines); without one the answer is <code>400</code> "Say why you're closing this alert." The closed alert's JSON has <code>close_note</code> (and <code>updated_by</code> says who closed it); the note is also in the <code>alert.closed</code> audit entry. Reopening or acknowledging needs no note and clears <code>close_note</code> from the alert (the audit log keeps it).</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/rules</code>, <code>POST /api/v1/rules</code>, <code>PUT</code>/<code>DELETE /api/v1/rules/{id}</code></td>
@@ -214,6 +214,31 @@
 <td><code>POST /api/v1/login</code>, <code>POST /api/v1/logout</code>, <code>GET /api/v1/me</code></td>
 <td></td>
 <td>Browser sign-in, sign-out and current session (<code>/me</code> includes <code>auth_provider</code>: <code>local</code> or <code>entra</code>, and <code>display_name</code> for a Microsoft account). A password sign-in refused by a <a href="users-and-security.html#sign-in-restrictions">sign-in restriction</a> gets <code>403</code>.</td>
+</tr>
+<tr>
+<td><code>PUT /api/v1/system/update/channel</code></td>
+<td>admin</td>
+<td>The update channel: <code>PUT</code> with <code>{"channel": "stable"}</code> or <code>"beta"</code>. Beta also takes pre-releases, and the choice applies to <strong>Update and restart</strong> and to automatic updates. See <a href="backups-and-updates.html#updates">Updates</a>.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/system/update/auto</code></td>
+<td>admin</td>
+<td>The <a href="backups-and-updates.html#updates">automatic updates</a> schedule and options.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/reports/summary?days=7</code>, <code>POST /api/v1/reports/runs</code>, <code>GET /api/v1/reports/runs</code>, <code>GET</code>/<code>DELETE /api/v1/reports/runs/{id}</code> (<code>/pdf</code> to download)</td>
+<td>admin</td>
+<td>The <a href="reports.html">reports</a>: the summary of a period (<code>days=7</code>, or <code>from=</code> and <code>to=</code> in milliseconds), making and keeping a PDF (<code>{"days": 7}</code> or <code>{"from", "to"}</code>), the kept reports, and downloading or deleting one.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>POST /api/v1/reports/schedules</code>, <code>PUT</code>/<code>DELETE /api/v1/reports/schedules/{id}</code>, <code>POST /api/v1/reports/schedules/{id}/run</code></td>
+<td>admin</td>
+<td>Scheduled reports: list, create, change or delete a schedule, and run one now.</td>
+</tr>
+<tr>
+<td><code>GET</code>/<code>PUT /api/v1/integrations/slack</code> (or <code>teams</code>), <code>POST /api/v1/integrations/slack/test</code> (or <code>teams</code>)</td>
+<td>admin</td>
+<td>The <a href="slack-and-teams.html">Slack and Microsoft Teams</a> settings: <code>{"webhook", "min_severity"}</code> (leave <code>webhook</code> out to keep the saved one; <code>""</code> removes it) and a test message.</td>
 </tr>
 <tr>
 <td><code>GET</code>/<code>PUT /api/v1/system/retention</code></td>

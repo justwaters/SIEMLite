@@ -113,7 +113,7 @@ SIEMLite can't swap the program that an admin later runs with <code>sudo</code>.
 <code>/usr/local/bin</code>; update with <code>sudo ./siemlite install</code> instead. The System page still tells you when a release is out.</p>
 <h2 id="run-with-docker">Run with Docker</h2>
 <p>The web UI is built into the binary, so this is a single container. Every release is published as an image for x86-64
-and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.33</code> in <code>.env</code> to use it, or leave it out to build from the
+and ARM64: set <code>SIEMLITE_IMAGE=ghcr.io/justwaters/siemlite:v0.40</code> in <code>.env</code> to use it, or leave it out to build from the
 checkout. Either way, start and update with <code>./update.sh</code>:</p>
 <pre><code class="language-sh">git clone https://github.com/justwaters/SIEMLite.git &amp;&amp; cd SIEMLite
 cp .env.example .env        # optional: ports, certificate names, GeoIP, feeds, retention
@@ -143,7 +143,8 @@ missed it, set a new one: <code>docker compose exec siemlite siemlite users pass
   shell, so use a throwaway container; the volume is named after the checkout folder):
   <code>docker run --rm -v siemlite_siemlite-data:/data alpine rm /data/siemlite.crt /data/siemlite.key &amp;&amp; docker compose restart</code>.
   To trust the certificate on a client, copy it out with <code>docker compose cp siemlite:/data/siemlite.crt .</code>.</li>
-<li>GeoIP: put the <code>.mmdb</code> files in <code>./geoip/</code> and set <code>SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb</code> (and <code>_ASN</code>).</li>
+<li>GeoIP: nothing to do; SIEMLite downloads the free DB-IP databases into the data volume. Only to use your own, put the
+  <code>.mmdb</code> files in <code>./geoip/</code> and set <code>SIEMLITE_GEOIP_CITY=/geoip/GeoLite2-City.mmdb</code> (and <code>_ASN</code>).</li>
 <li>Management commands run inside the container:
   <code>docker compose exec siemlite siemlite users create -username alice -role standard</code>, and the same for <code>keys</code>
   and <code>intel</code>. To import a feed file, pipe it in: <code>docker compose exec -T siemlite siemlite intel import -source x -file - &lt; iocs.txt</code>.</li>
@@ -156,6 +157,7 @@ missed it, set a new one: <code>docker compose exec siemlite siemlite users pass
 <p>To serve SIEMLite on a public domain with a trusted certificate from Let's Encrypt, see <a href="run-on-the-internet.html">Run on the internet</a>.</p>
 <h2 id="upgrading">Upgrading</h2>
 <p>SIEMLite upgrades its database automatically on first start. On the System page you can <a href="backups-and-updates.html#updates">update in place</a>, for a plain binary and for Docker. You can also pull or rebuild the image: <code>docker compose pull &amp;&amp; docker compose up -d</code>, or <code>git pull &amp;&amp; docker compose up -d --build</code>. Notes for each older version:</p>
+<p>Version 0.40 upgrades the database to schema 25 on first start. Make a backup first if you want a way back to v0.39, since an older version can't read a newer database.</p>
 <h3 id="from-v08">From v0.8</h3>
 <p>Each day file is upgraded once, when the server (or a command) first opens it: the stored line
 becomes the event's message and the search index is rebuilt over the parsed event, which can take a little while on a

@@ -85,6 +85,7 @@ devices ──syslog UDP/TCP/TLS──▶ syslogd ┴─▶ enrich (GeoIP, threa
 <li><strong><code>pkg/ingest</code></strong>: enriches each event, then a buffered channel and worker pool that flushes in batches.</li>
 <li><strong><code>pkg/syslogd</code></strong>: UDP, TCP and TLS syslog listeners with a sender allowlist.</li>
 <li><strong><code>pkg/enrich</code></strong>: enrichment document and GeoIP/ASN lookups (<code>.mmdb</code>, reloaded on change).</li>
+<li><strong><code>pkg/geoipdb</code></strong>: downloads and verifies the DB-IP lite databases, one edition a month.</li>
 <li><strong><code>pkg/intel</code></strong>: feed parsing, the in-memory indicator matcher and feed refresh.</li>
 <li><strong><code>pkg/search</code></strong>: combines time window, OCSF filters and FTS5.</li>
 <li><strong><code>pkg/retention</code></strong>: deletes expired days' files, and older events from the day the cutoff falls in.</li>

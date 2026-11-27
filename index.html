@@ -228,7 +228,7 @@
       <picture>
         <source srcset="screenshots/dashboard-dark.webp" media="(prefers-color-scheme: dark)">
         <img class="shot hero-shot" src="screenshots/dashboard-light.webp" width="2880" height="1800"
-          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with 14.3K events, 55 threat intel matches, 407 events rated High or worse and 35 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
+          alt="The SIEMLite Dashboard: a search field over the last 24 hours, with 8.9K events, no threat intel matches, 277 events rated High or worse and 9 open alerts, a chart of events per hour with threat matches in red, and lists by severity, busiest sources and IPs on threat lists.">
       </picture>
       <p class="caption">The Dashboard: the last 24 hours at a glance, with threat matches in red and the alerts waiting for you. The events came from loggen.</p>
     </div>
@@ -243,21 +243,22 @@
         <div class="tour-row">
           <div class="tour-text">
             <h3>Find out what happened</h3>
-            <p>The Database lists every event, newest first. Search words and phrases, set a date range, filter by source,
-              severity, IP, user or country, and open any event for the full story.</p>
-            <p>Here, a failed SSH login from an address on a botnet list, with the exact line that was logged.</p>
+            <p>The Database lists every event, newest first. Search words and phrases, set a date range, filter by one or more sources,
+              severity, IP, user or country, and open any event for the full story. Click an IP to search for it, or right-click
+              it to look it up or add it to a friendly list.</p>
+            <p>Here, a search for one address across two sources, with a failed VPN login opened to show the exact line that was logged.</p>
           </div>
           <picture>
             <source srcset="screenshots/database-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/database-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Database filtered to threat intel matches. An opened event explains that 192.0.2.139 is on a threat list for an SSH brute-force botnet, and shows a failed password for oracle on bastion-01 with the original log line.">
+              alt="The Database searching for events from 81.2.69.142 that mention failed or blocked, filtered to two sources. The IP hover card shows London, United Kingdom, with a hint to click to search and right-click for more. An opened event shows a failed VPN login for grace with the original log line.">
           </picture>
         </div>
         <div class="tour-row flip">
           <div class="tour-text">
             <h3>Hear about it when something&rsquo;s wrong</h3>
             <p>Alert rules watch for patterns, like ten failed SSH passwords from one address in five minutes, and open an
-              alert you can acknowledge while you look into it and close when you&rsquo;re done. Four rules come built in;
+              alert you can acknowledge while you look into it and close, with a note saying why, when you&rsquo;re done. Rules come built in;
               add your own with the same search you use in the Database.</p>
             <p>SIEMLite keeps an audit log too: every sign-in and every change anyone makes is an event from the INTERNAL
               source, so repeated failed sign-ins raise an alert like anything else.</p>
@@ -265,7 +266,7 @@
           <picture>
             <source srcset="screenshots/alerts-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/alerts-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The Alerts page with 35 open alerts from loggen's attacks: critical events on workstations, SSH brute force alerts for several addresses with 13 to 16 events each, and threat intel matches, each with View events, Acknowledge and Close buttons.">
+              alt="The Alerts page with 9 open alerts from loggen's attacks: critical events on workstations and SSH brute force alerts for several addresses with 13 to 19 events each, with View events, Acknowledge and Close buttons. Two closed alerts show who closed them and why.">
           </picture>
         </div>
         <div class="tour-row">
@@ -278,7 +279,7 @@
           <picture>
             <source srcset="screenshots/parser-dark.webp" media="(prefers-color-scheme: dark)">
             <img class="shot" src="screenshots/parser-light.webp" width="2880" height="1800" loading="lazy"
-              alt="The parser editor for the Log generator parser: a pattern with time, host, app, level, action, address, port and user fields, severity decided by the level, and a preview reading all four sample lines.">
+              alt="The parser editor for the Log generator parser: a pattern with time, host, app, level, action, address, port and user fields, severity decided by the level, and a preview reading all three sample lines.">
           </picture>
         </div>
         <div class="tour-row flip">
@@ -328,9 +329,9 @@
         <div class="group">
           <h3>Collect<span>Getting logs in</span></h3>
           <dl>
-            <div><dt>Any log, any way</dt><dd>Post over HTTPS, or point rsyslog, syslog-ng, firewalls and switches at the syslog listener on UDP, TCP or TLS. Syslog, JSON lines and plain text all work.</dd></div>
+            <div><dt>Any log, any way</dt><dd>Post over HTTPS, or point rsyslog, syslog-ng, firewalls and switches at the syslog listener on UDP, TCP or TLS. Syslog, JSON lines and plain text all work. Only loopback and private networks may send syslog until an admin lists who may, from the Syslog source&rsquo;s Manage button.</dd></div>
             <div><dt>Access tokens</dt><dd>Each application gets its own token, which can send logs and nothing else, and shows when it was last used.</dd></div>
-            <div><dt>Originals kept</dt><dd>Every line is stored exactly as it arrived, next to the event SIEMLite read from it.</dd></div>
+            <div><dt>Originals kept</dt><dd>The line as it arrived is kept next to the event SIEMLite read from it, for 24 hours by default or as long as you choose on the System page. The parsed event stays for the whole retention period.</dd></div>
           </dl>
         </div>
         <div class="group">
@@ -339,15 +340,16 @@
             <div><dt>Parsers</dt><dd>Describe a log format once, with <code>{field}</code> placeholders, JSON keys or key=value pairs, and every line from that source is read the same way. Start from a template, or upload and export them.</dd></div>
             <div><dt>AI help</dt><dd>A local model suggests a parser from a few sample lines. SIEMLite checks that it reads every one before offering it. AI Alerts does the same for alert rules: it looks over recent logs and proposes rules, kept only if their searches run and find events.</dd></div>
             <div><dt>Threat intel</dt><dd>Every event is checked against IP, IP range, domain and file hash blocklists, from feeds like abuse.ch and Spamhaus or your own lists.</dd></div>
-            <div><dt>GeoIP and networks</dt><dd>Public IPs get a country, city and network owner from a free MaxMind or DB-IP database.</dd></div>
+            <div><dt>GeoIP and networks</dt><dd>Public IPs get a country, city and network owner with no setup: SIEMLite downloads the free DB-IP databases itself and keeps them current. Bring your own MaxMind files if you prefer.</dd></div>
           </dl>
         </div>
         <div class="group">
           <h3>Investigate<span>Finding answers</span></h3>
           <dl>
             <div><dt>Dashboard</dt><dd>Events, threat matches and severity over the last day, week or month, and the sources and IPs behind them.</dd></div>
+            <div><dt>Look and feel</dt><dd>Light and dark themes, or follow your system, and an optional frosted glass look. SIEMLite&rsquo;s own date and time pickers work with the keyboard in every look.</dd></div>
             <div><dt>Fast search</dt><dd>Words, phrases, <code>AND</code>, <code>OR</code> and prefixes over full log text, with dates and filters, in milliseconds. Field terms such as <code>src_ip=10.0.0.1,10.0.0.2</code> or <code>user="Jane Doe"</code> narrow it further. A search with dates opens only the days it needs.</dd></div>
-            <div><dt>Alerts</dt><dd>Rules count matching events per address, user or host and open an alert when there are too many, or when a source sends more or fewer events than expected. Built-in rules cover SSH brute force, threat intel matches, failed sign-ins and improbable travel. Alerts can also be posted to Slack or Microsoft Teams.</dd></div>
+            <div><dt>Alerts</dt><dd>Rules count matching events per address, user, host or log source and open an alert when there are too many, when one user keeps producing the same keyword or severity, or when a source sends more or fewer events than expected. Built-in rules cover SSH brute force, threat intel matches, failed sign-ins and improbable travel. Closing an alert needs a note. Alerts can also be posted to Slack or Microsoft Teams.</dd></div>
             <div><dt>Reports</dt><dd>A summary of the last day, week, month or any date range: events, threats and alerts. Preview it, download a PDF, or schedule it to be emailed.</dd></div>
             <div><dt>AI agents</dt><dd>Claude Code, the Gemini CLI, OpenCode and other AI agents can connect over MCP with their own tokens to search logs, review alerts and, if allowed, manage sources and parsers. Everything they do is in the audit log.</dd></div>
             <div><dt>Test logs</dt><dd><code>loggen</code> sends realistic logs with attacks in them, 1 to a million events a second, so there is something to search and alert on from the first minute.</dd></div>
@@ -370,7 +372,7 @@
             <div><dt>Automatic updates</dt><dd>Update in place from the System page, or on a schedule you choose, with a backup first and a pause while a serious alert is open. Choose the Stable or Beta channel.</dd></div>
             <div><dt>Backups</dt><dd>Consistent backups while it runs, on a schedule or on demand, as one <code>.tar.gz</code> of every file. Download them, upload them elsewhere, restore in seconds.</dd></div>
             <div><dt>HTTPS only</dt><dd>No plain-HTTP port to forget to close. A certificate is generated on first start, or bring your own.</dd></div>
-            <div><dt>Retention</dt><dd>Events are stored one file per day, so those older than your window, 30 days by default, are deleted a day at a time and the disk space is given back.</dd></div>
+            <div><dt>Retention</dt><dd>Events are stored one file per day, so those older than your window, two years by default, are deleted a day at a time and the disk space is given back.</dd></div>
             <div><dt>Easy to run</dt><dd>Download a binary for Linux, macOS or Windows, or run the image for x86-64 and ARM64. With the repository, <code>docker compose up -d --build</code> runs it and the same command after <code>git pull</code> upgrades it.</dd></div>
           </dl>
         </div>
@@ -463,9 +465,9 @@ SIEMLITE_AI_URL=http://ollama:11434</pre>
           <tr><td><code>POST /api/v1/events</code></td><td>access token or admin</td><td>Store up to 10,000 OCSF events at once</td></tr>
           <tr><td><code>GET /api/v1/search</code></td><td>signed-in user</td><td>Search with text, dates and filters</td></tr>
           <tr><td><code>GET /api/v1/stats</code></td><td>signed-in user</td><td>The Dashboard&rsquo;s figures for any number of hours</td></tr>
-          <tr><td><code>/api/v1/alerts</code></td><td>signed-in user</td><td>List alerts; acknowledge, close or reopen them</td></tr>
+          <tr><td><code>/api/v1/alerts</code></td><td>signed-in user</td><td>List alerts; acknowledge, reopen or close them (closing takes a note)</td></tr>
           <tr><td><code>/api/v1/rules</code></td><td>admin</td><td>Add, change and switch off alert rules</td></tr>
-          <tr><td><code>/api/v1/sources</code></td><td>admin</td><td>Create, rename and revoke access tokens; choose parsers</td></tr>
+          <tr><td><code>/api/v1/sources</code></td><td>admin</td><td>Create, rename, disable, delete and re-issue access tokens; choose parsers</td></tr>
           <tr><td><code>/api/v1/parsers</code></td><td>admin</td><td>Manage parsers, test them on sample lines, ask for a suggestion</td></tr>
           <tr><td><code>/api/v1/users</code></td><td>admin</td><td>Manage users, roles and the sources they can see</td></tr>
         </tbody>
